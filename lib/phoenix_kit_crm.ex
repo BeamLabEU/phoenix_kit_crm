@@ -78,8 +78,56 @@ defmodule PhoenixKitCRM do
         match: :exact,
         parent: :admin_crm,
         live_view: {PhoenixKitCRM.Web.CRMLive, :index}
+      },
+      %Tab{
+        id: :admin_crm_companies,
+        label: "Companies",
+        path: "/admin/crm/companies",
+        priority: 652,
+        level: :admin,
+        permission: module_key(),
+        match: :prefix,
+        parent: :admin_crm,
+        live_view: {PhoenixKitCRM.Web.CompaniesView, :index},
+        visible: fn _scope -> Settings.get_boolean_setting("crm_companies_enabled", false) end
       }
     ]
+  end
+
+  @impl PhoenixKit.Module
+  def children do
+    [
+      %{
+        id: PhoenixKitCRM.SidebarBootstrap,
+        start: {Task, :start_link, [&PhoenixKitCRM.SidebarBootstrap.run/0]},
+        restart: :temporary
+      }
+    ]
+  end
+
+  @doc """
+  Refreshes the CRM role tabs in the Dashboard Registry.
+
+  Called after enabling or disabling a role in `RoleSettings.set_enabled/2`.
+
+  ## Known limitation
+
+  Role subtabs live in the runtime-only namespace `:phoenix_kit_crm_roles`.
+  If `PhoenixKit.Dashboard.Registry.load_admin_defaults/0` is ever invoked
+  at runtime, this namespace is wiped; role tabs will reappear after the
+  next `RoleSettings.set_enabled/2` call or an application restart.
+  """
+  @spec refresh_sidebar() :: :ok
+  def refresh_sidebar do
+    try do
+      PhoenixKit.Dashboard.Registry.unregister(:phoenix_kit_crm_roles)
+    rescue
+      _ -> :ok
+    catch
+      :exit, _ -> :ok
+    end
+
+    PhoenixKitCRM.SidebarBootstrap.run()
   end
 
   @impl PhoenixKit.Module
