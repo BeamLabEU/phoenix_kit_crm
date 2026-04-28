@@ -114,5 +114,11 @@ defmodule PhoenixKitCRM.Web.CompaniesView do
 
   defp card_field(col, company), do: %{label: column_label(col), value: render_cell(col, company)}
 
-  defp render_cell(col, company), do: Map.get(company, String.to_atom(col), "—")
+  defp render_cell("name", c), do: Map.get(c, :name, "—")
+  defp render_cell("tax_id", c), do: Map.get(c, :tax_id, "—")
+  defp render_cell("status", c), do: Map.get(c, :status, "—")
+  defp render_cell("country", c), do: Map.get(c, :country, "—")
+  defp render_cell("contact_email", c), do: Map.get(c, :contact_email, "—")
+  defp render_cell("created_at", c), do: Map.get(c, :created_at, "—")
+  defp render_cell(_, _), do: "—"
 end
