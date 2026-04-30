@@ -34,7 +34,7 @@ defmodule PhoenixKitCRM.Web.CompaniesView do
           socket
           |> assign(:page_title, "CRM — Companies / Юрлица")
           |> assign(:companies, [])
-          |> PhoenixKitCRM.Web.ColumnManagement.assign_column_state(:companies, current_user.uuid)
+          |> assign_column_state(:companies, current_user.uuid)
 
         {:ok, socket}
     end

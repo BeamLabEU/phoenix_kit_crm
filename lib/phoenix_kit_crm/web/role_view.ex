@@ -45,7 +45,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
               |> assign(:page_title, "CRM — #{role.name}")
               |> assign(:role, role)
               |> assign(:users, users)
-              |> PhoenixKitCRM.Web.ColumnManagement.assign_column_state(scope, current_user.uuid)
+              |> assign_column_state(scope, current_user.uuid)
 
             {:ok, socket}
         end

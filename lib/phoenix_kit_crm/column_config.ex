@@ -14,7 +14,7 @@ defmodule PhoenixKitCRM.ColumnConfig do
       schema lands.
   """
 
-  alias PhoenixKitCRM.UserRoleView
+  alias PhoenixKitCRM.{UserRoleView, UserRoleViewConfig}
 
   @role_standard %{
     "email" => %{label: "Email", required: false, type: :email},
@@ -68,7 +68,7 @@ defmodule PhoenixKitCRM.ColumnConfig do
 
   @doc "Persists the selected column ids for a user+scope. Empty list resets to defaults."
   @spec update_columns(binary(), UserRoleView.scope(), [String.t()]) ::
-          {:ok, UserRoleView.UserRoleViewConfig.t()} | {:error, Ecto.Changeset.t()}
+          {:ok, UserRoleViewConfig.t()} | {:error, Ecto.Changeset.t()}
   def update_columns(user_uuid, scope, columns) when is_binary(user_uuid) and is_list(columns) do
     valid = validate_columns(scope, columns)
     current = UserRoleView.get_view_config(user_uuid, scope)
