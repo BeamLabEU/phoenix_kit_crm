@@ -1,0 +1,9 @@
+/_build/
+/cover/
+/deps/
+/doc/
+erl_crash.dump
+*.ez
+phoenix_kit_crm-*.tar
+*.log
+.mcp.json
