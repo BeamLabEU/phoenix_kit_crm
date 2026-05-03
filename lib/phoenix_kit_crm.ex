@@ -85,7 +85,7 @@ defmodule PhoenixKitCRM do
       %Tab{
         id: :admin_crm_companies,
         label: "Companies",
-        path: "/admin/crm/companies",
+        path: "crm/companies",
         priority: 652,
         level: :admin,
         permission: module_key(),
