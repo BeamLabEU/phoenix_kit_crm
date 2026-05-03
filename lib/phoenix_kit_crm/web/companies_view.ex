@@ -32,7 +32,7 @@ defmodule PhoenixKitCRM.Web.CompaniesView do
 
         {:ok,
          socket
-         |> assign(:page_title, "CRM — Companies / Юрлица")
+         |> assign(:page_title, gettext("CRM — Companies / Юрлица"))
          |> assign(:companies, [])
          |> assign(:scope, :companies)
          |> assign(:current_user_uuid, current_user.uuid)

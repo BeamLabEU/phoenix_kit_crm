@@ -16,6 +16,7 @@ defmodule PhoenixKitCRM.ColumnConfig do
 
   alias PhoenixKitCRM.{UserRoleView, UserRoleViewConfig}
 
+  # TODO(i18n): wrap column labels with gettext/1 — see dev_docs/cleanup_post_pr1/SPEC.md B3
   @role_standard %{
     "email" => %{label: "Email", required: false, type: :email},
     "username" => %{label: "Username", required: false, type: :string},
@@ -26,6 +27,7 @@ defmodule PhoenixKitCRM.ColumnConfig do
     "location" => %{label: "Location", required: false, type: :location}
   }
 
+  # TODO(i18n): wrap column labels with gettext/1 — see dev_docs/cleanup_post_pr1/SPEC.md B3
   @companies_standard %{
     "name" => %{label: "Название", required: false, type: :string},
     "tax_id" => %{label: "ИНН / Tax ID", required: false, type: :string},
