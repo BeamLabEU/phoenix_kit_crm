@@ -38,8 +38,7 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
       |> assign(:current, current)
 
     ~H"""
-    <%= if @show do %>
-      <div class="modal modal-open" id="crm-column-modal">
+    <div :if={@show} class="modal modal-open" id="crm-column-modal">
         <div class="modal-box max-w-5xl max-h-[90vh] overflow-hidden">
           <h3 class="font-bold text-xl mb-4">Customize columns</h3>
           <p class="text-base-content/70 mb-6">
@@ -86,12 +85,10 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
                   </:item>
                 </DraggableList.draggable_list>
 
-                <%= if @current == [] do %>
-                  <div class="text-center py-12 text-base-content/40 border-2 border-dashed rounded-lg mt-2">
-                    <.icon name="hero-clipboard-document-list" class="h-12 w-12 mx-auto mb-3" />
-                    <p class="text-sm">No columns selected</p>
-                  </div>
-                <% end %>
+                <div :if={@current == []} class="text-center py-12 text-base-content/40 border-2 border-dashed rounded-lg mt-2">
+                  <.icon name="hero-clipboard-document-list" class="h-12 w-12 mx-auto mb-3" />
+                  <p class="text-sm">No columns selected</p>
+                </div>
               </div>
 
               <div class="flex-1">
@@ -101,7 +98,7 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
                 </div>
 
                 <div class="max-h-[400px] overflow-y-auto border border-base-200 rounded-lg p-3">
-                  <%= if map_size(@available.standard) > 0 do %>
+                  <div :if={map_size(@available.standard) > 0}>
                     <h5 class="text-xs font-semibold text-base-content/60 mb-2 uppercase">
                       Standard
                     </h5>
@@ -118,9 +115,9 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
                         </button>
                       <% end %>
                     </div>
-                  <% end %>
+                  </div>
 
-                  <%= if map_size(@available.custom) > 0 do %>
+                  <div :if={map_size(@available.custom) > 0}>
                     <h5 class="text-xs font-semibold text-base-content/60 mb-2 uppercase">
                       Custom
                     </h5>
@@ -137,13 +134,11 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
                         </button>
                       <% end %>
                     </div>
-                  <% end %>
+                  </div>
 
-                  <%= if available_count(@available, @current) == 0 do %>
-                    <div class="text-center py-8 text-base-content/40">
-                      <p class="text-sm">All columns selected</p>
-                    </div>
-                  <% end %>
+                  <div :if={available_count(@available, @current) == 0} class="text-center py-8 text-base-content/40">
+                    <p class="text-sm">All columns selected</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -161,7 +156,6 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
         </div>
         <div class="modal-backdrop" phx-click="hide_column_modal"></div>
       </div>
-    <% end %>
     """
   end
 

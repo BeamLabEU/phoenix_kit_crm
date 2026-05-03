@@ -11,6 +11,7 @@ defmodule PhoenixKitCRM.Paths do
 
   def index, do: Routes.path(@base)
   def companies, do: Routes.path("#{@base}/companies")
+  def role(""), do: raise(ArgumentError, "role_uuid must not be empty")
   def role(role_uuid) when is_binary(role_uuid), do: Routes.path("#{@base}/role/#{role_uuid}")
   def settings, do: Routes.path(@settings_base)
 end

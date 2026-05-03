@@ -29,7 +29,7 @@ defmodule PhoenixKitCRM.ColumnConfigTest do
     test "companies defaults are a non-empty subset of standard columns" do
       defaults = ColumnConfig.default_columns(:companies)
       ids = ColumnConfig.all_column_ids(:companies)
-      assert defaults != []
+      refute Enum.empty?(defaults)
       assert Enum.all?(defaults, &(&1 in ids))
     end
 
@@ -37,7 +37,7 @@ defmodule PhoenixKitCRM.ColumnConfigTest do
       scope = {:role, "any-uuid"}
       defaults = ColumnConfig.default_columns(scope)
       ids = ColumnConfig.all_column_ids(scope)
-      assert defaults != []
+      refute Enum.empty?(defaults)
       assert Enum.all?(defaults, &(&1 in ids))
     end
   end
