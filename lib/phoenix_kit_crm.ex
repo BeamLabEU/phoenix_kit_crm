@@ -8,6 +8,7 @@ defmodule PhoenixKitCRM do
   """
 
   use PhoenixKit.Module
+  use Gettext, backend: PhoenixKitWeb.Gettext
 
   require Logger
 
