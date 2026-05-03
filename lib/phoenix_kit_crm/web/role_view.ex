@@ -156,11 +156,15 @@ defmodule PhoenixKitCRM.Web.RoleView do
     end
   end
 
-  defp crm_status_html(true),
-    do: Phoenix.HTML.raw(~s(<span class="badge badge-sm badge-success">Active</span>))
+  defp crm_status_html(true) do
+    assigns = %{}
+    ~H|<.status_badge status="active" size={:sm} />|
+  end
 
-  defp crm_status_html(_),
-    do: Phoenix.HTML.raw(~s(<span class="badge badge-sm badge-ghost">Inactive</span>))
+  defp crm_status_html(_) do
+    assigns = %{}
+    ~H|<.status_badge status="inactive" size={:sm} />|
+  end
 
   defp format_date(nil), do: "—"
   defp format_date(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d")
