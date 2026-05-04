@@ -43,7 +43,7 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
         <div class="modal-box max-w-5xl max-h-[90vh] overflow-hidden">
           <h3 class="font-bold text-xl mb-4">{gettext("Customize columns")}</h3>
           <p class="text-base-content/70 mb-6">
-            Drag selected columns to reorder, or click an available column to add it.
+            {gettext("Drag selected columns to reorder, or click an available column to add it.")}
           </p>
 
           <form phx-submit="update_table_columns" id="crm-column-form">
@@ -101,7 +101,7 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
                 <div class="max-h-[400px] overflow-y-auto border border-base-200 rounded-lg p-3">
                   <div :if={map_size(@available.standard) > 0}>
                     <h5 class="text-xs font-semibold text-base-content/60 mb-2 uppercase">
-                      Standard
+                      {gettext("Standard")}
                     </h5>
                     <div class="space-y-1 mb-3">
                       <%= for {id, meta} <- @available.standard, id not in @current do %>
@@ -120,7 +120,7 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
 
                   <div :if={map_size(@available.custom) > 0}>
                     <h5 class="text-xs font-semibold text-base-content/60 mb-2 uppercase">
-                      Custom
+                      {gettext("Custom")}
                     </h5>
                     <div class="space-y-1">
                       <%= for {id, meta} <- @available.custom, id not in @current do %>

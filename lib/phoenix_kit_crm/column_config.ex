@@ -42,8 +42,17 @@ defmodule PhoenixKitCRM.ColumnConfig do
 
   @doc "Available columns for a scope, split into `:standard` and `:custom`."
   @spec available_columns(UserRoleView.scope()) :: %{standard: map(), custom: map()}
-  def available_columns({:role, _}), do: %{standard: @role_standard, custom: %{}}
-  def available_columns(:companies), do: %{standard: @companies_standard, custom: %{}}
+  def available_columns({:role, _}),
+    do: %{standard: translate_labels(@role_standard), custom: %{}}
+
+  def available_columns(:companies),
+    do: %{standard: translate_labels(@companies_standard), custom: %{}}
+
+  defp translate_labels(map) do
+    Map.new(map, fn {k, v} ->
+      {k, Map.update!(v, :label, &Gettext.gettext(PhoenixKitWeb.Gettext, &1))}
+    end)
+  end
 
   @doc "Default selected column ids for a scope."
   @spec default_columns(UserRoleView.scope()) :: [String.t()]
