@@ -58,14 +58,14 @@ defmodule PhoenixKitCRM.Web.CompaniesView do
     <div class="flex flex-col mx-auto max-w-6xl px-4 py-6 gap-6">
       <div class="flex items-center justify-between flex-wrap gap-2">
         <h1 class="text-2xl font-bold flex items-center gap-2">
-          <.icon name="hero-building-office-2" class="w-6 h-6" /> Companies / Юрлица
+          <.icon name="hero-building-office-2" class="w-6 h-6" /> {gettext("Companies / Юрлица")}
         </h1>
       </div>
 
       <div class="alert alert-info">
         <.icon name="hero-information-circle" class="w-5 h-5" />
         <span>
-          Функциональность в разработке. Схема юрлиц будет добавлена в следующем релизе.
+          {gettext("Functionality under development. Legal-entity schema lands in the next release.")}
         </span>
       </div>
 
@@ -78,7 +78,7 @@ defmodule PhoenixKitCRM.Web.CompaniesView do
       >
         <:toolbar_actions>
           <button class="btn btn-outline btn-sm" phx-click="show_column_modal">
-            <.icon name="hero-adjustments-horizontal" class="w-4 h-4" /> Columns
+            <.icon name="hero-adjustments-horizontal" class="w-4 h-4" /> {gettext("Columns")}
           </button>
         </:toolbar_actions>
 
@@ -100,7 +100,7 @@ defmodule PhoenixKitCRM.Web.CompaniesView do
           <TableDefault.table_default_row :if={@companies == []}>
             <TableDefault.table_default_cell colspan={length(@selected_columns)}>
               <div class="text-center text-base-content/50 py-8">
-                Нет данных
+                {gettext("No companies yet.")}
               </div>
             </TableDefault.table_default_cell>
           </TableDefault.table_default_row>

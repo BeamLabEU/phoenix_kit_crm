@@ -17,6 +17,7 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
   """
 
   use Phoenix.Component
+  use Gettext, backend: PhoenixKitWeb.Gettext
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
 
@@ -40,9 +41,9 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
     ~H"""
     <div :if={@show} class="modal modal-open" id="crm-column-modal">
         <div class="modal-box max-w-5xl max-h-[90vh] overflow-hidden">
-          <h3 class="font-bold text-xl mb-4">Customize columns</h3>
+          <h3 class="font-bold text-xl mb-4">{gettext("Customize columns")}</h3>
           <p class="text-base-content/70 mb-6">
-            Drag selected columns to reorder, or click an available column to add it.
+            {gettext("Drag selected columns to reorder, or click an available column to add it.")}
           </p>
 
           <form phx-submit="update_table_columns" id="crm-column-form">
@@ -51,8 +52,8 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
             <div class="flex flex-col lg:flex-row gap-6 mb-6">
               <div class="flex-1">
                 <div class="flex items-center justify-between mb-3">
-                  <h4 class="text-sm font-semibold uppercase tracking-wide">Selected</h4>
-                  <span class="text-xs text-base-content/60">Drag to reorder</span>
+                  <h4 class="text-sm font-semibold uppercase tracking-wide">{gettext("Selected")}</h4>
+                  <span class="text-xs text-base-content/60">{gettext("Drag to reorder")}</span>
                 </div>
 
                 <DraggableList.draggable_list
@@ -78,7 +79,7 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
                       class="btn btn-ghost btn-xs btn-circle text-error/60 hover:text-error"
                       phx-click="remove_column"
                       phx-value-column_id={column_id}
-                      title="Remove"
+                      title={gettext("Remove")}
                     >
                       <.icon name="hero-x-mark" class="h-4 w-4" />
                     </button>
@@ -87,20 +88,20 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
 
                 <div :if={@current == []} class="text-center py-12 text-base-content/40 border-2 border-dashed rounded-lg mt-2">
                   <.icon name="hero-clipboard-document-list" class="h-12 w-12 mx-auto mb-3" />
-                  <p class="text-sm">No columns selected</p>
+                  <p class="text-sm">{gettext("No columns selected")}</p>
                 </div>
               </div>
 
               <div class="flex-1">
                 <div class="flex items-center justify-between mb-3">
-                  <h4 class="text-sm font-semibold uppercase tracking-wide">Available</h4>
-                  <span class="text-xs text-base-content/60">Click to add</span>
+                  <h4 class="text-sm font-semibold uppercase tracking-wide">{gettext("Available")}</h4>
+                  <span class="text-xs text-base-content/60">{gettext("Click to add")}</span>
                 </div>
 
                 <div class="max-h-[400px] overflow-y-auto border border-base-200 rounded-lg p-3">
                   <div :if={map_size(@available.standard) > 0}>
                     <h5 class="text-xs font-semibold text-base-content/60 mb-2 uppercase">
-                      Standard
+                      {gettext("Standard")}
                     </h5>
                     <div class="space-y-1 mb-3">
                       <%= for {id, meta} <- @available.standard, id not in @current do %>
@@ -119,7 +120,7 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
 
                   <div :if={map_size(@available.custom) > 0}>
                     <h5 class="text-xs font-semibold text-base-content/60 mb-2 uppercase">
-                      Custom
+                      {gettext("Custom")}
                     </h5>
                     <div class="space-y-1">
                       <%= for {id, meta} <- @available.custom, id not in @current do %>
@@ -137,19 +138,19 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
                   </div>
 
                   <div :if={available_count(@available, @current) == 0} class="text-center py-8 text-base-content/40">
-                    <p class="text-sm">All columns selected</p>
+                    <p class="text-sm">{gettext("All columns selected")}</p>
                   </div>
                 </div>
               </div>
             </div>
 
             <div class="modal-action">
-              <button type="submit" class="btn btn-primary">Apply</button>
+              <button type="submit" class="btn btn-primary">{gettext("Apply")}</button>
               <button type="button" class="btn btn-outline" phx-click="reset_to_defaults">
-                Defaults
+                {gettext("Defaults")}
               </button>
               <button type="button" class="btn btn-ghost" phx-click="hide_column_modal">
-                Cancel
+                {gettext("Cancel")}
               </button>
             </div>
           </form>

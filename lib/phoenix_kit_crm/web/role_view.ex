@@ -75,7 +75,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
       <div class="flex items-center justify-between flex-wrap gap-2">
         <h1 class="text-2xl font-bold">{@page_title}</h1>
         <span class="text-sm text-base-content/60">
-          {length(@users)} {if length(@users) == 1, do: "user", else: "users"}
+          {ngettext("%{count} user", "%{count} users", length(@users), count: length(@users))}
         </span>
       </div>
 
@@ -88,7 +88,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
       >
         <:toolbar_actions>
           <button class="btn btn-outline btn-sm" phx-click="show_column_modal">
-            <.icon name="hero-adjustments-horizontal" class="w-4 h-4" /> Columns
+            <.icon name="hero-adjustments-horizontal" class="w-4 h-4" /> {gettext("Columns")}
           </button>
         </:toolbar_actions>
 
@@ -110,7 +110,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
           <TableDefault.table_default_row :if={@users == []}>
             <TableDefault.table_default_cell colspan={length(@selected_columns)}>
               <div class="text-center text-base-content/50 py-8">
-                No users with this role.
+                {gettext("No users with this role.")}
               </div>
             </TableDefault.table_default_cell>
           </TableDefault.table_default_row>

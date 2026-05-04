@@ -14,10 +14,10 @@ defmodule PhoenixKitCRM.ColumnConfig do
       schema lands.
   """
 
+  use Gettext, backend: PhoenixKitWeb.Gettext
+
   alias PhoenixKitCRM.{UserRoleView, UserRoleViewConfig}
 
-  # credo:disable-for-next-line Credo.Check.Design.TagTODO
-  # TODO(i18n): wrap column labels with gettext/1 — see dev_docs/cleanup_post_pr1/SPEC.md B3
   @role_standard %{
     "email" => %{label: "Email", required: false, type: :email},
     "username" => %{label: "Username", required: false, type: :string},
@@ -28,15 +28,13 @@ defmodule PhoenixKitCRM.ColumnConfig do
     "location" => %{label: "Location", required: false, type: :location}
   }
 
-  # credo:disable-for-next-line Credo.Check.Design.TagTODO
-  # TODO(i18n): wrap column labels with gettext/1 — see dev_docs/cleanup_post_pr1/SPEC.md B3
   @companies_standard %{
-    "name" => %{label: "Название", required: false, type: :string},
-    "tax_id" => %{label: "ИНН / Tax ID", required: false, type: :string},
-    "status" => %{label: "Статус", required: false, type: :status},
-    "country" => %{label: "Страна", required: false, type: :string},
+    "name" => %{label: "Name", required: false, type: :string},
+    "tax_id" => %{label: "Tax ID", required: false, type: :string},
+    "status" => %{label: "Status", required: false, type: :status},
+    "country" => %{label: "Country", required: false, type: :string},
     "contact_email" => %{label: "Email", required: false, type: :email},
-    "created_at" => %{label: "Создано", required: false, type: :datetime}
+    "created_at" => %{label: "Created", required: false, type: :datetime}
   }
 
   @role_default ["email", "username", "full_name", "status", "registered"]
@@ -44,8 +42,17 @@ defmodule PhoenixKitCRM.ColumnConfig do
 
   @doc "Available columns for a scope, split into `:standard` and `:custom`."
   @spec available_columns(UserRoleView.scope()) :: %{standard: map(), custom: map()}
-  def available_columns({:role, _}), do: %{standard: @role_standard, custom: %{}}
-  def available_columns(:companies), do: %{standard: @companies_standard, custom: %{}}
+  def available_columns({:role, _}),
+    do: %{standard: translate_labels(@role_standard), custom: %{}}
+
+  def available_columns(:companies),
+    do: %{standard: translate_labels(@companies_standard), custom: %{}}
+
+  defp translate_labels(map) do
+    Map.new(map, fn {k, v} ->
+      {k, Map.update!(v, :label, &Gettext.gettext(PhoenixKitWeb.Gettext, &1))}
+    end)
+  end
 
   @doc "Default selected column ids for a scope."
   @spec default_columns(UserRoleView.scope()) :: [String.t()]
@@ -80,10 +87,11 @@ defmodule PhoenixKitCRM.ColumnConfig do
     UserRoleView.put_view_config(user_uuid, scope, new_config)
   end
 
-  @doc "Returns metadata for a single column id, or nil."
+  @doc "Returns metadata for a single column id, or nil. The `:label` field is translated via gettext."
   @spec get_column_metadata(UserRoleView.scope(), String.t()) :: map() | nil
   def get_column_metadata(scope, column_id) do
     %{standard: standard, custom: custom} = available_columns(scope)
+
     Map.get(standard, column_id) || Map.get(custom, column_id)
   end
 
