@@ -81,7 +81,7 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
         id="crm-organizations-table"
         toggleable
         items={@users}
-        card_title={fn u -> Map.get(u, :organization_name) || u.email end}
+        card_title={fn u -> card_title_link(u) end}
         card_fields={fn u -> Enum.map(@selected_columns, &card_field(@scope, &1, u)) end}
       >
         <:toolbar_actions>
@@ -135,8 +135,12 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
   defp card_field(scope, col, user),
     do: %{label: column_label(scope, col), value: render_cell(col, user)}
 
-  defp render_cell("organization_name", u), do: Map.get(u, :organization_name) || "—"
-  defp render_cell("email", u), do: u.email
+  defp render_cell("organization_name", u) do
+    label = Map.get(u, :organization_name) || "—"
+    user_link(u, label)
+  end
+
+  defp render_cell("email", u), do: user_link(u, u.email)
   defp render_cell("username", u), do: Map.get(u, :username) || "—"
   defp render_cell("full_name", u), do: full_name(u)
   defp render_cell("status", u), do: crm_status_html(Map.get(u, :is_active))
@@ -152,6 +156,16 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
       "" -> "—"
       n -> n
     end
+  end
+
+  defp user_link(u, label) do
+    assigns = %{href: Paths.user_view(u.uuid), label: label}
+    ~H|<.link navigate={@href} class="link link-hover font-medium">{@label}</.link>|
+  end
+
+  defp card_title_link(u) do
+    label = Map.get(u, :organization_name) || u.email
+    user_link(u, label)
   end
 
   defp crm_status_html(true) do
