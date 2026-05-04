@@ -4,6 +4,121 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] - 2026-05-04
+
+Companies → Organizations pivot, i18n foundation, LiveView lifecycle
+correctness, and a runtime-crash hotfix. The `Companies` placeholder is
+replaced with a real `Organizations` subtab that lists users whose
+`account_type = "organization"`. All user-facing strings are routed
+through `gettext`. Six public-API renames (scope atom, setting key,
+module, path, tab id, `Paths` helper) make this a breaking release.
+
+### Breaking
+
+- **Scope rename** — `:companies` → `:organizations` everywhere
+  (`PhoenixKitCRM.UserRoleView.scope/0`, `ColumnConfig` keys,
+  `UserRoleViewConfig` rows). `scope_from_string/1` keeps a fallback
+  that decodes the legacy `"companies"` string to `:organizations`
+  with a `Logger.warning` so existing DB rows don't crash on read —
+  host apps should plan a one-shot data migration to rewrite stored
+  scope strings.
+- **Setting key rename** — `crm_companies_enabled` →
+  `enable_organization_accounts`. The Companies-feature toggle on the
+  CRM settings page is removed; visibility of the Organizations
+  subtab is gated on the PhoenixKit-wide
+  `enable_organization_accounts` setting instead.
+- **Module rename** — `PhoenixKitCRM.Web.CompaniesView` →
+  `PhoenixKitCRM.Web.OrganizationsView`. Host apps with custom
+  `live_view:` overrides need to update.
+- **Route rename** — `/admin/crm/companies` →
+  `/admin/crm/organizations`. Bookmarks and external links break.
+- **Tab id rename** — `:admin_crm_companies` →
+  `:admin_crm_organizations` in `PhoenixKitCRM.admin_tabs/0`.
+- **Path helper rename** — `PhoenixKitCRM.Paths.companies/0` →
+  `PhoenixKitCRM.Paths.organizations/0`.
+
+### Added
+
+- **`Organizations` subtab** — real LiveView (replaces the legal-entity
+  placeholder) listing users typed as organizations via
+  `PhoenixKit.Users.Auth.list_organizations/0`. Per-user column config,
+  card/table view toggle, navigation to the PhoenixKit core user view
+  on row click.
+- **`PhoenixKitCRM.Paths.user_view/1`** — centralized helper for
+  navigating to PhoenixKit core's user-view page from CRM tables.
+  Empty-string guard raises `ArgumentError`.
+- **i18n foundation** — `use Gettext, backend: PhoenixKitWeb.Gettext`
+  wired into module-level code. All flashes, page titles, admin tab
+  labels, modal UI strings, table headers, empty states, and column
+  labels go through `gettext/1`. `ngettext` for the user-count plural.
+  Russian column labels in the legacy Companies schema converted to
+  English msgids; `ColumnConfig.translate_labels/1` applies `gettext`
+  once at the access point so all consumers see translated labels. No
+  `priv/gettext/` shipped — translations remain the host app's
+  responsibility (matches sibling-module convention).
+- **Whole-row click navigation** — table rows in `RoleView` and
+  `OrganizationsView` are clickable and navigate to the user-view page
+  via `phx-click="navigate_to_user"`.
+- **Integration tests (+25)** — `role_settings_integration_test.exs`
+  and `user_role_view_integration_test.exs` exercise real DB
+  round-trips for upsert, scope isolation, and cross-scope rejection.
+  Tagged `:integration` for opt-in.
+- **GitHub Actions CI workflow** — first CI workflow in the
+  `phoenix_kit_*` family. Caches `deps/`, `_build/`, `priv/plts/` on
+  `mix.lock`. Runs `compile --warnings-as-errors`, `quality.ci`
+  (format check + credo --strict + dialyzer), and `mix test`.
+
+### Changed
+
+- **LiveView lifecycle (`mount/3` + `handle_params/3` split)** —
+  `RoleView` and `OrganizationsView` keep gates in `mount/3` and move
+  data loading into `handle_params/3` under `if connected?(socket)`.
+  At most one DB query per connected mount (eliminates the duplicate
+  query from the static-render pass).
+- **`RoleSettings.list_eligible_roles/0`** — filter switched from
+  fragile name-match (`role.name in ["Owner", "Admin"]`) to the
+  boolean `role.is_system_role`.
+- **`ColumnConfig.available_columns/1`** — labels are now translated
+  via `gettext` at the access point, so modal/header/card consumers
+  all see the translated string.
+- **Admin tab paths standardized to absolute form** — every CRM
+  module tab path is now absolute (`/admin/crm/...`). Hotfixes a
+  runtime crash where `Tab` registrations via
+  `Registry.register/2` (used for role subtabs) bypassed
+  `Tab.resolve_path/2` and surfaced `RuntimeError: Url path must
+  start with "/"` from `Routes.path/2`.
+- **HEEx `:if` migration** — `<%= if %>` blocks in `ColumnModal`
+  replaced with `:if={...}` attributes (better diffing, statically
+  analyzable).
+- **Status badges** — raw HTML `<span class="badge ...">` replaced
+  with the `PhoenixKitWeb.Components.Core.StatusBadge` component
+  (consistent styling, theme-aware).
+- **`Paths.role/1`** — empty-string input now raises
+  `ArgumentError` instead of producing a malformed URL.
+
+### Fixed
+
+- `mount/3` no longer issues database queries (was called twice per
+  initial load: HTTP + WebSocket).
+- Sidebar render no longer crashes when role subtabs are registered
+  via `Registry.register/2` with relative paths.
+- `Paths.user_view/1` line wrapped to satisfy
+  `mix format --check-formatted` (post-merge cleanup).
+
+### Notes
+
+- The CHANGELOG 0.1.0 entry forecast that *"the Companies legal-entity
+  schema lands in 0.2.x."* The actual 0.2.0 release pivots away from
+  legal-entity modeling and toward listing already-typed organization
+  user accounts. The legal-entity schema remains future work,
+  un-scheduled.
+- Per-role uuid-aware columns are still scaffolded (the
+  `available_columns/1` clause pattern-matches the role uuid away);
+  picking up uuid-keyed customization is out of scope here.
+- Five non-blocking review observations are recorded in
+  `dev_docs/pull_requests/2026/2-cleanup-i18n-hotfix/POST_MERGE_FEEDBACK.md`
+  for follow-up PRs.
+
 ## [0.1.0] - 2026-04-30
 
 First public release of the CRM module for PhoenixKit. Implements the

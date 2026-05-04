@@ -1,7 +1,7 @@
 defmodule PhoenixKitCRM.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.2.0"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_crm"
 
   def project do
@@ -16,7 +16,7 @@ defmodule PhoenixKitCRM.MixProject do
 
       # Hex
       description:
-        "CRM module for PhoenixKit — companies, role-scoped views, and per-user column configuration.",
+        "CRM module for PhoenixKit — organization accounts, role-scoped user views, and per-user column configuration.",
       package: package(),
 
       # Dialyzer
