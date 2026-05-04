@@ -92,10 +92,7 @@ defmodule PhoenixKitCRM.ColumnConfig do
   def get_column_metadata(scope, column_id) do
     %{standard: standard, custom: custom} = available_columns(scope)
 
-    case Map.get(standard, column_id) || Map.get(custom, column_id) do
-      nil -> nil
-      meta -> %{meta | label: Gettext.gettext(PhoenixKitWeb.Gettext, meta.label)}
-    end
+    Map.get(standard, column_id) || Map.get(custom, column_id)
   end
 
   @doc "Filter input list to only valid column ids for the scope, preserving order."
