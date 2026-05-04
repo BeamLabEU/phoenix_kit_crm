@@ -16,5 +16,7 @@ defmodule PhoenixKitCRM.Paths do
   def settings, do: Routes.path(@settings_base)
 
   def user_view(""), do: raise(ArgumentError, "user_uuid must not be empty")
-  def user_view(user_uuid) when is_binary(user_uuid), do: Routes.path("/admin/users/view/#{user_uuid}")
+
+  def user_view(user_uuid) when is_binary(user_uuid),
+    do: Routes.path("/admin/users/view/#{user_uuid}")
 end
