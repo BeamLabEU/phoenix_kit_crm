@@ -3,7 +3,7 @@ defmodule PhoenixKitCRM.UserRoleViewConfig do
   Schema for per-user, per-scope CRM view configuration.
 
   Stores user preferences (e.g. visible columns) keyed by user UUID and scope.
-  Scope is either `"companies"` or `"role:<uuid>"`.
+  Scope is either `"organizations"` or `"role:<uuid>"`.
   """
 
   use Ecto.Schema
@@ -33,7 +33,7 @@ defmodule PhoenixKitCRM.UserRoleViewConfig do
 
   ## Examples
 
-      iex> changeset(%UserRoleViewConfig{}, %{user_uuid: uuid, scope: "companies", view_config: %{}})
+      iex> changeset(%UserRoleViewConfig{}, %{user_uuid: uuid, scope: "organizations", view_config: %{}})
       %Ecto.Changeset{valid?: true}
   """
   def changeset(config, attrs) do

@@ -2,7 +2,7 @@ defmodule PhoenixKitCRM.Routes do
   @moduledoc """
   Route definitions for the CRM module.
 
-  List page routes for the parent CRM tab and the Companies subtab are
+  List page routes for the parent CRM tab and the Organizations subtab are
   auto-generated from `live_view:` fields in `PhoenixKitCRM.admin_tabs/0`.
   Parameterized routes (e.g. per-role pages) live here because dynamic
   tabs registered into `PhoenixKit.Dashboard.Registry` at runtime do not

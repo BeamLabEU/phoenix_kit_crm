@@ -4,11 +4,11 @@ defmodule PhoenixKitCRM.ColumnConfigTest do
   alias PhoenixKitCRM.ColumnConfig
 
   describe "available_columns/1" do
-    test "returns standard companies columns and empty custom map" do
-      %{standard: standard, custom: custom} = ColumnConfig.available_columns(:companies)
+    test "returns standard organizations columns and empty custom map" do
+      %{standard: standard, custom: custom} = ColumnConfig.available_columns(:organizations)
       assert is_map(standard)
       assert custom == %{}
-      assert "name" in Map.keys(standard)
+      assert "organization_name" in Map.keys(standard)
     end
 
     test "returns standard role columns and empty custom map" do
@@ -26,9 +26,9 @@ defmodule PhoenixKitCRM.ColumnConfigTest do
   end
 
   describe "default_columns/1" do
-    test "companies defaults are a non-empty subset of standard columns" do
-      defaults = ColumnConfig.default_columns(:companies)
-      ids = ColumnConfig.all_column_ids(:companies)
+    test "organizations defaults are a non-empty subset of standard columns" do
+      defaults = ColumnConfig.default_columns(:organizations)
+      ids = ColumnConfig.all_column_ids(:organizations)
       refute Enum.empty?(defaults)
       assert Enum.all?(defaults, &(&1 in ids))
     end
@@ -44,44 +44,46 @@ defmodule PhoenixKitCRM.ColumnConfigTest do
 
   describe "validate_columns/2" do
     test "filters out unknown ids" do
-      assert ColumnConfig.validate_columns(:companies, ["name", "bogus", "tax_id"]) == [
-               "name",
-               "tax_id"
-             ]
+      assert ColumnConfig.validate_columns(:organizations, [
+               "organization_name",
+               "bogus",
+               "email"
+             ]) == ["organization_name", "email"]
     end
 
     test "preserves order of valid ids" do
-      assert ColumnConfig.validate_columns(:companies, ["status", "name", "country"]) == [
+      assert ColumnConfig.validate_columns(:organizations, [
                "status",
-               "name",
-               "country"
-             ]
+               "organization_name",
+               "email"
+             ]) == ["status", "organization_name", "email"]
     end
 
     test "drops everything when nothing matches" do
-      assert ColumnConfig.validate_columns(:companies, ["nope", "still_nope"]) == []
+      assert ColumnConfig.validate_columns(:organizations, ["nope", "still_nope"]) == []
     end
 
     test "empty list passes through" do
-      assert ColumnConfig.validate_columns(:companies, []) == []
+      assert ColumnConfig.validate_columns(:organizations, []) == []
     end
 
-    test "rejects role columns when scope is companies" do
-      assert ColumnConfig.validate_columns(:companies, ["email", "username"]) == []
+    test "rejects role-only columns when scope is organizations" do
+      assert ColumnConfig.validate_columns(:organizations, ["last_confirmed"]) == []
     end
 
-    test "rejects companies columns when scope is role" do
-      assert ColumnConfig.validate_columns({:role, "uuid"}, ["name", "tax_id"]) == []
+    test "rejects organization-only columns when scope is role" do
+      assert ColumnConfig.validate_columns({:role, "uuid"}, ["organization_name"]) == []
     end
   end
 
   describe "get_column_metadata/2" do
-    test "returns metadata for a known companies column" do
-      assert %{label: _, type: _} = ColumnConfig.get_column_metadata(:companies, "name")
+    test "returns metadata for a known organizations column" do
+      assert %{label: _, type: _} =
+               ColumnConfig.get_column_metadata(:organizations, "organization_name")
     end
 
     test "returns nil for an unknown column" do
-      assert ColumnConfig.get_column_metadata(:companies, "ghost") == nil
+      assert ColumnConfig.get_column_metadata(:organizations, "ghost") == nil
     end
 
     test "returns metadata for a known role column" do

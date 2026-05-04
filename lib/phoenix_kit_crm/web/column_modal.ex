@@ -1,7 +1,7 @@
 defmodule PhoenixKitCRM.Web.ColumnModal do
   @moduledoc """
   Function component that renders the "Customize columns" modal used by both
-  `RoleView` and `CompaniesView`. UX mirrors `PhoenixKit.Users` table column
+  `RoleView` and `OrganizationsView`. UX mirrors `PhoenixKit.Users` table column
   picker: drag-to-reorder selected columns on the left, click-to-add available
   columns on the right.
 

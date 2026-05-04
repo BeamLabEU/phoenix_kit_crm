@@ -2,7 +2,7 @@ defmodule PhoenixKitCRM.UserRoleView do
   @moduledoc """
   Context for managing per-user CRM view configuration.
 
-  View config is keyed by user UUID and scope. Scope is either `:companies`
+  View config is keyed by user UUID and scope. Scope is either `:organizations`
   or `{:role, uuid}`.
   """
 
@@ -13,48 +13,48 @@ defmodule PhoenixKitCRM.UserRoleView do
   alias PhoenixKit.RepoHelper
   alias PhoenixKitCRM.UserRoleViewConfig
 
-  @type scope :: :companies | {:role, binary()}
+  @type scope :: :organizations | {:role, binary()}
 
   @doc """
   Encodes a scope value to its string representation.
 
   ## Examples
 
-      iex> scope_to_string(:companies)
-      "companies"
+      iex> scope_to_string(:organizations)
+      "organizations"
 
       iex> scope_to_string({:role, "abc-123"})
       "role:abc-123"
   """
   @spec scope_to_string(scope()) :: String.t()
-  def scope_to_string(:companies), do: "companies"
+  def scope_to_string(:organizations), do: "organizations"
   def scope_to_string({:role, uuid}), do: "role:#{uuid}"
 
   @doc """
   Decodes a scope string to its term representation.
 
-  Falls back to `:companies` and logs a warning on malformed input —
+  Falls back to `:organizations` and logs a warning on malformed input —
   this defends against data corruption (manual DB edits, broken imports)
   causing render-time `FunctionClauseError`s deep in a LiveView.
 
   ## Examples
 
-      iex> scope_from_string("companies")
-      :companies
+      iex> scope_from_string("organizations")
+      :organizations
 
       iex> scope_from_string("role:abc-123")
       {:role, "abc-123"}
   """
   @spec scope_from_string(String.t()) :: scope()
-  def scope_from_string("companies"), do: :companies
+  def scope_from_string("organizations"), do: :organizations
   def scope_from_string("role:" <> uuid), do: {:role, uuid}
 
   def scope_from_string(other) do
     Logger.warning(
-      "[PhoenixKitCRM] Unknown scope string #{inspect(other)} — falling back to :companies"
+      "[PhoenixKitCRM] Unknown scope string #{inspect(other)} — falling back to :organizations"
     )
 
-    :companies
+    :organizations
   end
 
   @doc """
@@ -64,7 +64,7 @@ defmodule PhoenixKitCRM.UserRoleView do
 
   ## Examples
 
-      iex> get_view_config(user_uuid, :companies)
+      iex> get_view_config(user_uuid, :organizations)
       %{}
   """
   @spec get_view_config(binary(), scope()) :: map()
@@ -83,7 +83,7 @@ defmodule PhoenixKitCRM.UserRoleView do
 
   ## Examples
 
-      iex> put_view_config(user_uuid, :companies, %{"columns" => ["name"]})
+      iex> put_view_config(user_uuid, :organizations, %{"columns" => ["organization_name"]})
       {:ok, %UserRoleViewConfig{}}
   """
   @spec put_view_config(binary(), scope(), map()) ::
@@ -110,7 +110,7 @@ defmodule PhoenixKitCRM.UserRoleView do
 
   ## Examples
 
-      iex> default_config(:companies)
+      iex> default_config(:organizations)
       %{}
 
       iex> default_config({:role, "abc-123"})

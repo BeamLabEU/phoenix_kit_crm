@@ -4,14 +4,14 @@ defmodule PhoenixKitCRM.ColumnConfig do
 
   Mirrors `PhoenixKit.Users.TableColumns` but is keyed by `(user_uuid, scope)`
   so each admin can have their own column layout per role page and for the
-  Companies page. Persistence goes through `PhoenixKitCRM.UserRoleView`.
+  Organizations page. Persistence goes through `PhoenixKitCRM.UserRoleView`.
 
   ## Scopes
 
     * `{:role, role_uuid}` — users-of-role page; columns mirror the standard
       PhoenixKit user fields.
-    * `:companies` — Companies page; placeholder columns until the legal-entity
-      schema lands.
+    * `:organizations` — Organizations page; users with `account_type =
+      "organization"`.
   """
 
   use Gettext, backend: PhoenixKitWeb.Gettext
@@ -28,25 +28,26 @@ defmodule PhoenixKitCRM.ColumnConfig do
     "location" => %{label: "Location", required: false, type: :location}
   }
 
-  @companies_standard %{
-    "name" => %{label: "Name", required: false, type: :string},
-    "tax_id" => %{label: "Tax ID", required: false, type: :string},
+  @organizations_standard %{
+    "organization_name" => %{label: "Organization", required: false, type: :string},
+    "email" => %{label: "Email", required: false, type: :email},
+    "full_name" => %{label: "Contact", required: false, type: :string},
+    "username" => %{label: "Username", required: false, type: :string},
     "status" => %{label: "Status", required: false, type: :status},
-    "country" => %{label: "Country", required: false, type: :string},
-    "contact_email" => %{label: "Email", required: false, type: :email},
-    "created_at" => %{label: "Created", required: false, type: :datetime}
+    "registered" => %{label: "Registered", required: false, type: :datetime},
+    "location" => %{label: "Location", required: false, type: :location}
   }
 
   @role_default ["email", "username", "full_name", "status", "registered"]
-  @companies_default ["name", "tax_id", "status", "country"]
+  @organizations_default ["organization_name", "email", "full_name", "status", "registered"]
 
   @doc "Available columns for a scope, split into `:standard` and `:custom`."
   @spec available_columns(UserRoleView.scope()) :: %{standard: map(), custom: map()}
   def available_columns({:role, _}),
     do: %{standard: translate_labels(@role_standard), custom: %{}}
 
-  def available_columns(:companies),
-    do: %{standard: translate_labels(@companies_standard), custom: %{}}
+  def available_columns(:organizations),
+    do: %{standard: translate_labels(@organizations_standard), custom: %{}}
 
   defp translate_labels(map) do
     Map.new(map, fn {k, v} ->
@@ -57,7 +58,7 @@ defmodule PhoenixKitCRM.ColumnConfig do
   @doc "Default selected column ids for a scope."
   @spec default_columns(UserRoleView.scope()) :: [String.t()]
   def default_columns({:role, _}), do: @role_default
-  def default_columns(:companies), do: @companies_default
+  def default_columns(:organizations), do: @organizations_default
 
   @doc "All available column ids for validation."
   @spec all_column_ids(UserRoleView.scope()) :: [String.t()]

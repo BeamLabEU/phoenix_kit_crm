@@ -83,16 +83,18 @@ defmodule PhoenixKitCRM do
         live_view: {PhoenixKitCRM.Web.CRMLive, :index}
       },
       %Tab{
-        id: :admin_crm_companies,
-        label: gettext("Companies"),
-        path: "/admin/crm/companies",
+        id: :admin_crm_organizations,
+        label: gettext("Organizations"),
+        path: "/admin/crm/organizations",
         priority: 652,
         level: :admin,
         permission: module_key(),
         match: :prefix,
         parent: :admin_crm,
-        live_view: {PhoenixKitCRM.Web.CompaniesView, :index},
-        visible: fn _scope -> Settings.get_boolean_setting("crm_companies_enabled", false) end
+        live_view: {PhoenixKitCRM.Web.OrganizationsView, :index},
+        visible: fn _scope ->
+          Settings.get_boolean_setting("enable_organization_accounts", false)
+        end
       }
     ]
   end

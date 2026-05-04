@@ -1,0 +1,181 @@
+defmodule PhoenixKitCRM.Web.OrganizationsView do
+  @moduledoc """
+  Admin LiveView for the CRM Organizations subtab — lists users whose
+  `account_type = "organization"` with per-user persisted column
+  configuration. Supports a card/table view toggle (provided by
+  `PhoenixKitWeb.Components.Core.TableDefault`).
+
+  Gated by `PhoenixKitCRM.enabled?()` and the PhoenixKit-wide
+  `enable_organization_accounts` setting.
+  """
+  use PhoenixKitWeb, :live_view
+  use PhoenixKitCRM.Web.ColumnManagement
+
+  alias PhoenixKit.Settings
+  alias PhoenixKit.Users.Auth
+  alias PhoenixKitCRM.{ColumnConfig, Paths, Web.ColumnModal}
+
+  alias PhoenixKitWeb.Components.Core.TableDefault
+
+  @impl true
+  def mount(_params, _session, socket) do
+    cond do
+      not PhoenixKitCRM.enabled?() ->
+        {:ok,
+         socket
+         |> put_flash(:error, gettext("CRM is not enabled."))
+         |> push_navigate(to: Paths.index(), replace: true)}
+
+      not Settings.get_boolean_setting("enable_organization_accounts", false) ->
+        {:ok,
+         socket
+         |> put_flash(:error, gettext("Organization accounts are not enabled."))
+         |> push_navigate(to: Paths.index(), replace: true)}
+
+      true ->
+        current_user = socket.assigns.phoenix_kit_current_user
+
+        {:ok,
+         socket
+         |> assign(:page_title, gettext("CRM — Organizations"))
+         |> assign(:scope, :organizations)
+         |> assign(:current_user_uuid, current_user.uuid)
+         |> assign(:users, [])
+         |> assign(:selected_columns, ColumnConfig.default_columns(:organizations))
+         |> assign(:show_column_modal, false)
+         |> assign(:temp_selected_columns, nil)}
+    end
+  end
+
+  @impl true
+  def handle_params(_params, _url, socket) do
+    if connected?(socket) do
+      users = Auth.list_organizations()
+      selected = ColumnConfig.get_columns(socket.assigns.current_user_uuid, :organizations)
+
+      {:noreply,
+       socket
+       |> assign(:users, users)
+       |> assign(:selected_columns, selected)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <div class="flex flex-col mx-auto max-w-6xl px-4 py-6 gap-6">
+      <div class="flex items-center justify-between flex-wrap gap-2">
+        <h1 class="text-2xl font-bold flex items-center gap-2">
+          <.icon name="hero-building-office-2" class="w-6 h-6" /> {gettext("Organizations")}
+        </h1>
+        <span class="text-sm text-base-content/60">
+          {ngettext("%{count} organization", "%{count} organizations", length(@users),
+            count: length(@users)
+          )}
+        </span>
+      </div>
+
+      <TableDefault.table_default
+        id="crm-organizations-table"
+        toggleable
+        items={@users}
+        card_title={fn u -> Map.get(u, :organization_name) || u.email end}
+        card_fields={fn u -> Enum.map(@selected_columns, &card_field(@scope, &1, u)) end}
+      >
+        <:toolbar_actions>
+          <button class="btn btn-outline btn-sm" phx-click="show_column_modal">
+            <.icon name="hero-adjustments-horizontal" class="w-4 h-4" /> {gettext("Columns")}
+          </button>
+        </:toolbar_actions>
+
+        <TableDefault.table_default_header>
+          <TableDefault.table_default_row>
+            <TableDefault.table_default_header_cell :for={col <- @selected_columns}>
+              {column_label(@scope, col)}
+            </TableDefault.table_default_header_cell>
+          </TableDefault.table_default_row>
+        </TableDefault.table_default_header>
+
+        <TableDefault.table_default_body>
+          <TableDefault.table_default_row :for={user <- @users}>
+            <TableDefault.table_default_cell :for={col <- @selected_columns}>
+              {render_cell(col, user)}
+            </TableDefault.table_default_cell>
+          </TableDefault.table_default_row>
+
+          <TableDefault.table_default_row :if={@users == []}>
+            <TableDefault.table_default_cell colspan={length(@selected_columns)}>
+              <div class="text-center text-base-content/50 py-8">
+                {gettext("No organization accounts yet.")}
+              </div>
+            </TableDefault.table_default_cell>
+          </TableDefault.table_default_row>
+        </TableDefault.table_default_body>
+      </TableDefault.table_default>
+
+      <ColumnModal.column_modal
+        show={@show_column_modal}
+        scope={@scope}
+        selected={@selected_columns}
+        temp_selected={@temp_selected_columns}
+      />
+    </div>
+    """
+  end
+
+  defp column_label(scope, col) do
+    case ColumnConfig.get_column_metadata(scope, col) do
+      %{label: label} -> label
+      _ -> col
+    end
+  end
+
+  defp card_field(scope, col, user),
+    do: %{label: column_label(scope, col), value: render_cell(col, user)}
+
+  defp render_cell("organization_name", u), do: Map.get(u, :organization_name) || "—"
+  defp render_cell("email", u), do: u.email
+  defp render_cell("username", u), do: Map.get(u, :username) || "—"
+  defp render_cell("full_name", u), do: full_name(u)
+  defp render_cell("status", u), do: crm_status_html(Map.get(u, :is_active))
+  defp render_cell("registered", u), do: format_date(Map.get(u, :inserted_at))
+  defp render_cell("location", u), do: location(u)
+  defp render_cell(_, _), do: "—"
+
+  defp full_name(u) do
+    [Map.get(u, :first_name), Map.get(u, :last_name)]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.join(" ")
+    |> case do
+      "" -> "—"
+      n -> n
+    end
+  end
+
+  defp crm_status_html(true) do
+    assigns = %{}
+    ~H|<.status_badge status="active" size={:sm} />|
+  end
+
+  defp crm_status_html(_) do
+    assigns = %{}
+    ~H|<.status_badge status="inactive" size={:sm} />|
+  end
+
+  defp format_date(nil), do: "—"
+  defp format_date(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d")
+  defp format_date(%NaiveDateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d")
+  defp format_date(_), do: "—"
+
+  defp location(u) do
+    [Map.get(u, :registration_city), Map.get(u, :registration_country)]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.join(", ")
+    |> case do
+      "" -> "—"
+      l -> l
+    end
+  end
+end

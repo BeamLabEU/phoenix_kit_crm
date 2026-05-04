@@ -13,9 +13,9 @@ defmodule PhoenixKitCRM.UserRoleViewIntegrationTest do
   end
 
   describe "get_view_config/2" do
-    test "returns default empty map when no row exists for companies scope" do
+    test "returns default empty map when no row exists for organizations scope" do
       user = create_user()
-      assert UserRoleView.get_view_config(user.uuid, :companies) == %{}
+      assert UserRoleView.get_view_config(user.uuid, :organizations) == %{}
     end
 
     test "returns default empty map when no row exists for role scope" do
@@ -25,14 +25,19 @@ defmodule PhoenixKitCRM.UserRoleViewIntegrationTest do
 
     test "returns stored config after a successful put_view_config" do
       user = create_user()
-      config = %{"columns" => ["name", "tax_id"]}
-      {:ok, _} = UserRoleView.put_view_config(user.uuid, :companies, config)
-      assert UserRoleView.get_view_config(user.uuid, :companies) == config
+      config = %{"columns" => ["organization_name", "email"]}
+      {:ok, _} = UserRoleView.put_view_config(user.uuid, :organizations, config)
+      assert UserRoleView.get_view_config(user.uuid, :organizations) == config
     end
 
-    test "companies and role scopes are stored independently" do
+    test "organizations and role scopes are stored independently" do
       user = create_user()
-      {:ok, _} = UserRoleView.put_view_config(user.uuid, :companies, %{"columns" => ["name"]})
+
+      {:ok, _} =
+        UserRoleView.put_view_config(user.uuid, :organizations, %{
+          "columns" => ["organization_name"]
+        })
+
       role_config = UserRoleView.get_view_config(user.uuid, {:role, "some-uuid"})
       assert role_config == %{}
     end
@@ -41,41 +46,65 @@ defmodule PhoenixKitCRM.UserRoleViewIntegrationTest do
   describe "put_view_config/3 round-trip" do
     test "upserts — second write for same scope overwrites first" do
       user = create_user()
-      {:ok, _} = UserRoleView.put_view_config(user.uuid, :companies, %{"columns" => ["name"]})
 
       {:ok, _} =
-        UserRoleView.put_view_config(user.uuid, :companies, %{"columns" => ["tax_id", "name"]})
+        UserRoleView.put_view_config(user.uuid, :organizations, %{
+          "columns" => ["organization_name"]
+        })
 
-      assert UserRoleView.get_view_config(user.uuid, :companies) == %{
-               "columns" => ["tax_id", "name"]
+      {:ok, _} =
+        UserRoleView.put_view_config(user.uuid, :organizations, %{
+          "columns" => ["email", "organization_name"]
+        })
+
+      assert UserRoleView.get_view_config(user.uuid, :organizations) == %{
+               "columns" => ["email", "organization_name"]
              }
     end
 
     test "different users have independent configs for the same scope" do
       user_a = create_user()
       user_b = create_user()
-      {:ok, _} = UserRoleView.put_view_config(user_a.uuid, :companies, %{"columns" => ["name"]})
-      {:ok, _} = UserRoleView.put_view_config(user_b.uuid, :companies, %{"columns" => ["tax_id"]})
-      assert UserRoleView.get_view_config(user_a.uuid, :companies) == %{"columns" => ["name"]}
-      assert UserRoleView.get_view_config(user_b.uuid, :companies) == %{"columns" => ["tax_id"]}
+
+      {:ok, _} =
+        UserRoleView.put_view_config(user_a.uuid, :organizations, %{
+          "columns" => ["organization_name"]
+        })
+
+      {:ok, _} =
+        UserRoleView.put_view_config(user_b.uuid, :organizations, %{"columns" => ["email"]})
+
+      assert UserRoleView.get_view_config(user_a.uuid, :organizations) == %{
+               "columns" => ["organization_name"]
+             }
+
+      assert UserRoleView.get_view_config(user_b.uuid, :organizations) == %{
+               "columns" => ["email"]
+             }
     end
   end
 
   describe "ColumnConfig.update_columns/3 — empty list resets to defaults" do
     test "empty list stores empty columns; get_columns then falls back to defaults" do
       user = create_user()
-      {:ok, _} = ColumnConfig.update_columns(user.uuid, :companies, [])
+      {:ok, _} = ColumnConfig.update_columns(user.uuid, :organizations, [])
 
-      assert ColumnConfig.get_columns(user.uuid, :companies) ==
-               ColumnConfig.default_columns(:companies)
+      assert ColumnConfig.get_columns(user.uuid, :organizations) ==
+               ColumnConfig.default_columns(:organizations)
     end
   end
 
   describe "ColumnConfig.update_columns/3 — valid list persists" do
-    test "persists a valid subset in the given order for companies scope" do
+    test "persists a valid subset in the given order for organizations scope" do
       user = create_user()
-      {:ok, _} = ColumnConfig.update_columns(user.uuid, :companies, ["name", "country"])
-      assert ColumnConfig.get_columns(user.uuid, :companies) == ["name", "country"]
+
+      {:ok, _} =
+        ColumnConfig.update_columns(user.uuid, :organizations, ["organization_name", "status"])
+
+      assert ColumnConfig.get_columns(user.uuid, :organizations) == [
+               "organization_name",
+               "status"
+             ]
     end
 
     test "persists a valid subset for role scope" do
@@ -85,29 +114,37 @@ defmodule PhoenixKitCRM.UserRoleViewIntegrationTest do
       assert ColumnConfig.get_columns(user.uuid, scope) == ["email", "status"]
     end
 
-    test "role scope and companies scope are stored independently" do
+    test "role scope and organizations scope are stored independently" do
       user = create_user()
       role_scope = {:role, "cccccccc-dddd-eeee-ffff-000000000000"}
-      {:ok, _} = ColumnConfig.update_columns(user.uuid, :companies, ["name", "tax_id"])
+
+      {:ok, _} =
+        ColumnConfig.update_columns(user.uuid, :organizations, ["organization_name", "email"])
+
       {:ok, _} = ColumnConfig.update_columns(user.uuid, role_scope, ["email", "full_name"])
-      assert ColumnConfig.get_columns(user.uuid, :companies) == ["name", "tax_id"]
+
+      assert ColumnConfig.get_columns(user.uuid, :organizations) == [
+               "organization_name",
+               "email"
+             ]
+
       assert ColumnConfig.get_columns(user.uuid, role_scope) == ["email", "full_name"]
     end
   end
 
   describe "ColumnConfig.update_columns/3 — cross-scope columns rejected" do
-    test "role column ids are stripped when scope is companies" do
+    test "pure role-only column ids are stripped when scope is organizations" do
       user = create_user()
-      {:ok, _} = ColumnConfig.update_columns(user.uuid, :companies, ["email", "username"])
+      {:ok, _} = ColumnConfig.update_columns(user.uuid, :organizations, ["last_confirmed"])
       # validate_columns strips invalid ids → empty → falls back to defaults
-      assert ColumnConfig.get_columns(user.uuid, :companies) ==
-               ColumnConfig.default_columns(:companies)
+      assert ColumnConfig.get_columns(user.uuid, :organizations) ==
+               ColumnConfig.default_columns(:organizations)
     end
 
-    test "companies column ids are stripped when scope is role" do
+    test "organization-only column ids are stripped when scope is role" do
       user = create_user()
       scope = {:role, "dddddddd-eeee-ffff-0000-111111111111"}
-      {:ok, _} = ColumnConfig.update_columns(user.uuid, scope, ["name", "tax_id"])
+      {:ok, _} = ColumnConfig.update_columns(user.uuid, scope, ["organization_name"])
       assert ColumnConfig.get_columns(user.uuid, scope) == ColumnConfig.default_columns(scope)
     end
   end
