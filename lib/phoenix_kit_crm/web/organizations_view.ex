@@ -63,6 +63,11 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
   end
 
   @impl true
+  def handle_event("navigate_to_user", %{"uuid" => uuid}, socket) do
+    {:noreply, push_navigate(socket, to: Paths.user_view(uuid))}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <div class="flex flex-col mx-auto max-w-6xl px-4 py-6 gap-6">
@@ -99,7 +104,12 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
         </TableDefault.table_default_header>
 
         <TableDefault.table_default_body>
-          <TableDefault.table_default_row :for={user <- @users}>
+          <TableDefault.table_default_row
+            :for={user <- @users}
+            class="cursor-pointer"
+            phx-click="navigate_to_user"
+            phx-value-uuid={user.uuid}
+          >
             <TableDefault.table_default_cell :for={col <- @selected_columns}>
               {render_cell(col, user)}
             </TableDefault.table_default_cell>
@@ -135,12 +145,8 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
   defp card_field(scope, col, user),
     do: %{label: column_label(scope, col), value: render_cell(col, user)}
 
-  defp render_cell("organization_name", u) do
-    label = Map.get(u, :organization_name) || "—"
-    user_link(u, label)
-  end
-
-  defp render_cell("email", u), do: user_link(u, u.email)
+  defp render_cell("organization_name", u), do: Map.get(u, :organization_name) || "—"
+  defp render_cell("email", u), do: u.email
   defp render_cell("username", u), do: Map.get(u, :username) || "—"
   defp render_cell("full_name", u), do: full_name(u)
   defp render_cell("status", u), do: crm_status_html(Map.get(u, :is_active))
@@ -158,14 +164,10 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
     end
   end
 
-  defp user_link(u, label) do
-    assigns = %{href: Paths.user_view(u.uuid), label: label}
-    ~H|<.link navigate={@href} class="link link-hover font-medium">{@label}</.link>|
-  end
-
   defp card_title_link(u) do
     label = Map.get(u, :organization_name) || u.email
-    user_link(u, label)
+    assigns = %{href: Paths.user_view(u.uuid), label: label}
+    ~H|<.link navigate={@href} class="link link-hover font-medium">{@label}</.link>|
   end
 
   defp crm_status_html(true) do

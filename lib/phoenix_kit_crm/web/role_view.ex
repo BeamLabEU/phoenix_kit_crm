@@ -69,6 +69,11 @@ defmodule PhoenixKitCRM.Web.RoleView do
   end
 
   @impl true
+  def handle_event("navigate_to_user", %{"uuid" => uuid}, socket) do
+    {:noreply, push_navigate(socket, to: Paths.user_view(uuid))}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <div class="flex flex-col mx-auto max-w-6xl px-4 py-6 gap-6">
@@ -83,7 +88,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
         id="crm-role-users-table"
         toggleable
         items={@users}
-        card_title={fn u -> user_link(u, u.email) end}
+        card_title={fn u -> card_title_link(u) end}
         card_fields={fn u -> Enum.map(@selected_columns, &card_field(@scope, &1, u)) end}
       >
         <:toolbar_actions>
@@ -101,7 +106,12 @@ defmodule PhoenixKitCRM.Web.RoleView do
         </TableDefault.table_default_header>
 
         <TableDefault.table_default_body>
-          <TableDefault.table_default_row :for={user <- @users}>
+          <TableDefault.table_default_row
+            :for={user <- @users}
+            class="cursor-pointer"
+            phx-click="navigate_to_user"
+            phx-value-uuid={user.uuid}
+          >
             <TableDefault.table_default_cell :for={col <- @selected_columns}>
               {render_cell(col, user)}
             </TableDefault.table_default_cell>
@@ -137,7 +147,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
   defp card_field(scope, col, user),
     do: %{label: column_label(scope, col), value: render_cell(col, user)}
 
-  defp render_cell("email", u), do: user_link(u, u.email)
+  defp render_cell("email", u), do: u.email
   defp render_cell("username", u), do: u.username || "—"
   defp render_cell("full_name", u), do: full_name(u)
   defp render_cell("status", u), do: crm_status_html(u.is_active)
@@ -156,8 +166,8 @@ defmodule PhoenixKitCRM.Web.RoleView do
     end
   end
 
-  defp user_link(u, label) do
-    assigns = %{href: Paths.user_view(u.uuid), label: label}
+  defp card_title_link(u) do
+    assigns = %{href: Paths.user_view(u.uuid), label: u.email}
     ~H|<.link navigate={@href} class="link link-hover font-medium">{@label}</.link>|
   end
 
