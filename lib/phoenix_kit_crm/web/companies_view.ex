@@ -78,7 +78,7 @@ defmodule PhoenixKitCRM.Web.CompaniesView do
       >
         <:toolbar_actions>
           <button class="btn btn-outline btn-sm" phx-click="show_column_modal">
-            <.icon name="hero-adjustments-horizontal" class="w-4 h-4" /> Columns
+            <.icon name="hero-adjustments-horizontal" class="w-4 h-4" /> {gettext("Columns")}
           </button>
         </:toolbar_actions>
 
@@ -100,7 +100,7 @@ defmodule PhoenixKitCRM.Web.CompaniesView do
           <TableDefault.table_default_row :if={@companies == []}>
             <TableDefault.table_default_cell colspan={length(@selected_columns)}>
               <div class="text-center text-base-content/50 py-8">
-                Нет данных
+                {gettext("No companies yet.")}
               </div>
             </TableDefault.table_default_cell>
           </TableDefault.table_default_row>
