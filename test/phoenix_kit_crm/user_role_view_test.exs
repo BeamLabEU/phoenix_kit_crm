@@ -6,8 +6,8 @@ defmodule PhoenixKitCRM.UserRoleViewTest do
   alias PhoenixKitCRM.UserRoleView
 
   describe "scope_to_string/1" do
-    test "encodes :companies as \"companies\"" do
-      assert UserRoleView.scope_to_string(:companies) == "companies"
+    test "encodes :organizations as \"organizations\"" do
+      assert UserRoleView.scope_to_string(:organizations) == "organizations"
     end
 
     test "encodes {:role, uuid} as \"role:<uuid>\"" do
@@ -16,18 +16,18 @@ defmodule PhoenixKitCRM.UserRoleViewTest do
   end
 
   describe "scope_from_string/1" do
-    test "decodes \"companies\"" do
-      assert UserRoleView.scope_from_string("companies") == :companies
+    test "decodes \"organizations\"" do
+      assert UserRoleView.scope_from_string("organizations") == :organizations
     end
 
     test "decodes \"role:<uuid>\"" do
       assert UserRoleView.scope_from_string("role:abc-123") == {:role, "abc-123"}
     end
 
-    test "falls back to :companies and logs a warning on malformed input" do
+    test "falls back to :organizations and logs a warning on malformed input" do
       log =
         capture_log(fn ->
-          assert UserRoleView.scope_from_string("garbage") == :companies
+          assert UserRoleView.scope_from_string("garbage") == :organizations
         end)
 
       assert log =~ "Unknown scope string"
@@ -37,7 +37,7 @@ defmodule PhoenixKitCRM.UserRoleViewTest do
   describe "scope round-trip" do
     test "every encoded scope decodes back to the original term" do
       for scope <- [
-            :companies,
+            :organizations,
             {:role, "uuid-1"},
             {:role, "00000000-0000-0000-0000-000000000000"}
           ] do
@@ -50,7 +50,7 @@ defmodule PhoenixKitCRM.UserRoleViewTest do
 
   describe "default_config/1" do
     test "is an empty map for both scope shapes" do
-      assert UserRoleView.default_config(:companies) == %{}
+      assert UserRoleView.default_config(:organizations) == %{}
       assert UserRoleView.default_config({:role, "uuid"}) == %{}
     end
   end

@@ -50,7 +50,7 @@ defmodule PhoenixKitCRMTest do
     test "returns tabs with matching permission and hyphenated paths" do
       tabs = PhoenixKitCRM.admin_tabs()
       assert is_list(tabs)
-      assert tabs != []
+      refute Enum.empty?(tabs)
 
       for tab <- tabs do
         assert tab.permission == PhoenixKitCRM.module_key()

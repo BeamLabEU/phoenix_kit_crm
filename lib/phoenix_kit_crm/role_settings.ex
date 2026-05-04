@@ -37,7 +37,7 @@ defmodule PhoenixKitCRM.RoleSettings do
   @doc """
   Lists all roles eligible for CRM access.
 
-  Returns all roles excluding system roles Owner and Admin.
+  Returns all non-system roles (i.e. roles where `is_system_role` is false).
 
   ## Examples
 
@@ -46,11 +46,8 @@ defmodule PhoenixKitCRM.RoleSettings do
   """
   @spec list_eligible_roles() :: [Role.t()]
   def list_eligible_roles do
-    system_roles = Role.system_roles()
-    excluded = [system_roles.owner, system_roles.admin]
-
     Roles.list_roles()
-    |> Enum.reject(fn role -> role.name in excluded end)
+    |> Enum.reject(& &1.is_system_role)
   end
 
   @doc """

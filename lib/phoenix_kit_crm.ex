@@ -8,6 +8,7 @@ defmodule PhoenixKitCRM do
   """
 
   use PhoenixKit.Module
+  use Gettext, backend: PhoenixKitWeb.Gettext
 
   require Logger
 
@@ -57,9 +58,9 @@ defmodule PhoenixKitCRM do
     [
       %Tab{
         id: :admin_crm,
-        label: "CRM",
+        label: gettext("CRM"),
         icon: "hero-users",
-        path: "crm",
+        path: "/admin/crm",
         priority: 650,
         level: :admin,
         permission: module_key(),
@@ -71,9 +72,9 @@ defmodule PhoenixKitCRM do
       },
       %Tab{
         id: :admin_crm_overview,
-        label: "Overview",
+        label: gettext("Overview"),
         icon: "hero-users",
-        path: "crm",
+        path: "/admin/crm",
         priority: 651,
         level: :admin,
         permission: module_key(),
@@ -82,16 +83,18 @@ defmodule PhoenixKitCRM do
         live_view: {PhoenixKitCRM.Web.CRMLive, :index}
       },
       %Tab{
-        id: :admin_crm_companies,
-        label: "Companies",
-        path: "/admin/crm/companies",
+        id: :admin_crm_organizations,
+        label: gettext("Organizations"),
+        path: "/admin/crm/organizations",
         priority: 652,
         level: :admin,
         permission: module_key(),
         match: :prefix,
         parent: :admin_crm,
-        live_view: {PhoenixKitCRM.Web.CompaniesView, :index},
-        visible: fn _scope -> Settings.get_boolean_setting("crm_companies_enabled", false) end
+        live_view: {PhoenixKitCRM.Web.OrganizationsView, :index},
+        visible: fn _scope ->
+          Settings.get_boolean_setting("enable_organization_accounts", false)
+        end
       }
     ]
   end

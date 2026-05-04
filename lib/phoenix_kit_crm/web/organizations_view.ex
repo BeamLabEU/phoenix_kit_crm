@@ -1,19 +1,24 @@
-defmodule PhoenixKitCRM.Web.RoleView do
+defmodule PhoenixKitCRM.Web.OrganizationsView do
   @moduledoc """
-  Admin LiveView for a single CRM role page — lists users assigned to the role
-  with per-user persisted column configuration. Supports a card/table view
-  toggle (provided by `PhoenixKitWeb.Components.Core.TableDefault`).
+  Admin LiveView for the CRM Organizations subtab — lists users whose
+  `account_type = "organization"` with per-user persisted column
+  configuration. Supports a card/table view toggle (provided by
+  `PhoenixKitWeb.Components.Core.TableDefault`).
+
+  Gated by `PhoenixKitCRM.enabled?()` and the PhoenixKit-wide
+  `enable_organization_accounts` setting.
   """
   use PhoenixKitWeb, :live_view
   use PhoenixKitCRM.Web.ColumnManagement
 
-  alias PhoenixKit.Users.Roles
+  alias PhoenixKit.Settings
+  alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.{ColumnConfig, Paths, Web.ColumnModal}
 
   alias PhoenixKitWeb.Components.Core.TableDefault
 
   @impl true
-  def mount(%{"role_uuid" => role_uuid} = _params, _session, socket) do
+  def mount(_params, _session, socket) do
     cond do
       not PhoenixKitCRM.enabled?() ->
         {:ok,
@@ -21,43 +26,32 @@ defmodule PhoenixKitCRM.Web.RoleView do
          |> put_flash(:error, gettext("CRM is not enabled."))
          |> push_navigate(to: Paths.index(), replace: true)}
 
-      not PhoenixKitCRM.RoleSettings.enabled?(role_uuid) ->
+      not Settings.get_boolean_setting("enable_organization_accounts", false) ->
         {:ok,
          socket
-         |> put_flash(:error, gettext("This role does not have CRM access."))
+         |> put_flash(:error, gettext("Organization accounts are not enabled."))
          |> push_navigate(to: Paths.index(), replace: true)}
 
       true ->
-        case Roles.get_role_by_uuid(role_uuid) do
-          nil ->
-            {:ok,
-             socket
-             |> put_flash(:error, gettext("Role not found."))
-             |> push_navigate(to: Paths.index(), replace: true)}
+        current_user = socket.assigns.phoenix_kit_current_user
 
-          role ->
-            scope = {:role, role_uuid}
-            current_user = socket.assigns.phoenix_kit_current_user
-
-            {:ok,
-             socket
-             |> assign(:page_title, gettext("CRM — %{name}", name: role.name))
-             |> assign(:role, role)
-             |> assign(:scope, scope)
-             |> assign(:current_user_uuid, current_user.uuid)
-             |> assign(:users, [])
-             |> assign(:selected_columns, ColumnConfig.default_columns(scope))
-             |> assign(:show_column_modal, false)
-             |> assign(:temp_selected_columns, nil)}
-        end
+        {:ok,
+         socket
+         |> assign(:page_title, gettext("CRM — Organizations"))
+         |> assign(:scope, :organizations)
+         |> assign(:current_user_uuid, current_user.uuid)
+         |> assign(:users, [])
+         |> assign(:selected_columns, ColumnConfig.default_columns(:organizations))
+         |> assign(:show_column_modal, false)
+         |> assign(:temp_selected_columns, nil)}
     end
   end
 
   @impl true
   def handle_params(_params, _url, socket) do
     if connected?(socket) do
-      users = Roles.users_with_role(socket.assigns.role.name)
-      selected = ColumnConfig.get_columns(socket.assigns.current_user_uuid, socket.assigns.scope)
+      users = Auth.list_organizations()
+      selected = ColumnConfig.get_columns(socket.assigns.current_user_uuid, :organizations)
 
       {:noreply,
        socket
@@ -78,14 +72,18 @@ defmodule PhoenixKitCRM.Web.RoleView do
     ~H"""
     <div class="flex flex-col mx-auto max-w-6xl px-4 py-6 gap-6">
       <div class="flex items-center justify-between flex-wrap gap-2">
-        <h1 class="text-2xl font-bold">{@page_title}</h1>
+        <h1 class="text-2xl font-bold flex items-center gap-2">
+          <.icon name="hero-building-office-2" class="w-6 h-6" /> {gettext("Organizations")}
+        </h1>
         <span class="text-sm text-base-content/60">
-          {ngettext("%{count} user", "%{count} users", length(@users), count: length(@users))}
+          {ngettext("%{count} organization", "%{count} organizations", length(@users),
+            count: length(@users)
+          )}
         </span>
       </div>
 
       <TableDefault.table_default
-        id="crm-role-users-table"
+        id="crm-organizations-table"
         toggleable
         items={@users}
         card_title={fn u -> card_title_link(u) end}
@@ -120,7 +118,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
           <TableDefault.table_default_row :if={@users == []}>
             <TableDefault.table_default_cell colspan={length(@selected_columns)}>
               <div class="text-center text-base-content/50 py-8">
-                {gettext("No users with this role.")}
+                {gettext("No organization accounts yet.")}
               </div>
             </TableDefault.table_default_cell>
           </TableDefault.table_default_row>
@@ -147,12 +145,12 @@ defmodule PhoenixKitCRM.Web.RoleView do
   defp card_field(scope, col, user),
     do: %{label: column_label(scope, col), value: render_cell(col, user)}
 
+  defp render_cell("organization_name", u), do: Map.get(u, :organization_name) || "—"
   defp render_cell("email", u), do: u.email
-  defp render_cell("username", u), do: u.username || "—"
+  defp render_cell("username", u), do: Map.get(u, :username) || "—"
   defp render_cell("full_name", u), do: full_name(u)
-  defp render_cell("status", u), do: crm_status_html(u.is_active)
-  defp render_cell("registered", u), do: format_date(u.inserted_at)
-  defp render_cell("last_confirmed", u), do: format_date(u.confirmed_at)
+  defp render_cell("status", u), do: crm_status_html(Map.get(u, :is_active))
+  defp render_cell("registered", u), do: format_date(Map.get(u, :inserted_at))
   defp render_cell("location", u), do: location(u)
   defp render_cell(_, _), do: "—"
 
@@ -167,7 +165,8 @@ defmodule PhoenixKitCRM.Web.RoleView do
   end
 
   defp card_title_link(u) do
-    assigns = %{href: Paths.user_view(u.uuid), label: u.email}
+    label = Map.get(u, :organization_name) || u.email
+    assigns = %{href: Paths.user_view(u.uuid), label: label}
     ~H|<.link navigate={@href} class="link link-hover font-medium">{@label}</.link>|
   end
 

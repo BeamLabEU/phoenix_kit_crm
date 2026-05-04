@@ -7,3 +7,4 @@ erl_crash.dump
 phoenix_kit_crm-*.tar
 *.log
 .mcp.json
+.claude/settings.local.json

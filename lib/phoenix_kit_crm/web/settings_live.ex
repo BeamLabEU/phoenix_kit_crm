@@ -1,11 +1,9 @@
 defmodule PhoenixKitCRM.Web.SettingsLive do
   @moduledoc """
-  CRM settings page — exposes the enable/disable toggle, role opt-in, and
-  Companies feature toggle.
+  CRM settings page — exposes the enable/disable toggle and role opt-in.
   """
   use PhoenixKitWeb, :live_view
 
-  alias PhoenixKit.Settings
   alias PhoenixKitCRM.RoleSettings
 
   @impl true
@@ -18,8 +16,7 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
        page_title: Gettext.gettext(PhoenixKitWeb.Gettext, "CRM settings"),
        enabled: PhoenixKitCRM.enabled?(),
        eligible_roles: eligible_roles,
-       enabled_role_uuids: enabled_role_uuids,
-       companies_enabled: Settings.get_boolean_setting("crm_companies_enabled", false)
+       enabled_role_uuids: enabled_role_uuids
      )}
   end
 
@@ -64,34 +61,6 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
            socket,
            :error,
            Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to update role access")
-         )}
-    end
-  end
-
-  @impl true
-  def handle_event("toggle_companies", %{"value" => v}, socket) do
-    enabled? = v == "on" or v == "true"
-
-    case Settings.update_boolean_setting_with_module(
-           "crm_companies_enabled",
-           enabled?,
-           PhoenixKitCRM.module_key()
-         ) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> assign(
-           :companies_enabled,
-           Settings.get_boolean_setting("crm_companies_enabled", false)
-         )
-         |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Companies setting updated"))}
-
-      _ ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to update Companies setting")
          )}
     end
   end
@@ -179,37 +148,6 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
         </div>
       </div>
 
-      <div class="card bg-base-100 shadow-xl">
-        <div class="card-body">
-          <h2 class="card-title text-xl">
-            <.icon name="hero-building-office-2" class="w-5 h-5" />
-            {Gettext.gettext(PhoenixKitWeb.Gettext, "Features")}
-          </h2>
-
-          <div class="divider"></div>
-
-          <div class="flex items-center justify-between">
-            <div>
-              <div class="font-medium">
-                {Gettext.gettext(PhoenixKitWeb.Gettext, "Enable Companies")}
-              </div>
-              <div class="text-xs text-base-content/60">
-                {Gettext.gettext(
-                  PhoenixKitWeb.Gettext,
-                  "Shows the Companies section in the CRM sidebar and navigation."
-                )}
-              </div>
-            </div>
-            <input
-              type="checkbox"
-              class="toggle toggle-primary"
-              phx-click="toggle_companies"
-              phx-value-value={if @companies_enabled, do: "false", else: "true"}
-              checked={@companies_enabled}
-            />
-          </div>
-        </div>
-      </div>
     </div>
     """
   end

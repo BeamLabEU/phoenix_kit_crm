@@ -36,7 +36,7 @@ defmodule PhoenixKitCRM.MixProject do
   end
 
   def cli do
-    [preferred_envs: ["test.setup": :test, "test.reset": :test]]
+    [preferred_envs: [test: :test, "test.setup": :test, "test.reset": :test]]
   end
 
   # test/support/ is compiled only in :test so DataCase and TestRepo

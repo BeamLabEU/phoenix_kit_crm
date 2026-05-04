@@ -1,3 +1,13 @@
+# When `mix test` runs in a non-test env (e.g. default dev env in this repo),
+# the test/support compiled modules live in _build/test/ebin which is not on
+# the code path. Add it explicitly so TestRepo and DataCase are loadable.
+test_support_ebin =
+  Path.join([File.cwd!(), "_build", "test", "lib", "phoenix_kit_crm", "ebin"])
+
+if File.dir?(test_support_ebin) do
+  :code.add_patha(to_charlist(test_support_ebin))
+end
+
 alias PhoenixKitCRM.Test.Repo, as: TestRepo
 
 db_config = Application.get_env(:phoenix_kit_crm, TestRepo, [])
