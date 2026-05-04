@@ -5,7 +5,7 @@ defmodule PhoenixKitCRM.SidebarBootstrap do
 
   Invoked twice:
 
-    * At boot via `PhoenixKitCRM.children/0` as a one-shot `Task`
+    * At boot via the `c:PhoenixKit.Module.children/0` callback as a one-shot `Task`
       (`restart: :temporary`).
     * After every `PhoenixKitCRM.RoleSettings.set_enabled/2` call, through
       `PhoenixKitCRM.refresh_sidebar/0`.
