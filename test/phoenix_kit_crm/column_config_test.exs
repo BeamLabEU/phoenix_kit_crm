@@ -4,18 +4,22 @@ defmodule PhoenixKitCRM.ColumnConfigTest do
   alias PhoenixKitCRM.ColumnConfig
 
   describe "available_columns/1" do
-    test "returns standard organizations columns and empty custom map" do
+    test "returns standard organizations columns and empty custom list" do
       %{standard: standard, custom: custom} = ColumnConfig.available_columns(:organizations)
-      assert is_map(standard)
-      assert custom == %{}
-      assert "organization_name" in Map.keys(standard)
+      assert is_list(standard)
+      assert custom == []
+      ids = Enum.map(standard, &elem(&1, 0))
+      assert "organization_name" in ids
+      assert hd(ids) == "organization_name"
     end
 
-    test "returns standard role columns and empty custom map" do
+    test "returns standard role columns and empty custom list" do
       %{standard: standard, custom: custom} = ColumnConfig.available_columns({:role, "abc"})
-      assert is_map(standard)
-      assert custom == %{}
-      assert "email" in Map.keys(standard)
+      assert is_list(standard)
+      assert custom == []
+      ids = Enum.map(standard, &elem(&1, 0))
+      assert "email" in ids
+      assert hd(ids) == "email"
     end
 
     test "ignores the role uuid — same columns for any role" do

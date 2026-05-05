@@ -16,41 +16,87 @@ defmodule PhoenixKitCRM.ColumnConfig do
 
   use Gettext, backend: PhoenixKitWeb.Gettext
 
+  require Logger
+
+  alias PhoenixKit.Users.CustomFields
   alias PhoenixKitCRM.{UserRoleView, UserRoleViewConfig}
 
-  @role_standard %{
-    "email" => %{label: "Email", required: false, type: :email},
-    "username" => %{label: "Username", required: false, type: :string},
-    "full_name" => %{label: "Full Name", required: false, type: :string},
-    "status" => %{label: "Status", required: false, type: :status},
-    "registered" => %{label: "Registered", required: false, type: :datetime},
-    "last_confirmed" => %{label: "Last Confirmed", required: false, type: :datetime},
-    "location" => %{label: "Location", required: false, type: :location}
-  }
+  @role_standard [
+    {"email", %{label: "Email", required: false, type: :email}},
+    {"username", %{label: "Username", required: false, type: :string}},
+    {"full_name", %{label: "Full Name", required: false, type: :string}},
+    {"status", %{label: "Status", required: false, type: :status}},
+    {"registered", %{label: "Registered", required: false, type: :datetime}},
+    {"last_confirmed", %{label: "Last Confirmed", required: false, type: :datetime}},
+    {"location", %{label: "Location", required: false, type: :location}}
+  ]
 
-  @organizations_standard %{
-    "organization_name" => %{label: "Organization", required: false, type: :string},
-    "email" => %{label: "Email", required: false, type: :email},
-    "full_name" => %{label: "Contact", required: false, type: :string},
-    "username" => %{label: "Username", required: false, type: :string},
-    "status" => %{label: "Status", required: false, type: :status},
-    "registered" => %{label: "Registered", required: false, type: :datetime},
-    "location" => %{label: "Location", required: false, type: :location}
-  }
+  @organizations_standard [
+    {"organization_name", %{label: "Organization", required: false, type: :string}},
+    {"email", %{label: "Email", required: false, type: :email}},
+    {"full_name", %{label: "Contact", required: false, type: :string}},
+    {"username", %{label: "Username", required: false, type: :string}},
+    {"status", %{label: "Status", required: false, type: :status}},
+    {"registered", %{label: "Registered", required: false, type: :datetime}},
+    {"location", %{label: "Location", required: false, type: :location}}
+  ]
 
   @role_default ["email", "username", "full_name", "status", "registered"]
   @organizations_default ["organization_name", "email", "full_name", "status", "registered"]
 
-  @doc "Available columns for a scope, split into `:standard` and `:custom`."
-  @spec available_columns(UserRoleView.scope()) :: %{standard: map(), custom: map()}
+  @doc """
+  Available columns for a scope, split into `:standard` and `:custom`.
+
+  Each value is an **ordered** list of `{column_id, metadata}` tuples — standard
+  columns follow the order declared in this module, custom columns follow the
+  `position` ordering from `PhoenixKit.Users.CustomFields`.
+  """
+  @spec available_columns(UserRoleView.scope()) ::
+          %{standard: [{String.t(), map()}], custom: [{String.t(), map()}]}
   def available_columns({:role, _}),
-    do: %{standard: translate_labels(@role_standard), custom: %{}}
+    do: %{standard: translate_labels(@role_standard), custom: custom_field_columns()}
 
   def available_columns(:organizations),
-    do: %{standard: translate_labels(@organizations_standard), custom: %{}}
+    do: %{standard: translate_labels(@organizations_standard), custom: custom_field_columns()}
 
-  defp translate_labels(map) do
-    Map.new(map, fn {k, v} ->
+  defp custom_field_columns do
+    case Code.ensure_loaded(CustomFields) do
+      {:module, _} ->
+        load_custom_fields()
+        |> Enum.map(fn field ->
+          key = field["key"]
+
+          {"custom_" <> key,
+           %{
+             label: field["label"] || key,
+             field_key: key,
+             field_type: field["type"],
+             required: false,
+             type: :custom_field
+           }}
+        end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp load_custom_fields do
+    CustomFields.list_enabled_field_definitions()
+  rescue
+    UndefinedFunctionError ->
+      []
+
+    error ->
+      Logger.warning(
+        "PhoenixKitCRM: failed to load custom field definitions: #{Exception.message(error)}"
+      )
+
+      []
+  end
+
+  defp translate_labels(list) do
+    Enum.map(list, fn {k, v} ->
       {k, Map.update!(v, :label, &Gettext.gettext(PhoenixKitWeb.Gettext, &1))}
     end)
   end
@@ -64,7 +110,7 @@ defmodule PhoenixKitCRM.ColumnConfig do
   @spec all_column_ids(UserRoleView.scope()) :: [String.t()]
   def all_column_ids(scope) do
     %{standard: standard, custom: custom} = available_columns(scope)
-    Map.keys(standard) ++ Map.keys(custom)
+    Enum.map(standard, &elem(&1, 0)) ++ Enum.map(custom, &elem(&1, 0))
   end
 
   @doc "Returns the selected column ids for a user+scope, falling back to defaults."
@@ -93,7 +139,14 @@ defmodule PhoenixKitCRM.ColumnConfig do
   def get_column_metadata(scope, column_id) do
     %{standard: standard, custom: custom} = available_columns(scope)
 
-    Map.get(standard, column_id) || Map.get(custom, column_id)
+    find_in(standard, column_id) || find_in(custom, column_id)
+  end
+
+  defp find_in(list, column_id) do
+    case List.keyfind(list, column_id, 0) do
+      {_, meta} -> meta
+      nil -> nil
+    end
   end
 
   @doc "Filter input list to only valid column ids for the scope, preserving order."

@@ -99,7 +99,7 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
                 </div>
 
                 <div class="max-h-[400px] overflow-y-auto border border-base-200 rounded-lg p-3">
-                  <div :if={map_size(@available.standard) > 0}>
+                  <div :if={@available.standard != []}>
                     <h5 class="text-xs font-semibold text-base-content/60 mb-2 uppercase">
                       {gettext("Standard")}
                     </h5>
@@ -118,7 +118,7 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
                     </div>
                   </div>
 
-                  <div :if={map_size(@available.custom) > 0}>
+                  <div :if={@available.custom != []}>
                     <h5 class="text-xs font-semibold text-base-content/60 mb-2 uppercase">
                       {gettext("Custom")}
                     </h5>
@@ -161,8 +161,7 @@ defmodule PhoenixKitCRM.Web.ColumnModal do
   end
 
   defp available_count(available, selected) do
-    standard_left = Enum.count(available.standard, fn {id, _} -> id not in selected end)
-    custom_left = Enum.count(available.custom, fn {id, _} -> id not in selected end)
-    standard_left + custom_left
+    Enum.count(available.standard, fn {id, _} -> id not in selected end) +
+      Enum.count(available.custom, fn {id, _} -> id not in selected end)
   end
 end

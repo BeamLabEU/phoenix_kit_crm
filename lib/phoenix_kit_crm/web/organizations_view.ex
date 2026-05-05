@@ -13,7 +13,7 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
 
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
-  alias PhoenixKitCRM.{ColumnConfig, Paths, Web.ColumnModal}
+  alias PhoenixKitCRM.{ColumnConfig, Paths, Web.CellFormat, Web.ColumnModal}
 
   alias PhoenixKitWeb.Components.Core.TableDefault
 
@@ -111,7 +111,7 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
             phx-value-uuid={user.uuid}
           >
             <TableDefault.table_default_cell :for={col <- @selected_columns}>
-              {render_cell(col, user)}
+              {render_cell(@scope, col, user)}
             </TableDefault.table_default_cell>
           </TableDefault.table_default_row>
 
@@ -143,16 +143,20 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
   end
 
   defp card_field(scope, col, user),
-    do: %{label: column_label(scope, col), value: render_cell(col, user)}
+    do: %{label: column_label(scope, col), value: render_cell(scope, col, user)}
 
-  defp render_cell("organization_name", u), do: Map.get(u, :organization_name) || "—"
-  defp render_cell("email", u), do: u.email
-  defp render_cell("username", u), do: Map.get(u, :username) || "—"
-  defp render_cell("full_name", u), do: full_name(u)
-  defp render_cell("status", u), do: crm_status_html(Map.get(u, :is_active))
-  defp render_cell("registered", u), do: format_date(Map.get(u, :inserted_at))
-  defp render_cell("location", u), do: location(u)
-  defp render_cell(_, _), do: "—"
+  defp render_cell(_scope, "organization_name", u), do: Map.get(u, :organization_name) || "—"
+  defp render_cell(_scope, "email", u), do: u.email
+  defp render_cell(_scope, "username", u), do: Map.get(u, :username) || "—"
+  defp render_cell(_scope, "full_name", u), do: full_name(u)
+  defp render_cell(_scope, "status", u), do: crm_status_html(Map.get(u, :is_active))
+  defp render_cell(_scope, "registered", u), do: format_date(Map.get(u, :inserted_at))
+  defp render_cell(_scope, "location", u), do: location(u)
+
+  defp render_cell(scope, "custom_" <> _ = col, u),
+    do: CellFormat.render_custom_cell(scope, col, u)
+
+  defp render_cell(_scope, _col, _u), do: "—"
 
   defp full_name(u) do
     [Map.get(u, :first_name), Map.get(u, :last_name)]
