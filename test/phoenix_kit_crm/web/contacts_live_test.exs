@@ -164,7 +164,7 @@ defmodule PhoenixKitCRM.Web.ContactsLiveTest do
 
     test "combines with a role tab (search only within the current filter)", %{conn: conn} do
       _alice = contact_with_role("Alice Wonder", "supplier")
-      _bob = contact_with_role("Bob Wonder", "client")
+      _bob = contact_with_role("Bob Wonder", "customer")
 
       {:ok, view, html} = live(conn, "/en/admin/crm/contacts?filter=supplier")
       assert html =~ "Alice Wonder"

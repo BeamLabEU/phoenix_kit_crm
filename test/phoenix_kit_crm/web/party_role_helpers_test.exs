@@ -6,8 +6,8 @@ defmodule PhoenixKitCRM.Web.PartyRoleHelpersTest do
 
   describe "selected_roles/1 (forged-payload filtering — the security claim)" do
     test "keeps only known roles" do
-      assert PartyRoleHelpers.selected_roles(%{"roles" => ["supplier", "client"]}) ==
-               ["supplier", "client"]
+      assert PartyRoleHelpers.selected_roles(%{"roles" => ["supplier", "customer"]}) ==
+               ["supplier", "customer"]
     end
 
     test "drops unknown roles and non-string members without raising" do
@@ -26,7 +26,7 @@ defmodule PhoenixKitCRM.Web.PartyRoleHelpersTest do
     test "known roles map to labels and badge classes" do
       assert PartyRoleHelpers.role_label("supplier") == "Supplier"
       assert PartyRoleHelpers.role_badge_class("supplier") == "badge-info"
-      assert PartyRoleHelpers.role_badge_class("client") == "badge-success"
+      assert PartyRoleHelpers.role_badge_class("customer") == "badge-success"
     end
 
     test "unknown role falls through to a neutral badge and its raw value" do
