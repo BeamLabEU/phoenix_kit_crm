@@ -148,9 +148,8 @@ defmodule PhoenixKitCRM.Web.ListsLive do
             </.table_default_cell>
             <.table_default_cell><.status_badge status={list.status} size={:sm} /></.table_default_cell>
             <.table_default_cell>
-              <input
-                type="checkbox"
-                class="toggle toggle-sm"
+              <.checkbox
+                name={"list_#{list.uuid}_subscribable"}
                 checked={list.subscribable}
                 phx-click="toggle_subscribable"
                 phx-value-uuid={list.uuid}

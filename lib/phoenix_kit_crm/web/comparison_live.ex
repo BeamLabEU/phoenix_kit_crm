@@ -159,19 +159,16 @@ defmodule PhoenixKitCRM.Web.ComparisonLive do
           />
 
           <div :if={@lists != []} class="flex flex-wrap gap-3">
-            <label
+            <.checkbox
               :for={list <- @lists}
-              class="flex items-center gap-2 cursor-pointer border border-base-200 rounded-lg px-3 py-2"
-            >
-              <input
-                type="checkbox"
-                class="checkbox checkbox-sm"
-                checked={MapSet.member?(@selected_list_uuids, list.uuid)}
-                phx-click="toggle_list"
-                phx-value-uuid={list.uuid}
-              />
-              <span class="text-sm">{list.name}</span>
-            </label>
+              name={"compare_list_#{list.uuid}"}
+              checked={MapSet.member?(@selected_list_uuids, list.uuid)}
+              label={list.name}
+              phx-click="toggle_list"
+              phx-value-uuid={list.uuid}
+              class="checkbox-sm"
+              wrapper_class="border border-base-200 rounded-lg px-3 py-2"
+            />
           </div>
 
           <p
