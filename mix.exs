@@ -75,8 +75,16 @@ defmodule PhoenixKitCRM.MixProject do
       #
       # Stage-3 lists/import code (contact lists + `phoenix_kit_crm_lists`/
       # `phoenix_kit_crm_list_members`) requires core migration V152, first
-      # published in phoenix_kit 1.7.203 — the floor below matches.
-      pk_dep(:phoenix_kit, "~> 1.7 and >= 1.7.203"),
+      # published in phoenix_kit 1.7.203.
+      #
+      # The floor is now 1.7.219: `organizations_view`, `role_view` and
+      # `contact_show_live` import `PhoenixKitWeb.Components.Core.RowLink`, and
+      # that module first ships in 1.7.219 (verified by unpacking the published
+      # tarballs — absent in 1.7.218, present in 1.7.219 and 1.7.220). Without
+      # this, a clean checkout resolving an older core fails to compile with an
+      # undefined `row_link/1`; the local suite only passed because it runs with
+      # PHOENIX_KIT_PATH pointing at a core checkout.
+      pk_dep(:phoenix_kit, "~> 1.7 and >= 1.7.219"),
 
       # Hard, compile-time dep for the contact profile's Comments tab
       # (`use PhoenixKitComments.Embed` + CommentsComponent). Runtime-gated on
