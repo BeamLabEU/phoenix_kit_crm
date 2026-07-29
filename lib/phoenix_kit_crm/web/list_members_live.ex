@@ -632,23 +632,25 @@ defmodule PhoenixKitCRM.Web.ListMembersLive do
       </.table_default>
 
       <div :if={@page > 1 or @has_more?} class="flex items-center justify-center gap-2">
-        <button
-          type="button"
-          class="btn btn-sm btn-ghost"
-          disabled={@page <= 1}
-          phx-click="prev_page"
-        >
-          <.icon name="hero-chevron-left" class="w-4 h-4" /> {gettext("Previous")}
-        </button>
         <span class="text-sm text-base-content/60">{gettext("Page %{n}", n: @page)}</span>
-        <button
-          type="button"
-          class="btn btn-sm btn-ghost"
-          disabled={!@has_more?}
-          phx-click="next_page"
-        >
-          {gettext("Next")} <.icon name="hero-chevron-right" class="w-4 h-4" />
-        </button>
+        <div class="join">
+          <button
+            type="button"
+            class="join-item btn btn-sm btn-ghost"
+            disabled={@page <= 1}
+            phx-click="prev_page"
+          >
+            <.icon name="hero-chevron-left" class="w-4 h-4" /> {gettext("Previous")}
+          </button>
+          <button
+            type="button"
+            class="join-item btn btn-sm btn-ghost"
+            disabled={!@has_more?}
+            phx-click="next_page"
+          >
+            {gettext("Next")} <.icon name="hero-chevron-right" class="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </div>
     """
