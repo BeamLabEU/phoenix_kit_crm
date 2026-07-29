@@ -383,16 +383,17 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
               :for={order <- @contact_orders}
               class="relative transform-gpu cursor-pointer"
             >
+              <%!-- Every field, including the link target, comes from the host
+                   bridge. This package is host-agnostic: it must not know where
+                   a given application keeps its orders, or which column holds
+                   the number. A route rename in the host would otherwise ship a
+                   dead link here that nothing can catch. --%>
               <.table_default_cell class="font-medium">
                 <.row_link
-                  navigate={PhoenixKit.Utils.Routes.path("/admin/andi/orders/#{order.uuid}/edit")}
-                  label={
-                    gettext("Open order #%{number}",
-                      number: order.data["order_number"] || order.uuid
-                    )
-                  }
+                  navigate={order.path}
+                  label={gettext("Open order #%{number}", number: order.number)}
                 />
-                #{order.data["order_number"]}
+                #{order.number}
               </.table_default_cell>
               <.table_default_cell class="text-base-content/70">
                 {Calendar.strftime(order.inserted_at, "%Y-%m-%d")}
