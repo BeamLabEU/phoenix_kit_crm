@@ -125,6 +125,19 @@ defmodule PhoenixKitCRM do
         gettext_backend: PhoenixKitCRM.Gettext
       ),
       Tab.new!(
+        id: :admin_crm_comparison,
+        label: "Compare",
+        icon: "hero-arrows-right-left",
+        path: "/admin/crm/comparison",
+        priority: 656,
+        level: :admin,
+        permission: module_key(),
+        match: :prefix,
+        parent: :admin_crm,
+        live_view: {PhoenixKitCRM.Web.ComparisonLive, :index},
+        gettext_backend: PhoenixKitCRM.Gettext
+      ),
+      Tab.new!(
         id: :admin_crm_organizations,
         label: "Organizations",
         path: "/admin/crm/organizations",

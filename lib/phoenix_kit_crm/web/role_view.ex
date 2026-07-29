@@ -8,8 +8,15 @@ defmodule PhoenixKitCRM.Web.RoleView do
   use PhoenixKitCRM.Web.ColumnManagement
   use Gettext, backend: PhoenixKitCRM.Gettext
 
+  # `row_link/1` isn't part of the `:live_view` macro's default import set
+  # (confirmed: absent from `phoenix_kit_web.ex`'s `import` list), so each
+  # consumer imports it explicitly — the same `only:` form core's own
+  # `users.ex`/`activity/index.ex` use, restricted to keep this module's own
+  # `render_cell/3` clause dispatch unambiguous.
+  import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
+
   alias PhoenixKit.Users.Roles
-  alias PhoenixKitCRM.{ColumnConfig, Paths, Web.CellFormat, Web.ColumnModal}
+  alias PhoenixKitCRM.{ColumnConfig, Contacts, Paths, Web.CellFormat, Web.ColumnModal}
 
   alias PhoenixKitWeb.Components.Core.TableDefault
 
@@ -103,14 +110,9 @@ defmodule PhoenixKitCRM.Web.RoleView do
   defp maybe_reload_role(socket, _role_uuid), do: socket
 
   @impl true
-  def handle_event("navigate_to_user", %{"uuid" => uuid}, socket) do
-    {:noreply, push_navigate(socket, to: Paths.user_view(uuid))}
-  end
-
-  @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col mx-auto max-w-6xl px-4 py-6 gap-6">
+    <div class="flex flex-col px-4 py-6 gap-6">
       <TableDefault.table_default
         id="crm-role-users-table"
         toggleable
@@ -140,11 +142,13 @@ defmodule PhoenixKitCRM.Web.RoleView do
         <TableDefault.table_default_body>
           <TableDefault.table_default_row
             :for={user <- @users}
-            class="cursor-pointer"
-            phx-click="navigate_to_user"
-            phx-value-uuid={user.uuid}
+            class="relative transform-gpu cursor-pointer"
           >
-            <TableDefault.table_default_cell :for={col <- @selected_columns}>
+            <TableDefault.table_default_cell
+              :for={{col, index} <- Enum.with_index(@selected_columns)}
+              class={[col == "crm_contact" && "relative z-10"]}
+            >
+              <.row_link :if={index == 0} navigate={Paths.user_view(user.uuid)} label={user.email} />
               {render_cell(@column_meta, col, user)}
             </TableDefault.table_default_cell>
           </TableDefault.table_default_row>
@@ -186,6 +190,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
   defp render_cell(_meta, "registered", u), do: format_date(u.inserted_at)
   defp render_cell(_meta, "last_confirmed", u), do: format_date(u.confirmed_at)
   defp render_cell(_meta, "location", u), do: location(u)
+  defp render_cell(_meta, "crm_contact", u), do: crm_contact_cell(u.uuid)
 
   defp render_cell(meta, "custom_" <> _ = col, u),
     do: CellFormat.render_custom_cell(meta, col, u)
@@ -205,6 +210,20 @@ defmodule PhoenixKitCRM.Web.RoleView do
   defp card_title_link(u) do
     assigns = %{href: Paths.user_view(u.uuid), label: u.email}
     ~H|<.link navigate={@href} class="link link-hover font-medium">{@label}</.link>|
+  end
+
+  # "CRM contact" column — a link to the contact when this portal user is
+  # linked to one, "—" otherwise. Same lookup Batch F2's core card uses
+  # (`Contacts.get_by_user_uuid/1`), scoped here to the role being viewed.
+  defp crm_contact_cell(user_uuid) do
+    case Contacts.get_by_user_uuid(user_uuid) do
+      nil ->
+        "—"
+
+      contact ->
+        assigns = %{href: Paths.contact(contact.uuid)}
+        ~H|<.link navigate={@href} class="link link-hover">{gettext("View")}</.link>|
+    end
   end
 
   defp crm_status_html(true) do

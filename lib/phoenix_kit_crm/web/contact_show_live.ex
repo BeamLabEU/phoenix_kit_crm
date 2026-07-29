@@ -1,8 +1,9 @@
 defmodule PhoenixKitCRM.Web.ContactShowLive do
   @moduledoc """
   Show page for a CRM contact. Tabs: Overview, Interactions, Events always;
-  Files + Images when core Storage is enabled; Comments when the comments
-  module is enabled. The header shows a circular avatar (initials fallback).
+  Orders when the host app's `Andi.CRMBridge` is available; Files + Images
+  when core Storage is enabled; Comments when the comments module is
+  enabled. The header shows a circular avatar (initials fallback).
   """
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitCRM.Gettext
@@ -11,6 +12,21 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   use PhoenixKitComments.Embed
 
   require Logger
+
+  # Guarded soft-dependency on Andi (the host app) for the Orders tab. CRM has
+  # no compile-time dependency on Andi — `Andi.CRMBridge` is absent from this
+  # package's own mix.exs and its test suite — so a plain qualified call would
+  # warn under `--warnings-as-errors` there. Same idiom as
+  # `PhoenixKitCRM.StaffLink`'s guard on the optional `phoenix_kit_staff` dep
+  # (`staff_link.ex:1-5`) and core's own guard on this same optional CRM
+  # module (`phoenix_kit_web/live/users/user_details.ex:16,19`); `andi_available?/0`
+  # below gates every actual call at runtime.
+  @compile {:no_warn_undefined, Andi.CRMBridge}
+
+  # Not part of `use PhoenixKitWeb, :live_view`'s auto-imports (see
+  # `user_details.ex:12-14`) — explicit import needed for the Orders tab's
+  # row-link overlay.
+  import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Users.Auth.User
@@ -36,11 +52,15 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
       contact ->
         storage_enabled = storage_enabled?()
         comments_enabled = comments_available?()
+        andi_available = andi_available?()
 
         tab =
-          if params["tab"] in valid_tabs(storage_enabled, comments_enabled),
+          if params["tab"] in valid_tabs(storage_enabled, comments_enabled, andi_available),
             do: params["tab"],
             else: "overview"
+
+        contact_orders =
+          if andi_available, do: Andi.CRMBridge.orders_for_contact(contact), else: []
 
         {:noreply,
          socket
@@ -49,6 +69,8 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
          |> assign(:tab, tab)
          |> assign(:storage_enabled, storage_enabled)
          |> assign(:comments_enabled, comments_enabled)
+         |> assign(:andi_available, andi_available)
+         |> assign(:contact_orders, contact_orders)
          |> assign(:avatar_url, Attachments.avatar_url(contact))
          |> assign(:membership, Contacts.primary_membership(contact))
          |> assign(:tz_offset, tz_offset(socket.assigns[:phoenix_kit_current_user]))
@@ -197,14 +219,18 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
     )
   end
 
-  # Tab definitions drive both the nav and `valid_tabs/2` (deep-link clamp).
-  # Files + Images appear only when core Storage is enabled; Comments only when
-  # the comments module is enabled.
-  defp tab_defs(storage_enabled?, comments_enabled?) do
+  # Tab definitions drive both the nav and `valid_tabs/3` (deep-link clamp).
+  # Orders appears only when the host app's `Andi.CRMBridge` is available;
+  # Files + Images only when core Storage is enabled; Comments only when the
+  # comments module is enabled.
+  defp tab_defs(storage_enabled?, comments_enabled?, andi_available?) do
     [
       {"overview", gettext("Overview"), "hero-identification"},
       {"interactions", gettext("Interactions"), "hero-chat-bubble-left-right"}
     ]
+    |> maybe_concat(andi_available?, [
+      {"orders", gettext("Orders"), "hero-clipboard-document-list"}
+    ])
     |> maybe_concat(storage_enabled?, [
       {"files", gettext("Files"), "hero-document"},
       {"images", gettext("Images"), "hero-photo"}
@@ -218,9 +244,10 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   defp maybe_concat(list, true, extra), do: list ++ extra
   defp maybe_concat(list, false, _extra), do: list
 
-  defp valid_tabs(storage_enabled?, comments_enabled?),
+  defp valid_tabs(storage_enabled?, comments_enabled?, andi_available?),
     do:
-      Enum.map(tab_defs(storage_enabled?, comments_enabled?), fn {value, _label, _icon} ->
+      Enum.map(tab_defs(storage_enabled?, comments_enabled?, andi_available?), fn {value, _label,
+                                                                                   _icon} ->
         value
       end)
 
@@ -239,24 +266,31 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
     _ -> false
   end
 
+  # Whether the host app's order bridge is present. `Andi.CRMBridge` is not a
+  # dependency of this package (Andi depends on CRM, never the reverse), so
+  # this is `false` — safely, not an error — whenever this module runs outside
+  # the Andi app (this package's own test suite, `mix docs`, etc.).
+  defp andi_available? do
+    Code.ensure_loaded?(Andi.CRMBridge) and
+      function_exported?(Andi.CRMBridge, :orders_for_contact, 1)
+  rescue
+    _ -> false
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col mx-auto max-w-4xl px-4 py-6 gap-6">
+    <div class="flex flex-col px-4 py-6 gap-6">
       <div class="flex items-center justify-between flex-wrap gap-2">
         <div class="flex items-center gap-3">
           <.contact_avatar url={@avatar_url} contact={@contact} storage_enabled={@storage_enabled} />
           <div>
-            <.link navigate={Paths.contacts()} class="text-sm text-base-content/60 hover:underline">
-              ← {gettext("Contacts")}
-            </.link>
-            <h1 class="text-2xl font-bold flex items-center gap-2 mt-1">
-              {Contact.display_name(@contact)}
+            <div class="flex items-center gap-2">
               <.status_badge status={@contact.status} size={:sm} />
               <span :if={@contact.user_uuid} class="badge badge-success badge-sm gap-1">
                 <.icon name="hero-key-mini" class="w-3 h-3" /> {gettext("Login")}
               </span>
-            </h1>
+            </div>
             <div :if={@membership} class="text-sm text-base-content/60 mt-1">
               <.link navigate={Paths.company(@membership.company_uuid)} class="link link-hover">
                 {membership_company(@membership)}
@@ -271,7 +305,9 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
 
       <div role="tablist" class="tabs tabs-bordered">
         <.link
-          :for={{value, label, icon} <- tab_defs(@storage_enabled, @comments_enabled)}
+          :for={
+            {value, label, icon} <- tab_defs(@storage_enabled, @comments_enabled, @andi_available)
+          }
           patch={tab_path(@contact.uuid, value)}
           role="tab"
           class={["tab gap-1.5", @tab == value && "tab-active"]}
@@ -299,7 +335,19 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
           </div>
           <.field label={gettext("Role in company")} value={@membership && @membership.role_in_company} />
           <.field label={gettext("Department / team")} value={@membership && @membership.department} />
-          <.field label={gettext("Login account")} value={if(@contact.user_uuid, do: gettext("Connected"), else: gettext("None"))} />
+          <div>
+            <div class="text-xs uppercase tracking-wide text-base-content/50">{gettext("Login account")}</div>
+            <div class="text-sm">
+              <.link
+                :if={@contact.user_uuid}
+                navigate={Paths.user_view(@contact.user_uuid)}
+                class="link link-hover"
+              >
+                {gettext("View login account")}
+              </.link>
+              <span :if={!@contact.user_uuid}>{gettext("None")}</span>
+            </div>
+          </div>
           <div class="sm:col-span-2"><.field label={gettext("Notes")} value={@contact.notes} /></div>
         </div>
       </div>
@@ -314,6 +362,45 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
           phoenix_kit_current_user={@phoenix_kit_current_user}
           tz_offset={@tz_offset}
         />
+      </div>
+
+      <div :if={@tab == "orders"}>
+        <.empty_state
+          :if={@contact_orders == []}
+          icon="hero-clipboard-document-list"
+          title={gettext("No orders yet")}
+          description={gettext("Orders placed by this contact's linked login account will appear here.")}
+        />
+        <.table_default :if={@contact_orders != []}>
+          <.table_default_header>
+            <.table_default_row>
+              <.table_default_header_cell>{gettext("Order")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Created")}</.table_default_header_cell>
+            </.table_default_row>
+          </.table_default_header>
+          <.table_default_body>
+            <.table_default_row
+              :for={order <- @contact_orders}
+              class="relative transform-gpu cursor-pointer"
+            >
+              <%!-- Every field, including the link target, comes from the host
+                   bridge. This package is host-agnostic: it must not know where
+                   a given application keeps its orders, or which column holds
+                   the number. A route rename in the host would otherwise ship a
+                   dead link here that nothing can catch. --%>
+              <.table_default_cell class="font-medium">
+                <.row_link
+                  navigate={order.path}
+                  label={gettext("Open order #%{number}", number: order.number)}
+                />
+                #{order.number}
+              </.table_default_cell>
+              <.table_default_cell class="text-base-content/70">
+                {Calendar.strftime(order.inserted_at, "%Y-%m-%d")}
+              </.table_default_cell>
+            </.table_default_row>
+          </.table_default_body>
+        </.table_default>
       </div>
 
       <div :if={@tab == "events"}>

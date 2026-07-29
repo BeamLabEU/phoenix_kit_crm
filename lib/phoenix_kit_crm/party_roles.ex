@@ -1,7 +1,7 @@
 defmodule PhoenixKitCRM.PartyRoles do
   @moduledoc """
   Context for CRM party roles — marks an existing company or contact as a
-  `supplier`, `client`, or `partner` (see `PhoenixKitCRM.Schemas.PartyRole`).
+  `supplier`, `customer`, or `partner` (see `PhoenixKitCRM.Schemas.PartyRole`).
 
   Mutations are logged here (not in the LiveViews) because `grant_role/3`
   and `revoke_role/2` are called from both the company form and the contact

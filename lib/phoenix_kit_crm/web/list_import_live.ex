@@ -259,7 +259,7 @@ defmodule PhoenixKitCRM.Web.ListImportLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col mx-auto max-w-4xl px-4 py-6 gap-6">
+    <div class="flex flex-col px-4 py-6 gap-6">
       <div :if={@phase == :input} class="grid gap-6 md:grid-cols-2">
         <div class="card bg-base-100 shadow-sm">
           <div class="card-body gap-4">

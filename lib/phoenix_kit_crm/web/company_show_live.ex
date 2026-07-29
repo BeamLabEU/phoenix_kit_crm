@@ -192,19 +192,11 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col mx-auto max-w-4xl px-4 py-6 gap-6">
+    <div class="flex flex-col px-4 py-6 gap-6">
       <div class="flex items-center justify-between flex-wrap gap-2">
         <div class="flex items-center gap-3">
           <.company_logo url={@avatar_url} storage_enabled={@storage_enabled} />
-          <div>
-            <.link navigate={Paths.companies()} class="text-sm text-base-content/60 hover:underline">
-              ← {gettext("Companies")}
-            </.link>
-            <h1 class="text-2xl font-bold flex items-center gap-2 mt-1">
-              {Company.display_name(@company)}
-              <.status_badge status={@company.status} size={:sm} />
-            </h1>
-          </div>
+          <.status_badge status={@company.status} size={:sm} />
         </div>
         <.link navigate={Paths.company_edit(@company.uuid)} class="btn btn-outline btn-sm">
           <.icon name="hero-pencil-square" class="w-4 h-4" /> {gettext("Edit")}

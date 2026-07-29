@@ -72,22 +72,14 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
 
           <div class="divider"></div>
 
-          <div class="flex items-center justify-between">
-            <div>
-              <div class="font-medium">
-                {gettext("Enable CRM")}
-              </div>
-              <div class="text-xs text-base-content/60">
-                {gettext("Toggles this module on or off. Same setting as the admin Modules page.")}
-              </div>
-            </div>
-            <input
-              type="checkbox"
-              class="toggle toggle-primary"
-              phx-click="toggle"
-              checked={@enabled}
-            />
-          </div>
+          <.checkbox
+            name="crm_enabled"
+            checked={@enabled}
+            label={gettext("Enable CRM")}
+            phx-click="toggle"
+          >
+            <:description>{gettext("Toggles this module on or off. Same setting as the admin Modules page.")}</:description>
+          </.checkbox>
         </div>
       </div>
 

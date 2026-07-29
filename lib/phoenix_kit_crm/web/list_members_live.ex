@@ -374,7 +374,7 @@ defmodule PhoenixKitCRM.Web.ListMembersLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col mx-auto max-w-6xl px-4 py-6 gap-6">
+    <div class="flex flex-col px-4 py-6 gap-6">
       <div class="card bg-base-100 shadow-sm">
         <div class="card-body gap-4">
           <h2 class="font-semibold flex items-center gap-2">
@@ -632,23 +632,25 @@ defmodule PhoenixKitCRM.Web.ListMembersLive do
       </.table_default>
 
       <div :if={@page > 1 or @has_more?} class="flex items-center justify-center gap-2">
-        <button
-          type="button"
-          class="btn btn-sm btn-ghost"
-          disabled={@page <= 1}
-          phx-click="prev_page"
-        >
-          <.icon name="hero-chevron-left" class="w-4 h-4" /> {gettext("Previous")}
-        </button>
         <span class="text-sm text-base-content/60">{gettext("Page %{n}", n: @page)}</span>
-        <button
-          type="button"
-          class="btn btn-sm btn-ghost"
-          disabled={!@has_more?}
-          phx-click="next_page"
-        >
-          {gettext("Next")} <.icon name="hero-chevron-right" class="w-4 h-4" />
-        </button>
+        <div class="join">
+          <button
+            type="button"
+            class="join-item btn btn-sm btn-ghost"
+            disabled={@page <= 1}
+            phx-click="prev_page"
+          >
+            <.icon name="hero-chevron-left" class="w-4 h-4" /> {gettext("Previous")}
+          </button>
+          <button
+            type="button"
+            class="join-item btn btn-sm btn-ghost"
+            disabled={!@has_more?}
+            phx-click="next_page"
+          >
+            {gettext("Next")} <.icon name="hero-chevron-right" class="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </div>
     """

@@ -8,7 +8,7 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
   alias PhoenixKitCRM.{Activity, Companies, PartyRoles, Paths}
   alias PhoenixKitCRM.Schemas.Company
 
-  @role_filters ~w(supplier client)
+  @role_filters ~w(supplier customer)
   @page_size 25
 
   @impl true
@@ -110,7 +110,7 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col mx-auto max-w-6xl px-4 py-6 gap-6">
+    <div class="flex flex-col px-4 py-6 gap-6">
       <div class="flex items-center justify-between flex-wrap gap-2">
         <div role="tablist" class="tabs tabs-bordered">
           <.link
@@ -128,11 +128,11 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
             {gettext("Suppliers")}
           </.link>
           <.link
-            patch={companies_path(assigns, filter: "client", page: 1)}
+            patch={companies_path(assigns, filter: "customer", page: 1)}
             role="tab"
-            class={["tab", @filter == "client" && "tab-active"]}
+            class={["tab", @filter == "customer" && "tab-active"]}
           >
-            {gettext("Clients")}
+            {gettext("Customers")}
           </.link>
           <.link
             :if={@trashed_count > 0 or @filter == "trashed"}

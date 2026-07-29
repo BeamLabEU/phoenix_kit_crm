@@ -1,9 +1,9 @@
 defmodule PhoenixKitCRM.Schemas.PartyRole do
   @moduledoc """
   A commercial party role — marks an existing CRM company or contact as a
-  `supplier`, `client`, or `partner` (Odoo's `supplier_rank`/`customer_rank`,
+  `supplier`, `customer`, or `partner` (Odoo's `supplier_rank`/`customer_rank`,
   SAP's Business-Partner roles, expressed as rows). One party can hold
-  several roles at once (a company that's both supplier and client has two
+  several roles at once (a company that's both supplier and customer has two
   rows).
 
   `roleable_type` + `roleable_uuid` point at `phoenix_kit_crm_companies` or
@@ -25,7 +25,7 @@ defmodule PhoenixKitCRM.Schemas.PartyRole do
   @primary_key {:uuid, UUIDv7, autogenerate: true}
 
   @roleable_types ~w(company contact)
-  @roles ~w(supplier client partner)
+  @roles ~w(supplier customer partner)
 
   @type t :: %__MODULE__{
           uuid: UUIDv7.t() | nil,
