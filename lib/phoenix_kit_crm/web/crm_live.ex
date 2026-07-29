@@ -20,9 +20,7 @@ defmodule PhoenixKitCRM.Web.CRMLive do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitCRM.Gettext
 
-  alias PhoenixKitCRM.{Companies, Contacts, Paths, RoleSettings}
-  alias PhoenixKitCRM.Schemas.{ContactList, Interaction}
-  alias PhoenixKit.RepoHelper
+  alias PhoenixKitCRM.{Companies, Contacts, Interactions, Lists, Paths, RoleSettings}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -50,14 +48,17 @@ defmodule PhoenixKitCRM.Web.CRMLive do
     end
   end
 
+  # Every count must match what the page it links to actually shows, or the
+  # card is a lie the user discovers one click later: companies/contacts
+  # exclude trashed rows (their lists' default scope) and lists count only
+  # active ones (the Lists page opens on the Active tab). Interactions have no
+  # status, so the total is the total.
   defp load_counts do
-    repo = RepoHelper.repo()
-
     %{
       companies: Companies.count_companies(),
       contacts: Contacts.count_contacts(),
-      interactions: repo.aggregate(Interaction, :count, :uuid),
-      lists: repo.aggregate(ContactList, :count, :uuid)
+      interactions: Interactions.count_interactions(),
+      lists: Lists.count_lists(status: "active")
     }
   end
 
@@ -107,9 +108,11 @@ defmodule PhoenixKitCRM.Web.CRMLive do
         />
       </div>
 
-      <%!-- Shown only while the CRM is genuinely empty: the next step is an
-           operator action, not a button here. Running the import writes rows, so
-           it stays a documented command a human runs deliberately. --%>
+      <%!-- Shown only while the CRM is genuinely empty. The routes offered here
+           are this package's own — naming a specific host application's
+           backfill task would break the same boundary the moduledoc above
+           relies on, and would print a command that does not exist in any
+           other consumer. A host that ships an importer documents it itself. --%>
       <div
         :if={@enabled && @counts && @counts.contacts == 0}
         class="card bg-base-100 shadow-sm border border-base-200"
@@ -121,12 +124,17 @@ defmodule PhoenixKitCRM.Web.CRMLive do
           </h3>
           <p class="text-sm text-base-content/70">
             {gettext(
-              "Existing customers can be imported from the host application's orders. The import reports what it would create before it writes anything."
+              "Add a contact by hand, or paste/upload a batch of them into a contact list."
             )}
           </p>
-          <code class="text-xs bg-base-200 rounded px-2 py-1 self-start">
-            mix andi.crm_backfill_clients
-          </code>
+          <div class="flex flex-wrap gap-2">
+            <.link navigate={Paths.contact_new()} class="btn btn-primary btn-sm">
+              <.icon name="hero-plus" class="w-4 h-4" /> {gettext("New contact")}
+            </.link>
+            <.link navigate={Paths.lists()} class="btn btn-outline btn-sm">
+              <.icon name="hero-queue-list" class="w-4 h-4" /> {gettext("Import into a list")}
+            </.link>
+          </div>
         </div>
       </div>
 

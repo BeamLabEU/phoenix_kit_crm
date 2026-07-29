@@ -112,6 +112,15 @@ defmodule PhoenixKitCRM.Lists do
     |> repo().all()
   end
 
+  @doc "Same `:status` / `:subscribable` filters as `list_lists/1`, as a count."
+  @spec count_lists(keyword()) :: non_neg_integer()
+  def count_lists(opts \\ []) do
+    ContactList
+    |> maybe_filter_status(opts)
+    |> maybe_filter_subscribable(opts)
+    |> repo().aggregate(:count, :uuid)
+  end
+
   @spec get_list(UUIDv7.t() | String.t() | nil) :: ContactList.t() | nil
   def get_list(uuid) do
     case Ecto.UUID.cast(uuid) do

@@ -42,7 +42,7 @@ defmodule PhoenixKitCRM do
   end
 
   @impl PhoenixKit.Module
-  def version, do: "0.3.3"
+  def version, do: "0.4.0"
 
   @impl PhoenixKit.Module
   def permission_metadata do
@@ -129,7 +129,10 @@ defmodule PhoenixKitCRM do
         label: "Compare",
         icon: "hero-arrows-right-left",
         path: "/admin/crm/comparison",
-        priority: 656,
+        # Compare works on contact lists, so it sits right after Lists — which
+        # is where it is declared here. Priority, not source order, is what the
+        # sidebar sorts on.
+        priority: 655,
         level: :admin,
         permission: module_key(),
         match: :prefix,
@@ -141,7 +144,7 @@ defmodule PhoenixKitCRM do
         id: :admin_crm_organizations,
         label: "Organizations",
         path: "/admin/crm/organizations",
-        priority: 655,
+        priority: 656,
         level: :admin,
         permission: module_key(),
         match: :prefix,

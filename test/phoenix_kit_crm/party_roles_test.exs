@@ -20,6 +20,17 @@ defmodule PhoenixKitCRM.PartyRolesTest do
     contact
   end
 
+  # `PartyRole.changeset/2` rejects "client" since the rename, so a legacy row
+  # can only be produced the way 0.2.x produced it — written straight in.
+  defp legacy_client_role!(roleable, type) do
+    PhoenixKit.RepoHelper.repo().insert!(%PartyRole{
+      roleable_type: type,
+      roleable_uuid: roleable.uuid,
+      role: "client",
+      is_active: true
+    })
+  end
+
   describe "grant_role/3" do
     test "grants a role to a company" do
       company = company_fixture()
@@ -383,6 +394,64 @@ defmodule PhoenixKitCRM.PartyRolesTest do
         actor_uuid: actor_uuid,
         metadata_has: %{"role" => "customer"}
       )
+    end
+  end
+
+  describe "rename_legacy_client_roles/0 (the 0.2.x `client` → `customer` upgrade)" do
+    test "a stranded client row becomes a manageable customer role" do
+      company = company_fixture()
+      legacy = legacy_client_role!(company, "company")
+
+      # The state this fixes: granted, active, and invisible to every code
+      # path that has moved on to "customer".
+      refute PartyRoles.has_role?(company, "customer")
+      assert PartyRoles.list_companies_with_role("customer") == []
+      assert PartyRoles.count_legacy_client_roles() == 1
+
+      assert %{renamed: 1, dropped: 0} = PartyRoles.rename_legacy_client_roles()
+
+      assert PartyRoles.has_role?(company, "customer")
+      assert [%{uuid: uuid}] = PartyRoles.list_companies_with_role("customer")
+      assert uuid == company.uuid
+      # Same row, rewritten — not a new grant.
+      assert [%{uuid: role_uuid}] = PartyRoles.list_roles(company)
+      assert role_uuid == legacy.uuid
+    end
+
+    test "renames contact rows too, not just companies" do
+      contact = contact_fixture()
+      legacy_client_role!(contact, "contact")
+
+      assert %{renamed: 1, dropped: 0} = PartyRoles.rename_legacy_client_roles()
+
+      assert [%{uuid: uuid}] = PartyRoles.list_contacts_with_role("customer")
+      assert uuid == contact.uuid
+    end
+
+    test "drops the legacy row when the party already holds customer" do
+      company = company_fixture()
+      {:ok, current} = PartyRoles.grant_role(company, "customer")
+      legacy_client_role!(company, "company")
+
+      # Renaming this one would collide with the (type, uuid, role) unique index.
+      assert %{renamed: 0, dropped: 1} = PartyRoles.rename_legacy_client_roles()
+
+      assert [%{uuid: uuid}] = PartyRoles.list_roles(company)
+      assert uuid == current.uuid
+    end
+
+    test "leaves supplier and partner rows alone and is idempotent" do
+      company = company_fixture()
+      {:ok, _} = PartyRoles.grant_role(company, "supplier")
+      legacy_client_role!(company, "company")
+
+      assert %{renamed: 1, dropped: 0} = PartyRoles.rename_legacy_client_roles()
+      assert %{renamed: 0, dropped: 0} = PartyRoles.rename_legacy_client_roles()
+
+      assert PartyRoles.count_legacy_client_roles() == 0
+
+      assert Enum.sort(PartyRoles.active_roles_map("company", [company.uuid])[company.uuid]) ==
+               ["customer", "supplier"]
     end
   end
 end

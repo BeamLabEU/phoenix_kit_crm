@@ -75,6 +75,10 @@ defmodule PhoenixKitCRM.Interactions do
     |> repo().preload([:contact, parties: from(p in InteractionParty, order_by: p.position)])
   end
 
+  @doc "Total logged interactions. Interactions have no soft-delete status."
+  @spec count_interactions() :: non_neg_integer()
+  def count_interactions, do: repo().aggregate(Interaction, :count, :uuid)
+
   @spec get_interaction(UUIDv7.t() | String.t() | nil) :: Interaction.t() | nil
   def get_interaction(uuid) do
     with {:ok, _} <- Ecto.UUID.cast(uuid),

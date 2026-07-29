@@ -355,6 +355,73 @@ defmodule PhoenixKitCRM.PartyRoles do
     end
   end
 
+  # ── Legacy data ─────────────────────────────────────────────────────
+
+  @legacy_role "client"
+  @renamed_role "customer"
+
+  @doc """
+  One-time normalization of legacy `"client"` party-role rows to `"customer"`.
+
+  0.2.x shipped `supplier`/`client`/`partner`; the role was renamed to
+  `customer` after that, and nothing rewrote the rows already in a host's
+  database. A stranded `"client"` row is not visible under the Customers
+  filter (which queries `"customer"`), has no checkbox on the company/contact
+  form (`PartyRole.roles/0` no longer lists it, so `sync_roles/3` never
+  touches it) and renders as a raw grey badge. Run this once per database on
+  upgrade — see `mix phoenix_kit_crm.rename_client_role`.
+
+  A party that already holds `"customer"` would collide with the
+  `(roleable_type, roleable_uuid, role)` unique index, so its legacy row is
+  dropped instead of renamed: the newer row is the authoritative one. Both
+  steps run in one transaction, and the whole thing is idempotent — a second
+  run reports `%{renamed: 0, dropped: 0}`.
+  """
+  @spec rename_legacy_client_roles() :: %{renamed: non_neg_integer(), dropped: non_neg_integer()}
+  def rename_legacy_client_roles do
+    {:ok, result} =
+      repo().transaction(fn ->
+        {dropped, _} =
+          PartyRole
+          |> from(as: :legacy)
+          |> where([legacy: p], p.role == ^@legacy_role)
+          |> where(
+            [legacy: p],
+            exists(
+              from(c in PartyRole,
+                where: c.role == ^@renamed_role,
+                where: c.roleable_type == parent_as(:legacy).roleable_type,
+                where: c.roleable_uuid == parent_as(:legacy).roleable_uuid,
+                select: 1
+              )
+            )
+          )
+          |> repo().delete_all()
+
+        {renamed, _} =
+          PartyRole
+          |> where([p], p.role == ^@legacy_role)
+          |> repo().update_all(
+            set: [
+              role: @renamed_role,
+              updated_at: DateTime.utc_now() |> DateTime.truncate(:second)
+            ]
+          )
+
+        %{renamed: renamed, dropped: dropped}
+      end)
+
+    result
+  end
+
+  @doc "How many legacy `\"client\"` party-role rows are still present."
+  @spec count_legacy_client_roles() :: non_neg_integer()
+  def count_legacy_client_roles do
+    PartyRole
+    |> where([p], p.role == ^@legacy_role)
+    |> repo().aggregate(:count, :uuid)
+  end
+
   # ── Helpers ─────────────────────────────────────────────────────────
 
   defp roleable_type(%Company{}), do: "company"

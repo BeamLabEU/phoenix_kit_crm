@@ -132,6 +132,20 @@ defmodule PhoenixKitCRM.ListsTest do
     end
   end
 
+  describe "count_lists/1" do
+    test "honors the same filters as list_lists/1" do
+      _active = list_fixture(%{"name" => "Active One"})
+      {:ok, _archived} = list_fixture(%{"name" => "Archived One"}) |> Lists.archive_list()
+
+      # The Overview count card counts active lists, because the Lists page it
+      # links to opens on the Active tab — an unfiltered total would promise
+      # rows the next screen doesn't show.
+      assert Lists.count_lists(status: "active") == 1
+      assert Lists.count_lists(status: "archived") == 1
+      assert Lists.count_lists() == 2
+    end
+  end
+
   describe "get_list/1, get_list!/1, get_list_by_slug/1" do
     test "get_list/1 returns nil for a bad id" do
       refute Lists.get_list(Ecto.UUID.generate())

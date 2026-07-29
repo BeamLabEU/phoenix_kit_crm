@@ -59,8 +59,7 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
             do: params["tab"],
             else: "overview"
 
-        contact_orders =
-          if andi_available, do: Andi.CRMBridge.orders_for_contact(contact), else: []
+        contact_orders = load_contact_orders(andi_available, tab, contact)
 
         {:noreply,
          socket
@@ -276,6 +275,24 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   rescue
     _ -> false
   end
+
+  # Only the Orders tab needs the host's orders — every other tab switch
+  # re-runs `handle_params/3`, and querying the host on each one buys nothing.
+  #
+  # Rescued for the same reason every other soft-dependency call here is
+  # (`storage_enabled?/0`, `comments_available?/0`, `StaffLink`): the bridge is
+  # the host's code, outside this package's tests and its release cycle. An
+  # exception raised in there must cost the Orders tab its rows, not take down
+  # a contact profile whose other five tabs never touch it.
+  defp load_contact_orders(true, "orders", contact) do
+    Andi.CRMBridge.orders_for_contact(contact)
+  rescue
+    e ->
+      Logger.warning("[CRM] Andi.CRMBridge.orders_for_contact failed: #{Exception.message(e)}")
+      []
+  end
+
+  defp load_contact_orders(_andi_available?, _tab, _contact), do: []
 
   @impl true
   def render(assigns) do

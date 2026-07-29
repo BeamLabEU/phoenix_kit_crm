@@ -121,6 +121,27 @@ defmodule PhoenixKitCRM.Contacts do
     end
   end
 
+  @doc """
+  `%{user_uuid => contact}` for the given login users — the batched form of
+  `get_by_user_uuid/1`, for table views that would otherwise query once per
+  row. Users with no linked contact are absent from the map.
+  """
+  @spec map_by_user_uuids([UUIDv7.t() | String.t()]) :: %{optional(String.t()) => Contact.t()}
+  def map_by_user_uuids([]), do: %{}
+
+  def map_by_user_uuids(user_uuids) when is_list(user_uuids) do
+    # Drop malformed ids so one bad element can't raise an Ecto cast error.
+    case Enum.filter(user_uuids, &valid_uuid?/1) do
+      [] ->
+        %{}
+
+      valid ->
+        from(c in Contact, where: c.user_uuid in ^valid)
+        |> repo().all()
+        |> Map.new(&{&1.user_uuid, &1})
+    end
+  end
+
   @doc "The contact's primary company membership (or the first), or nil."
   @spec primary_membership(Contact.t()) :: CompanyMembership.t() | nil
   def primary_membership(%Contact{company_memberships: memberships})

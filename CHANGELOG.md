@@ -4,6 +4,74 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] - 2026-07-29
+
+### Upgrade note — run the party-role data migration
+
+The commercial party role `client` is now `customer`. Rows written by 0.2.x /
+0.3.x keep `role = "client"` and are invisible to the renamed code: absent
+from the Customers filter, absent from the company/contact role checkboxes,
+and rendered as a raw grey badge. Rewrite them once per database:
+
+```bash
+mix phoenix_kit_crm.rename_client_role           # dry-run: reports the count
+mix phoenix_kit_crm.rename_client_role --apply   # rewrite
+```
+
+The task is idempotent and a no-op on databases that never granted the role.
+
+### Added
+
+- **`Compare` admin tab** (`/admin/crm/comparison`) — contacts subscribed to
+  every one of several selected lists (PR #17).
+- **Contact ⇄ login-account linkage** (PR #17): a `CRM contact` column on the
+  per-role users table linking to the matching contact, and a real link from a
+  contact's Overview to its login account.
+- **Orders tab on the contact profile**, populated by the host application's
+  optional `Andi.CRMBridge` and hidden entirely when that bridge is absent
+  (PR #17).
+- **CRM landing page** — company / contact / interaction / list counts, each
+  linking to the page that manages it, plus a clearer "Portal access" section
+  for the PhoenixKit roles that may open the CRM (PR #17).
+- `mix phoenix_kit_crm.rename_client_role` — the `client` → `customer` data
+  migration described above.
+- `PhoenixKitCRM.Contacts.map_by_user_uuids/1`,
+  `PhoenixKitCRM.Lists.count_lists/1`,
+  `PhoenixKitCRM.Interactions.count_interactions/0`, and
+  `PhoenixKitCRM.PartyRoles.{rename_legacy_client_roles/0,
+  count_legacy_client_roles/0}`.
+
+### Changed
+
+- **`client` → `customer`** throughout `PartyRole`, the contacts/companies role
+  filters and the role labels/badges (PR #17). See the upgrade note above.
+- **UI standardisation** (PR #17): page wrappers no longer clamp to
+  `max-w-*`, `phx-click` checkboxes use core's `<.checkbox>`, list-members
+  pagination uses `join` styling, and clickable table rows use core's
+  `<.row_link>` stretched-link overlay instead of a `phx-click` handler. This
+  raises the `phoenix_kit` floor to `>= 1.7.219`, the first release shipping
+  `PhoenixKitWeb.Components.Core.RowLink`.
+- The `Compare` tab now sorts directly after `Lists` in the sidebar rather than
+  after `Organizations`.
+
+### Fixed
+
+- **The `CRM contact` column issued one query per table row, inside `render/1`**
+  — so every re-render (opening the column modal, toggling card/table view)
+  re-ran the whole set, not just the initial load. It is now a single batched
+  lookup per page load, skipped entirely when the column isn't selected.
+- **A row's stretched link could collapse onto a single cell.** `relative` on
+  the `crm_contact` cell made that cell the row-link overlay's positioned
+  ancestor whenever the user ordered it first, so the row stopped being
+  clickable. The link inside the cell lifts itself above the overlay instead.
+- **The host order bridge was queried on every contact-profile tab switch**,
+  not just the Orders tab, and was not rescued — an exception in host code took
+  down the whole profile rather than one tab.
+- **The Overview "Lists" count included archived lists** while the Lists page it
+  links to opens on Active, so the card disagreed with the page one click later.
+- The CRM landing page no longer prints a specific host application's backfill
+  mix task, which does not exist in any other consumer of this package.
+
 ## [0.3.3] - 2026-07-20
 
 ### Fixed

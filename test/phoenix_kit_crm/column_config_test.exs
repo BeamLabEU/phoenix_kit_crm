@@ -20,6 +20,10 @@ defmodule PhoenixKitCRM.ColumnConfigTest do
       ids = Enum.map(standard, &elem(&1, 0))
       assert "email" in ids
       assert hd(ids) == "email"
+      # Every id here needs a matching `render_cell/4` clause in
+      # `PhoenixKitCRM.Web.RoleView`; that module's catch-all renders "—", so a
+      # column added on one side and forgotten on the other fails silently.
+      assert "crm_contact" in ids
     end
 
     test "ignores the role uuid — same columns for any role" do

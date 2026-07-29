@@ -9,6 +9,12 @@ defmodule PhoenixKitCRM.ContactsTest do
     contact
   end
 
+  # `connect_user/2` wants a real `%User{}`; the link itself is just the
+  # controlled changeset, which is all these tests need.
+  defp link_user(contact, user_uuid) do
+    contact |> Contact.link_user_changeset(user_uuid) |> PhoenixKit.RepoHelper.repo().update()
+  end
+
   describe "create_contact/1" do
     test "creates an active contact from a name" do
       assert {:ok, %Contact{} = c} = Contacts.create_contact(%{"name" => "Ada Lovelace"})
@@ -155,6 +161,25 @@ defmodule PhoenixKitCRM.ContactsTest do
     test "returns nil for nil and for a malformed uuid (no cast error)" do
       assert Contacts.get_by_user_uuid(nil) == nil
       assert Contacts.get_by_user_uuid("not-a-uuid") == nil
+    end
+  end
+
+  describe "map_by_user_uuids/1" do
+    test "keys linked contacts by user_uuid; unlinked users are simply absent" do
+      linked_user_uuid = Ecto.UUID.generate()
+      unlinked_user_uuid = Ecto.UUID.generate()
+      contact = contact_fixture(%{"name" => "Linked"})
+      {:ok, contact} = link_user(contact, linked_user_uuid)
+
+      map = Contacts.map_by_user_uuids([linked_user_uuid, unlinked_user_uuid])
+
+      assert map[linked_user_uuid].uuid == contact.uuid
+      refute Map.has_key?(map, unlinked_user_uuid)
+    end
+
+    test "empty input and malformed uuids yield an empty map instead of raising" do
+      assert Contacts.map_by_user_uuids([]) == %{}
+      assert Contacts.map_by_user_uuids(["not-a-uuid"]) == %{}
     end
   end
 

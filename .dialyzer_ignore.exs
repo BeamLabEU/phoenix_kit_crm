@@ -13,7 +13,17 @@
 # it, and its success-typing analysis then "sees" MapSet's internal (opaque)
 # `:map` field structurally. This is the same class of stdlib opaque-type false
 # positive as the Gettext entry above, not a real type error.
+#
+# `ContactShowLive`'s Orders tab calls `Andi.CRMBridge.orders_for_contact/1`, a
+# soft dependency on the host application. Andi depends on CRM, never the
+# reverse, so the module is genuinely absent from this package's PLT and
+# Dialyzer is right that it "does not exist" here — that is the design.
+# `@compile {:no_warn_undefined, Andi.CRMBridge}` silences the compiler's
+# equivalent warning; this entry is its Dialyzer counterpart. `andi_available?/0`
+# (`Code.ensure_loaded?` + `function_exported?`, rescued) gates every call at
+# runtime, and `load_contact_orders/3` rescues the call itself.
 [
   {"lib/phoenix_kit_crm/gettext.ex", :call_without_opaque},
-  {"lib/phoenix_kit_crm/lists/import.ex", :contract_with_opaque}
+  {"lib/phoenix_kit_crm/lists/import.ex", :contract_with_opaque},
+  {"lib/phoenix_kit_crm/web/contact_show_live.ex", :unknown_function}
 ]
