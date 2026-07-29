@@ -374,7 +374,7 @@ defmodule PhoenixKitCRM.Web.ListMembersLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col mx-auto max-w-6xl px-4 py-6 gap-6">
+    <div class="flex flex-col px-4 py-6 gap-6">
       <div class="card bg-base-100 shadow-sm">
         <div class="card-body gap-4">
           <h2 class="font-semibold flex items-center gap-2">

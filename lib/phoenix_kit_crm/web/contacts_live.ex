@@ -107,7 +107,7 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col mx-auto max-w-6xl px-4 py-6 gap-6">
+    <div class="flex flex-col px-4 py-6 gap-6">
       <div class="flex items-center justify-between flex-wrap gap-2">
         <div role="tablist" class="tabs tabs-bordered">
           <.link

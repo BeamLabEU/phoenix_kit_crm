@@ -73,7 +73,7 @@ defmodule PhoenixKitCRM.Web.ListsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col mx-auto max-w-6xl px-4 py-6 gap-6">
+    <div class="flex flex-col px-4 py-6 gap-6">
       <div role="tablist" class="tabs tabs-bordered">
         <.link patch={Paths.lists()} role="tab" class={["tab", @filter == "active" && "tab-active"]}>
           {gettext("Active")}
