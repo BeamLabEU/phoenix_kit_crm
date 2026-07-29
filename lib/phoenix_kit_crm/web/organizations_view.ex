@@ -12,6 +12,13 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
   use PhoenixKitCRM.Web.ColumnManagement
   use Gettext, backend: PhoenixKitCRM.Gettext
 
+  # `row_link/1` isn't part of the `:live_view` macro's default import set
+  # (confirmed: absent from `phoenix_kit_web.ex`'s `import` list), so each
+  # consumer imports it explicitly — the same `only:` form core's own
+  # `users.ex`/`activity/index.ex` use, restricted to keep this module's own
+  # `render_cell/3` clause dispatch unambiguous.
+  import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
+
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.{ColumnConfig, Paths, Web.CellFormat, Web.ColumnModal}
@@ -66,11 +73,6 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
   end
 
   @impl true
-  def handle_event("navigate_to_user", %{"uuid" => uuid}, socket) do
-    {:noreply, push_navigate(socket, to: Paths.user_view(uuid))}
-  end
-
-  @impl true
   def render(assigns) do
     ~H"""
     <div class="flex flex-col px-4 py-6 gap-6">
@@ -105,11 +107,14 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
         <TableDefault.table_default_body>
           <TableDefault.table_default_row
             :for={user <- @users}
-            class="cursor-pointer"
-            phx-click="navigate_to_user"
-            phx-value-uuid={user.uuid}
+            class="relative transform-gpu cursor-pointer"
           >
-            <TableDefault.table_default_cell :for={col <- @selected_columns}>
+            <TableDefault.table_default_cell :for={{col, index} <- Enum.with_index(@selected_columns)}>
+              <.row_link
+                :if={index == 0}
+                navigate={Paths.user_view(user.uuid)}
+                label={Map.get(user, :organization_name) || user.email}
+              />
               {render_cell(@column_meta, col, user)}
             </TableDefault.table_default_cell>
           </TableDefault.table_default_row>
