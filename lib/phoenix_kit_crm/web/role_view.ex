@@ -9,7 +9,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
   use Gettext, backend: PhoenixKitCRM.Gettext
 
   alias PhoenixKit.Users.Roles
-  alias PhoenixKitCRM.{ColumnConfig, Paths, Web.CellFormat, Web.ColumnModal}
+  alias PhoenixKitCRM.{ColumnConfig, Contacts, Paths, Web.CellFormat, Web.ColumnModal}
 
   alias PhoenixKitWeb.Components.Core.TableDefault
 
@@ -186,6 +186,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
   defp render_cell(_meta, "registered", u), do: format_date(u.inserted_at)
   defp render_cell(_meta, "last_confirmed", u), do: format_date(u.confirmed_at)
   defp render_cell(_meta, "location", u), do: location(u)
+  defp render_cell(_meta, "crm_contact", u), do: crm_contact_cell(u.uuid)
 
   defp render_cell(meta, "custom_" <> _ = col, u),
     do: CellFormat.render_custom_cell(meta, col, u)
@@ -205,6 +206,20 @@ defmodule PhoenixKitCRM.Web.RoleView do
   defp card_title_link(u) do
     assigns = %{href: Paths.user_view(u.uuid), label: u.email}
     ~H|<.link navigate={@href} class="link link-hover font-medium">{@label}</.link>|
+  end
+
+  # "CRM contact" column — a link to the contact when this portal user is
+  # linked to one, "—" otherwise. Same lookup Batch F2's core card uses
+  # (`Contacts.get_by_user_uuid/1`), scoped here to the role being viewed.
+  defp crm_contact_cell(user_uuid) do
+    case Contacts.get_by_user_uuid(user_uuid) do
+      nil ->
+        "—"
+
+      contact ->
+        assigns = %{href: Paths.contact(contact.uuid)}
+        ~H|<.link navigate={@href} class="link link-hover">{gettext("View")}</.link>|
+    end
   end
 
   defp crm_status_html(true) do

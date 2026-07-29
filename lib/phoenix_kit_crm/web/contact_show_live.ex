@@ -299,7 +299,19 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
           </div>
           <.field label={gettext("Role in company")} value={@membership && @membership.role_in_company} />
           <.field label={gettext("Department / team")} value={@membership && @membership.department} />
-          <.field label={gettext("Login account")} value={if(@contact.user_uuid, do: gettext("Connected"), else: gettext("None"))} />
+          <div>
+            <div class="text-xs uppercase tracking-wide text-base-content/50">{gettext("Login account")}</div>
+            <div class="text-sm">
+              <.link
+                :if={@contact.user_uuid}
+                navigate={Paths.user_view(@contact.user_uuid)}
+                class="link link-hover"
+              >
+                {gettext("View login account")}
+              </.link>
+              <span :if={!@contact.user_uuid}>{gettext("None")}</span>
+            </div>
+          </div>
           <div class="sm:col-span-2"><.field label={gettext("Notes")} value={@contact.notes} /></div>
         </div>
       </div>
