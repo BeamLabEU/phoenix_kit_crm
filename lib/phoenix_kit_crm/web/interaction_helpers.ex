@@ -7,6 +7,7 @@ defmodule PhoenixKitCRM.Web.InteractionHelpers do
   """
 
   use Phoenix.Component
+  use Gettext, backend: PhoenixKitCRM.Gettext
 
   alias PhoenixKitCRM.{Paths, StaffLink}
 
@@ -61,7 +62,7 @@ defmodule PhoenixKitCRM.Web.InteractionHelpers do
   @spec snapshot_title(map() | nil) :: String.t() | nil
   def snapshot_title(snapshot) when is_map(snapshot) do
     case snapshot["captured_at"] do
-      ts when is_binary(ts) -> Gettext.gettext(PhoenixKitCRM.Gettext, "Captured %{ts}", ts: ts)
+      ts when is_binary(ts) -> gettext("Captured %{ts}", ts: ts)
       _ -> nil
     end
   end
