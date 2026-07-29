@@ -285,16 +285,12 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
         <div class="flex items-center gap-3">
           <.contact_avatar url={@avatar_url} contact={@contact} storage_enabled={@storage_enabled} />
           <div>
-            <.link navigate={Paths.contacts()} class="text-sm text-base-content/60 hover:underline">
-              ← {gettext("Contacts")}
-            </.link>
-            <h1 class="text-2xl font-bold flex items-center gap-2 mt-1">
-              {Contact.display_name(@contact)}
+            <div class="flex items-center gap-2">
               <.status_badge status={@contact.status} size={:sm} />
               <span :if={@contact.user_uuid} class="badge badge-success badge-sm gap-1">
                 <.icon name="hero-key-mini" class="w-3 h-3" /> {gettext("Login")}
               </span>
-            </h1>
+            </div>
             <div :if={@membership} class="text-sm text-base-content/60 mt-1">
               <.link navigate={Paths.company(@membership.company_uuid)} class="link link-hover">
                 {membership_company(@membership)}
