@@ -29,7 +29,6 @@ defmodule PhoenixKitCRM.Routes do
     list_form = Web.ListFormLive
     list_members = Web.ListMembersLive
     list_import = Web.ListImportLive
-    comparison = Web.ComparisonLive
 
     quote do
       live("/admin/crm/role/:role_uuid", unquote(role_view), :index,
@@ -79,9 +78,13 @@ defmodule PhoenixKitCRM.Routes do
         as: :"crm_list_import#{unquote(suffix)}"
       )
 
-      live("/admin/crm/comparison", unquote(comparison), :index,
-        as: :"crm_comparison#{unquote(suffix)}"
-      )
+      # NOTE: no route for ComparisonLive here. Its tab in `admin_tabs/0`
+      # carries both `path: "/admin/crm/comparison"` and
+      # `live_view: {Web.ComparisonLive, :index}`, so the route is already
+      # auto-generated from the tab — declaring it again made the host
+      # router compile with "this clause cannot match because a previous
+      # clause matches the same pattern" (the duplicate was unreachable,
+      # so nothing else changes by dropping it).
     end
   end
 end
