@@ -80,11 +80,19 @@ defmodule PhoenixKitCRM.Routes do
 
       # NOTE: no route for ComparisonLive here. Its tab in `admin_tabs/0`
       # carries both `path: "/admin/crm/comparison"` and
-      # `live_view: {Web.ComparisonLive, :index}`, so the route is already
-      # auto-generated from the tab — declaring it again made the host
-      # router compile with "this clause cannot match because a previous
-      # clause matches the same pattern" (the duplicate was unreachable,
-      # so nothing else changes by dropping it).
+      # `live_view: {Web.ComparisonLive, :index}`, so core generates the
+      # route from the tab; declaring it here too made the host router
+      # compile with "this clause cannot match because a previous clause
+      # matches the same pattern", in both the root and the /:locale scope.
+      #
+      # Path, LiveView, action, pipeline and live_session are identical
+      # either way, so dispatch is unchanged — but the generated path
+      # HELPER is not: the tab route is `as: :admin_crm_comparison`, where
+      # this clause was `as: :crm_comparison` / `:crm_comparison_locale`.
+      # That is the same shape the other list-index tabs (Contacts,
+      # Companies, Lists) already have — Comparison was the lone outlier —
+      # and nothing links to it by helper: in-repo callers go through
+      # `Paths.comparison/0`, which builds the path as a string.
     end
   end
 end
