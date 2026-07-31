@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- The Comparison route was declared twice — once by its `admin_tabs/0` entry
+  (which core turns into a route) and once explicitly in
+  `PhoenixKitCRM.Routes` — so every host router compiled with two
+  "this clause cannot match because a previous clause matches the same
+  pattern" warnings, which fails a host running
+  `mix compile --warnings-as-errors`. The explicit declaration is gone.
+
+### Changed
+
+- Following from that fix, the generated path helper for the Comparison page is
+  now `:admin_crm_comparison` (was `:crm_comparison` / `:crm_comparison_locale`).
+  Routing itself is unchanged — same path, LiveView, action, pipeline and
+  `live_session`, in both the root and the `/:locale` scope — and this matches
+  how the other list-index tabs (Contacts, Companies, Lists) already resolve.
+  A host calling the old helper by name must switch to `:admin_crm_comparison`
+  or to `PhoenixKitCRM.Paths.comparison/0`.
+
 ## [0.4.0] - 2026-07-29
 
 ### Upgrade note — run the party-role data migration
