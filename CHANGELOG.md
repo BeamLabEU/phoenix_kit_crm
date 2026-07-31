@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.4.1] - 2026-07-31
 
 ### Fixed
 
@@ -24,6 +24,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   how the other list-index tabs (Contacts, Companies, Lists) already resolve.
   A host calling the old helper by name must switch to `:admin_crm_comparison`
   or to `PhoenixKitCRM.Paths.comparison/0`.
+
+### Added
+
+- A regression guard for the above: `PhoenixKitCRM.Routes` is now asserted to
+  declare no path that an `admin_tabs/0` / `settings_tabs/0` entry already
+  generates a route for, so a re-introduced duplicate fails this module's own
+  suite instead of the host's compile.
 
 ## [0.4.0] - 2026-07-29
 
