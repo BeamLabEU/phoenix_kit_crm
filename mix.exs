@@ -89,7 +89,10 @@ defmodule PhoenixKitCRM.MixProject do
       # Hard, compile-time dep for the contact profile's Comments tab
       # (`use PhoenixKitComments.Embed` + CommentsComponent). Runtime-gated on
       # the module's admin toggle, so the tab hides when comments is disabled.
-      pk_dep(:phoenix_kit_comments, "~> 0.2"),
+      # 0.2.6 is the floor: that is the release that first published
+      # `PhoenixKitComments.Embed`. The `use` is unguarded, so a resolution
+      # anywhere in 0.2.0–0.2.5 fails to compile in the consumer's build.
+      pk_dep(:phoenix_kit_comments, "~> 0.2.6"),
 
       # Per-module i18n — own Gettext backend for sidebar tab labels.
       {:gettext, "~> 1.0"},
