@@ -98,6 +98,60 @@ defmodule PhoenixKitCRMTest do
     end
   end
 
+  # The projects hub discovers this by name and normalizes it defensively: an
+  # invalid tab or config field is DROPPED with a `Logger.warning` and the
+  # extension still registers, so a typo here costs the Client tab (or its
+  # company picker) silently, in the host app, at runtime. These assertions
+  # mirror the hub's normalizer (`PhoenixKitProjects.Extensions.Extension`)
+  # without depending on the projects package — the contract is one-way.
+  describe "phoenix_kit_project_extensions/0" do
+    @schema_types [:string, :text, :number, :boolean, :select]
+
+    test "contributes the Client extension keyed to this module" do
+      [ext] = PhoenixKitCRM.phoenix_kit_project_extensions()
+
+      assert ext.key == "crm_client"
+      assert ext.name == "Client"
+      # Drives the hub's permission gate: a tab re-exporting CRM data requires
+      # the CRM permission, not the viewer's projects permission.
+      assert ext.module_key == PhoenixKitCRM.module_key()
+      assert ext.default_enabled == false
+      # Read-only tab: the hub derives "can_write" from the first non-:view
+      # action, so declaring one here would hand it a write surface it lacks.
+      assert ext.permission_actions == [:view]
+    end
+
+    test "every tab survives the hub's tab normalizer" do
+      [ext] = PhoenixKitCRM.phoenix_kit_project_extensions()
+      refute Enum.empty?(ext.tabs)
+
+      for tab <- ext.tabs do
+        assert is_binary(tab.key) and tab.key != ""
+        assert is_binary(tab.label) and tab.label != ""
+        assert is_atom(tab.lv) and Code.ensure_loaded?(tab.lv)
+        # Off-router mountable is the hub's hard requirement for a contributed
+        # tab: a handle_params/3 export blocks `live_render`.
+        refute function_exported?(tab.lv, :handle_params, 3)
+      end
+    end
+
+    test "config fields use supported types and a resolvable option source" do
+      [ext] = PhoenixKitCRM.phoenix_kit_project_extensions()
+
+      for field <- ext.config_schema do
+        assert is_binary(field.key) and field.key != ""
+        assert field.type in @schema_types
+
+        if field.type == :select do
+          # Lazy options are `{module, fun}`, 0-arity; anything else resolves
+          # to an empty select and the admin can't link a client at all.
+          assert {module, fun} = field.options
+          assert Code.ensure_loaded?(module) and function_exported?(module, fun, 0)
+        end
+      end
+    end
+  end
+
   describe "Routes" do
     alias PhoenixKit.Dashboard.Tab
 

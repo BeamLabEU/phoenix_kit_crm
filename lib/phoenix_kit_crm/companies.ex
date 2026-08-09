@@ -55,6 +55,28 @@ defmodule PhoenixKitCRM.Companies do
     |> repo().all()
   end
 
+  @doc """
+  Live-untrashed companies as `%{value: uuid, label: name}` picker options.
+
+  The lazy option source behind the projects hub's Client extension
+  `config_schema` select (`{PhoenixKitCRM.Companies, :company_options}`) —
+  so linking a client is picking a name, not pasting a uuid. Capped: the
+  hub always re-adds the STORED value even when it isn't offered, so a
+  large install degrades to "the current link still shows" rather than an
+  unbounded select. Degrades to `[]` when the DB is unreachable — the
+  panel must render even with CRM's storage down.
+  """
+  @spec company_options() :: [%{value: String.t(), label: String.t()}]
+  def company_options do
+    [limit: 500]
+    |> list_companies()
+    |> Enum.map(&%{value: &1.uuid, label: &1.name})
+  rescue
+    _ -> []
+  catch
+    :exit, _ -> []
+  end
+
   @doc "Companies for the given uuids (any status) — for comment back-link resolution."
   @spec list_by_uuids([binary()]) :: [Company.t()]
   def list_by_uuids([]), do: []

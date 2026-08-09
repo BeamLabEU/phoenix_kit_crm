@@ -4,6 +4,60 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] - 2026-08-09
+
+### Added
+
+- **Client tab for the `phoenix_kit_projects` hub.** `PhoenixKitCRM` now
+  answers `phoenix_kit_project_extensions/0` — the hub's duck-typed, one-way
+  provider contract, so there is no dependency on the projects package in
+  either direction. A project links one CRM company through per-instance
+  config (`company_uuid`, no FK), and the contributed tab
+  (`PhoenixKitCRM.Web.ProjectClientLive`) renders that company, its member
+  contacts and their most recent interactions read-only, with link-outs into
+  the CRM admin. The extension declares `module_key: "crm"`, so the hub
+  requires the CRM permission of anyone who sees the tab, and `[:view]`, so
+  the hub hands it no write surface.
+- `PhoenixKitCRM.Companies.company_options/0` — untrashed companies as
+  `%{value:, label:}` picker options. It backs the extension's company
+  select; it is public and stable for any sibling module that wants the same
+  picker.
+- `Interactions.list_for_contacts/2` accepts a `:limit`. The arity-1 form is
+  unchanged for callers that legitimately want the whole rollup.
+
+### Fixed
+
+- The Client tab crashed on any project whose linked company had at least one
+  logged interaction: the timeline read `interaction.kind`, and the schema
+  field is `interaction_type`, so rendering raised `KeyError`. Because the hub
+  renders contributed tabs as nested `live_render`s, that took the host
+  project page down with it. The badge now shows the same gettext-backed
+  `Interaction.type_label/1` the CRM interaction timelines use.
+- A company trashed in CRM no longer presents as the project's live client —
+  config-based linkage has no FK to cascade, so the card now carries a
+  `Trashed` badge rather than silently showing a soft-deleted company.
+- The tab is translatable. It set the session locale and then rendered
+  hardcoded English, including a hand-rolled plural for the member count;
+  every string is now gettext, and the count is a real `ngettext` (Estonian
+  and Russian plural rules are not English's).
+- The recent-interactions read is capped in the query. It previously read
+  every interaction of every member contact, with `:contact` and `:parties`
+  preloaded, and discarded all but the newest five in memory.
+
+### Changed
+
+- The extension's `company_uuid` config field is a `:select` over
+  `company_options/0` instead of a free-text "Company UUID" — linking a client
+  is picking a name, not pasting a uuid copied off the company page.
+- `ProjectClientLive` uses `use PhoenixKitWeb, :live_view` like every other
+  LiveView in this module (AGENTS.md names the convention explicitly), and
+  defers its CRM reads to the connected mount, painting a skeleton on the
+  disconnected pass. The hub renders a landing extension tab in the project
+  page's dead render too, so the reads previously ran twice per load.
+- Dropped eight unused entries from `mix.lock` (igniter and its tree), left
+  behind by a dependency upgrade — `mix precommit` fails on them via
+  `deps.unlock --check-unused`.
+
 ## [0.4.1] - 2026-07-31
 
 ### Fixed

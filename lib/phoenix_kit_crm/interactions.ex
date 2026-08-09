@@ -63,17 +63,29 @@ defmodule PhoenixKitCRM.Interactions do
   Interactions logged on any of the given contacts (as subject), newest first,
   with the subject contact + parties preloaded. Powers the company's aggregated
   read-only interactions feed.
-  """
-  @spec list_for_contacts([binary()]) :: [Interaction.t()]
-  def list_for_contacts([]), do: []
 
-  def list_for_contacts(contact_uuids) do
+  ## Options
+    * `:limit` — cap the rows read. Callers that only show the newest few
+      (the projects Client tab) must pass it: without a limit this reads the
+      company's whole interaction history, preloads included, to throw all
+      but the head away.
+  """
+  @spec list_for_contacts([binary()], keyword()) :: [Interaction.t()]
+  def list_for_contacts(contact_uuids, opts \\ [])
+
+  def list_for_contacts([], _opts), do: []
+
+  def list_for_contacts(contact_uuids, opts) do
     Interaction
     |> where([i], i.contact_uuid in ^contact_uuids)
     |> order_by([i], desc: i.occurred_at, desc: i.inserted_at)
+    |> maybe_limit(opts[:limit])
     |> repo().all()
     |> repo().preload([:contact, parties: from(p in InteractionParty, order_by: p.position)])
   end
+
+  defp maybe_limit(query, n) when is_integer(n) and n > 0, do: limit(query, ^n)
+  defp maybe_limit(query, _), do: query
 
   @doc "Total logged interactions. Interactions have no soft-delete status."
   @spec count_interactions() :: non_neg_integer()

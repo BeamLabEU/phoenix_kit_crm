@@ -1874,6 +1874,7 @@ msgstr ""
 
 #: lib/phoenix_kit_crm/web/companies_live.ex:327
 #: lib/phoenix_kit_crm/web/contacts_live.ex:349
+#: lib/phoenix_kit_crm/web/project_client_live.ex:118
 #, elixir-autogen, elixir-format
 msgid "Trashed"
 msgstr ""
@@ -2101,4 +2102,41 @@ msgstr ""
 #: lib/phoenix_kit_crm/web/crm_live.ex:135
 #, elixir-autogen, elixir-format
 msgid "Import into a list"
+msgstr ""
+
+#: lib/phoenix_kit_crm/web/project_client_live.ex:122
+#, elixir-autogen, elixir-format, fuzzy
+msgid "%{count} member contact"
+msgid_plural "%{count} member contacts"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/phoenix_kit_crm/web/project_client_live.ex:142
+#, elixir-autogen, elixir-format
+msgid "(no subject)"
+msgstr ""
+
+#: lib/phoenix_kit_crm/web/project_client_live.ex:156
+#, elixir-autogen, elixir-format
+msgid "No client linked to this project yet."
+msgstr ""
+
+#: lib/phoenix_kit_crm/web/project_client_live.ex:150
+#, elixir-autogen, elixir-format
+msgid "No interactions with this client yet."
+msgstr ""
+
+#: lib/phoenix_kit_crm/web/project_client_live.ex:127
+#, elixir-autogen, elixir-format
+msgid "Open in CRM"
+msgstr ""
+
+#: lib/phoenix_kit_crm/web/project_client_live.ex:159
+#, elixir-autogen, elixir-format
+msgid "Pick the client company in the project's Modules & features panel."
+msgstr ""
+
+#: lib/phoenix_kit_crm/web/project_client_live.ex:135
+#, elixir-autogen, elixir-format
+msgid "Recent interactions"
 msgstr ""

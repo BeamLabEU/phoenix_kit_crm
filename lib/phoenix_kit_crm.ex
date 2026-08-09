@@ -42,7 +42,7 @@ defmodule PhoenixKitCRM do
   end
 
   @impl PhoenixKit.Module
-  def version, do: "0.4.1"
+  def version, do: "0.5.0"
 
   @impl PhoenixKit.Module
   def permission_metadata do
@@ -252,7 +252,15 @@ defmodule PhoenixKitCRM do
           }
         ],
         config_schema: [
-          %{key: "company_uuid", type: :string, label: "Company UUID"}
+          %{
+            key: "company_uuid",
+            type: :select,
+            label: "Company",
+            # Lazy option source (the hub's ConfigOptions `{module, fun}`
+            # form) — the admin picks a company by name instead of pasting
+            # a uuid copied off the CRM company page.
+            options: {PhoenixKitCRM.Companies, :company_options}
+          }
         ],
         permission_actions: [:view]
       }
