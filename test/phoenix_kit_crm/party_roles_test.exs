@@ -20,6 +20,17 @@ defmodule PhoenixKitCRM.PartyRolesTest do
     contact
   end
 
+  # `PartyRole.changeset/2` rejects "client" since the rename, so a legacy row
+  # can only be produced the way 0.2.x produced it — written straight in.
+  defp legacy_client_role!(roleable, type) do
+    PhoenixKit.RepoHelper.repo().insert!(%PartyRole{
+      roleable_type: type,
+      roleable_uuid: roleable.uuid,
+      role: "client",
+      is_active: true
+    })
+  end
+
   describe "grant_role/3" do
     test "grants a role to a company" do
       company = company_fixture()
@@ -42,9 +53,9 @@ defmodule PhoenixKitCRM.PartyRolesTest do
 
     test "is idempotent for an already-active role" do
       company = company_fixture()
-      {:ok, first} = PartyRoles.grant_role(company, "client")
+      {:ok, first} = PartyRoles.grant_role(company, "customer")
 
-      assert {:ok, second} = PartyRoles.grant_role(company, "client")
+      assert {:ok, second} = PartyRoles.grant_role(company, "customer")
       assert second.uuid == first.uuid
       assert [_only_one] = PartyRoles.list_roles(company)
     end
@@ -62,13 +73,13 @@ defmodule PhoenixKitCRM.PartyRolesTest do
       assert regranted.valid_to == nil
     end
 
-    test "one party can hold supplier and client simultaneously" do
+    test "one party can hold supplier and customer simultaneously" do
       company = company_fixture()
       assert {:ok, _} = PartyRoles.grant_role(company, "supplier")
-      assert {:ok, _} = PartyRoles.grant_role(company, "client")
+      assert {:ok, _} = PartyRoles.grant_role(company, "customer")
 
       assert PartyRoles.has_role?(company, "supplier")
-      assert PartyRoles.has_role?(company, "client")
+      assert PartyRoles.has_role?(company, "customer")
       assert length(PartyRoles.list_roles(company)) == 2
     end
 
@@ -129,15 +140,15 @@ defmodule PhoenixKitCRM.PartyRolesTest do
     end
 
     test "returns not_found for a never-granted role" do
-      assert {:error, :not_found} = PartyRoles.revoke_role(company_fixture(), "client")
+      assert {:error, :not_found} = PartyRoles.revoke_role(company_fixture(), "customer")
     end
 
     test "is a no-op on an already-revoked role" do
       company = company_fixture()
-      {:ok, _} = PartyRoles.grant_role(company, "client")
-      {:ok, revoked} = PartyRoles.revoke_role(company, "client")
+      {:ok, _} = PartyRoles.grant_role(company, "customer")
+      {:ok, revoked} = PartyRoles.revoke_role(company, "customer")
 
-      assert {:ok, still_revoked} = PartyRoles.revoke_role(company, "client")
+      assert {:ok, still_revoked} = PartyRoles.revoke_role(company, "customer")
       assert still_revoked.uuid == revoked.uuid
       refute still_revoked.is_active
     end
@@ -163,7 +174,7 @@ defmodule PhoenixKitCRM.PartyRolesTest do
       {:ok, _} = PartyRoles.grant_role(supplier, "supplier")
 
       assert PartyRoles.has_role?(supplier, "supplier")
-      refute PartyRoles.has_role?(supplier, "client")
+      refute PartyRoles.has_role?(supplier, "customer")
       refute PartyRoles.has_role?(other, "supplier")
     end
 
@@ -190,13 +201,13 @@ defmodule PhoenixKitCRM.PartyRolesTest do
 
     test "excludes revoked roles unless include_inactive" do
       company = company_fixture()
-      {:ok, _} = PartyRoles.grant_role(company, "client")
-      {:ok, _} = PartyRoles.revoke_role(company, "client")
+      {:ok, _} = PartyRoles.grant_role(company, "customer")
+      {:ok, _} = PartyRoles.revoke_role(company, "customer")
 
-      assert PartyRoles.list_companies_with_role("client") == []
+      assert PartyRoles.list_companies_with_role("customer") == []
 
       assert [%{uuid: uuid}] =
-               PartyRoles.list_companies_with_role("client", include_inactive: true)
+               PartyRoles.list_companies_with_role("customer", include_inactive: true)
 
       assert uuid == company.uuid
     end
@@ -212,10 +223,47 @@ defmodule PhoenixKitCRM.PartyRolesTest do
 
     test "lists contacts with a role" do
       contact = contact_fixture()
-      {:ok, _} = PartyRoles.grant_role(contact, "client")
+      {:ok, _} = PartyRoles.grant_role(contact, "customer")
 
-      assert [%{uuid: uuid}] = PartyRoles.list_contacts_with_role("client")
+      assert [%{uuid: uuid}] = PartyRoles.list_contacts_with_role("customer")
       assert uuid == contact.uuid
+    end
+
+    test "list_contacts_with_role/2 paginates and searches within the role" do
+      alice = contact_fixture(%{"name" => "Alice Wonder"})
+      bob = contact_fixture(%{"name" => "Bob Wonder"})
+      carol = contact_fixture(%{"name" => "Carol NotMatching"})
+
+      {:ok, _} = PartyRoles.grant_role(alice, "supplier")
+      {:ok, _} = PartyRoles.grant_role(bob, "supplier")
+      {:ok, _} = PartyRoles.grant_role(carol, "supplier")
+
+      assert PartyRoles.count_contacts_with_role("supplier") == 3
+
+      page1 =
+        PartyRoles.list_contacts_with_role("supplier", limit: 2, offset: 0)
+        |> Enum.map(& &1.uuid)
+
+      page2 =
+        PartyRoles.list_contacts_with_role("supplier", limit: 2, offset: 2)
+        |> Enum.map(& &1.uuid)
+
+      assert length(page1) == 2
+      assert page2 == [carol.uuid]
+
+      searched = PartyRoles.list_contacts_with_role("supplier", search: "wonder")
+      assert Enum.map(searched, & &1.uuid) |> Enum.sort() == Enum.sort([alice.uuid, bob.uuid])
+      assert PartyRoles.count_contacts_with_role("supplier", search: "wonder") == 2
+    end
+
+    test "count_companies_with_role/2 honors the same filters as list_companies_with_role/2" do
+      zeta = company_fixture(%{"name" => "Zeta"})
+      acme = company_fixture(%{"name" => "Acme"})
+      {:ok, _} = PartyRoles.grant_role(zeta, "customer")
+      {:ok, _} = PartyRoles.grant_role(acme, "customer")
+
+      assert PartyRoles.count_companies_with_role("customer") == 2
+      assert PartyRoles.count_companies_with_role("customer", search: "zeta") == 1
     end
   end
 
@@ -252,9 +300,9 @@ defmodule PhoenixKitCRM.PartyRolesTest do
     end
 
     test "returns nil for non-suppliers, revoked suppliers, unknown and malformed uuids" do
-      client = company_fixture()
-      {:ok, _} = PartyRoles.grant_role(client, "client")
-      assert PartyRoles.get_supplier(client.uuid) == nil
+      customer = company_fixture()
+      {:ok, _} = PartyRoles.grant_role(customer, "customer")
+      assert PartyRoles.get_supplier(customer.uuid) == nil
 
       revoked = company_fixture(%{"name" => "Ex Supplier"})
       {:ok, _} = PartyRoles.grant_role(revoked, "supplier")
@@ -273,11 +321,11 @@ defmodule PhoenixKitCRM.PartyRolesTest do
       b = company_fixture(%{"name" => "B"})
       c = company_fixture(%{"name" => "C"})
       {:ok, _} = PartyRoles.grant_role(a, "supplier")
-      {:ok, _} = PartyRoles.grant_role(a, "client")
+      {:ok, _} = PartyRoles.grant_role(a, "customer")
       {:ok, _} = PartyRoles.grant_role(b, "supplier")
 
       map = PartyRoles.active_roles_map("company", [a.uuid, b.uuid, c.uuid])
-      assert Enum.sort(map[a.uuid]) == ["client", "supplier"]
+      assert Enum.sort(map[a.uuid]) == ["customer", "supplier"]
       assert map[b.uuid] == ["supplier"]
       refute Map.has_key?(map, c.uuid)
     end
@@ -319,20 +367,20 @@ defmodule PhoenixKitCRM.PartyRolesTest do
     test "grants checked roles, revokes unchecked, returns :ok" do
       company = company_fixture()
 
-      assert :ok = PartyRoleHelpers.sync_roles(company, ["supplier", "client"])
+      assert :ok = PartyRoleHelpers.sync_roles(company, ["supplier", "customer"])
       assert PartyRoles.has_role?(company, "supplier")
-      assert PartyRoles.has_role?(company, "client")
+      assert PartyRoles.has_role?(company, "customer")
 
       assert :ok = PartyRoleHelpers.sync_roles(company, ["supplier"])
       assert PartyRoles.has_role?(company, "supplier")
-      refute PartyRoles.has_role?(company, "client")
+      refute PartyRoles.has_role?(company, "customer")
     end
 
     test "threads actor_uuid into both the grant and the revoke activity log entries" do
       company = company_fixture()
       actor_uuid = Ecto.UUID.generate()
 
-      assert :ok = PartyRoleHelpers.sync_roles(company, ["supplier", "client"], actor_uuid)
+      assert :ok = PartyRoleHelpers.sync_roles(company, ["supplier", "customer"], actor_uuid)
       assert :ok = PartyRoleHelpers.sync_roles(company, ["supplier"], actor_uuid)
 
       assert_activity_logged("crm.party_role_granted",
@@ -344,8 +392,66 @@ defmodule PhoenixKitCRM.PartyRolesTest do
       assert_activity_logged("crm.party_role_revoked",
         resource_uuid: company.uuid,
         actor_uuid: actor_uuid,
-        metadata_has: %{"role" => "client"}
+        metadata_has: %{"role" => "customer"}
       )
+    end
+  end
+
+  describe "rename_legacy_client_roles/0 (the 0.2.x `client` → `customer` upgrade)" do
+    test "a stranded client row becomes a manageable customer role" do
+      company = company_fixture()
+      legacy = legacy_client_role!(company, "company")
+
+      # The state this fixes: granted, active, and invisible to every code
+      # path that has moved on to "customer".
+      refute PartyRoles.has_role?(company, "customer")
+      assert PartyRoles.list_companies_with_role("customer") == []
+      assert PartyRoles.count_legacy_client_roles() == 1
+
+      assert %{renamed: 1, dropped: 0} = PartyRoles.rename_legacy_client_roles()
+
+      assert PartyRoles.has_role?(company, "customer")
+      assert [%{uuid: uuid}] = PartyRoles.list_companies_with_role("customer")
+      assert uuid == company.uuid
+      # Same row, rewritten — not a new grant.
+      assert [%{uuid: role_uuid}] = PartyRoles.list_roles(company)
+      assert role_uuid == legacy.uuid
+    end
+
+    test "renames contact rows too, not just companies" do
+      contact = contact_fixture()
+      legacy_client_role!(contact, "contact")
+
+      assert %{renamed: 1, dropped: 0} = PartyRoles.rename_legacy_client_roles()
+
+      assert [%{uuid: uuid}] = PartyRoles.list_contacts_with_role("customer")
+      assert uuid == contact.uuid
+    end
+
+    test "drops the legacy row when the party already holds customer" do
+      company = company_fixture()
+      {:ok, current} = PartyRoles.grant_role(company, "customer")
+      legacy_client_role!(company, "company")
+
+      # Renaming this one would collide with the (type, uuid, role) unique index.
+      assert %{renamed: 0, dropped: 1} = PartyRoles.rename_legacy_client_roles()
+
+      assert [%{uuid: uuid}] = PartyRoles.list_roles(company)
+      assert uuid == current.uuid
+    end
+
+    test "leaves supplier and partner rows alone and is idempotent" do
+      company = company_fixture()
+      {:ok, _} = PartyRoles.grant_role(company, "supplier")
+      legacy_client_role!(company, "company")
+
+      assert %{renamed: 1, dropped: 0} = PartyRoles.rename_legacy_client_roles()
+      assert %{renamed: 0, dropped: 0} = PartyRoles.rename_legacy_client_roles()
+
+      assert PartyRoles.count_legacy_client_roles() == 0
+
+      assert Enum.sort(PartyRoles.active_roles_map("company", [company.uuid])[company.uuid]) ==
+               ["customer", "supplier"]
     end
   end
 end

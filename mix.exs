@@ -1,7 +1,7 @@
 defmodule PhoenixKitCRM.MixProject do
   use Mix.Project
 
-  @version "0.2.5"
+  @version "0.4.1"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_crm"
 
   def project do
@@ -72,12 +72,27 @@ defmodule PhoenixKitCRM.MixProject do
     [
       # PhoenixKit provides the Module behaviour, Settings API, RepoHelper,
       # Dashboard tabs, and the admin layout this module renders into.
-      pk_dep(:phoenix_kit, "~> 1.7 and >= 1.7.197"),
+      #
+      # Stage-3 lists/import code (contact lists + `phoenix_kit_crm_lists`/
+      # `phoenix_kit_crm_list_members`) requires core migration V152, first
+      # published in phoenix_kit 1.7.203.
+      #
+      # The floor is now 1.7.219: `organizations_view`, `role_view` and
+      # `contact_show_live` import `PhoenixKitWeb.Components.Core.RowLink`, and
+      # that module first ships in 1.7.219 (verified by unpacking the published
+      # tarballs — absent in 1.7.218, present in 1.7.219 and 1.7.220). Without
+      # this, a clean checkout resolving an older core fails to compile with an
+      # undefined `row_link/1`; the local suite only passed because it runs with
+      # PHOENIX_KIT_PATH pointing at a core checkout.
+      pk_dep(:phoenix_kit, "~> 1.7 and >= 1.7.219"),
 
       # Hard, compile-time dep for the contact profile's Comments tab
       # (`use PhoenixKitComments.Embed` + CommentsComponent). Runtime-gated on
       # the module's admin toggle, so the tab hides when comments is disabled.
-      pk_dep(:phoenix_kit_comments, "~> 0.2"),
+      # 0.2.6 is the floor: that is the release that first published
+      # `PhoenixKitComments.Embed`. The `use` is unguarded, so a resolution
+      # anywhere in 0.2.0–0.2.5 fails to compile in the consumer's build.
+      pk_dep(:phoenix_kit_comments, "~> 0.2.6"),
 
       # Per-module i18n — own Gettext backend for sidebar tab labels.
       {:gettext, "~> 1.0"},
@@ -87,6 +102,12 @@ defmodule PhoenixKitCRM.MixProject do
 
       # Ecto for the role-settings and per-user view-config schemas.
       {:ecto_sql, "~> 3.13"},
+
+      # CSV parsing for the contact-list import engine (Lists.Import). Pure
+      # Elixir, no NIFs — already resolved transitively via phoenix_kit, so
+      # declaring it directly here is zero extra footprint. XLSX support was
+      # evaluated (xlsxir) and deferred: it's unmaintained since 2019.
+      {:nimble_csv, "~> 1.2"},
 
       # Optional: add ex_doc for generating documentation
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
@@ -127,7 +148,9 @@ defmodule PhoenixKitCRM.MixProject do
   defp docs do
     [
       main: "PhoenixKitCRM",
-      source_ref: "v#{@version}"
+      # Tags in this repo are bare version numbers, not v-prefixed — a "v" ref
+      # points at a tag that does not exist and 404s every HexDocs source link.
+      source_ref: @version
     ]
   end
 end

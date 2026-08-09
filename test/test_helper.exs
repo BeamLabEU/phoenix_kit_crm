@@ -139,10 +139,40 @@ unless i18n_api_available do
   )
 end
 
+# The ImportSuppliersFromCatalogue integration tests additionally need the
+# ecommerce catalogue table (phoenix_kit_cat_suppliers) with the
+# crm_company_uuid backfill column (core >= 1.7.197). The test DB only carries
+# core's own migrations, so probe for it and exclude the tag when absent —
+# same pattern as the :integration exclusion above.
+catalogue_available =
+  crm_tables_present and
+    try do
+      %{rows: [[v]]} =
+        TestRepo.query!(
+          "SELECT EXISTS (SELECT 1 FROM information_schema.columns " <>
+            "WHERE table_name = 'phoenix_kit_cat_suppliers' " <>
+            "AND column_name = 'crm_company_uuid')"
+        )
+
+      v
+    rescue
+      _ -> false
+    catch
+      :exit, _ -> false
+    end
+
+if crm_tables_present and not catalogue_available do
+  IO.puts("""
+  \n  cat_suppliers/crm_company_uuid absent in the test DB —
+     ImportSuppliersFromCatalogue integration tests excluded.
+  """)
+end
+
 exclude =
   [
     if(!repo_available or !crm_tables_present, do: :integration),
-    if(!i18n_api_available, do: :requires_phoenix_kit_i18n_api)
+    if(!i18n_api_available, do: :requires_phoenix_kit_i18n_api),
+    if(!catalogue_available, do: :requires_catalogue)
   ]
   |> Enum.reject(&is_nil/1)
 
@@ -150,6 +180,11 @@ exclude =
 # `live/2`. Runs with `server: false` (no port). Only when the LiveView tests will
 # actually run (DB up + CRM tables present), since they're tagged :integration.
 if repo_available and crm_tables_present do
+  # Phoenix.LiveViewTest's file_input/render_upload joins a real Phoenix
+  # Channel under the hood to track upload progress, which needs the
+  # endpoint's own :pubsub_server running (independent of PhoenixKit's
+  # internal PubSub.Manager, which is unrelated).
+  {:ok, _} = Phoenix.PubSub.Supervisor.start_link(name: PhoenixKitCRM.Test.PubSub)
   {:ok, _} = PhoenixKitCRM.Test.Endpoint.start_link()
 end
 

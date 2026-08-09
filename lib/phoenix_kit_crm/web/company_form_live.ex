@@ -41,6 +41,8 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
     socket
     |> assign(:company, company)
     |> assign(:page_title, title)
+    |> assign(:page_section, gettext("Companies"))
+    |> assign(:page_section_path, Paths.companies())
     |> assign(:roles_selected, roles_selected)
     |> assign(:form, to_form(Companies.change_company(company)))
   end
@@ -155,13 +157,6 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   def render(assigns) do
     ~H"""
     <div class="container flex-col mx-auto px-4 py-6 max-w-2xl">
-      <header class="mb-6">
-        <.link navigate={Paths.companies()} class="btn btn-ghost btn-sm mb-3">
-          <.icon name="hero-arrow-left" class="w-4 h-4" /> {gettext("Companies")}
-        </.link>
-        <h1 class="text-2xl sm:text-3xl font-bold">{@page_title}</h1>
-      </header>
-
       <.form for={@form} phx-change="validate" phx-submit="save">
         <div class="card bg-base-100 shadow-sm">
           <div class="card-body flex flex-col gap-5">

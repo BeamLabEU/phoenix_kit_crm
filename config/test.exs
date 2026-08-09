@@ -22,7 +22,8 @@ config :phoenix_kit_crm, PhoenixKitCRM.Test.Endpoint,
   live_view: [signing_salt: "crm-test-salt"],
   server: false,
   url: [host: "localhost"],
-  render_errors: [formats: [html: PhoenixKitCRM.Test.Layouts]]
+  render_errors: [formats: [html: PhoenixKitCRM.Test.Layouts]],
+  pubsub_server: PhoenixKitCRM.Test.PubSub
 
 config :phoenix, :json_library, Jason
 

@@ -8,6 +8,7 @@ defmodule PhoenixKitCRM.Companies do
 
   alias PhoenixKit.RepoHelper
   alias PhoenixKitCRM.Schemas.{Company, CompanyMembership, Contact}
+  alias PhoenixKitCRM.Search
   alias PhoenixKitCRM.SoftDelete
 
   defp repo, do: RepoHelper.repo()
@@ -41,12 +42,16 @@ defmodule PhoenixKitCRM.Companies do
   ## Options
     * `:status` — `"trashed"` for the Trash view, or any specific status
     * `:include_trashed` — `true` to include trashed alongside the rest
+    * `:search` — name/email ILIKE match
+    * `:limit` / `:offset` — pagination; both no-ops when absent
   """
   @spec list_companies(keyword()) :: [Company.t()]
   def list_companies(opts \\ []) do
     Company
     |> apply_status_scope(opts)
+    |> maybe_search_companies(opts)
     |> order_by([c], asc: c.name)
+    |> maybe_paginate(opts)
     |> repo().all()
   end
 
@@ -62,10 +67,12 @@ defmodule PhoenixKitCRM.Companies do
     end
   end
 
+  @doc "Same filters as `list_companies/1` (`:status`/`:include_trashed`/`:search`); ignores `:limit`/`:offset`."
   @spec count_companies(keyword()) :: non_neg_integer()
   def count_companies(opts \\ []) do
     Company
     |> apply_status_scope(opts)
+    |> maybe_search_companies(opts)
     |> repo().aggregate(:count, :uuid)
   end
 
@@ -127,7 +134,7 @@ defmodule PhoenixKitCRM.Companies do
     if q == "" do
       []
     else
-      like = like_pattern(q)
+      like = Search.like_pattern(q)
 
       Company
       |> where([c], c.status != "trashed")
@@ -138,18 +145,34 @@ defmodule PhoenixKitCRM.Companies do
     end
   end
 
-  # Wrap a trimmed search term in `%…%`, escaping the LIKE/ILIKE metacharacters
-  # (`\`, `%`, `_`) so a literal `%` matches a percent sign rather than acting as
-  # a wildcard. Postgres ILIKE uses backslash as the default escape character.
-  defp like_pattern(q) do
-    escaped =
-      q
-      |> String.replace("\\", "\\\\")
-      |> String.replace("%", "\\%")
-      |> String.replace("_", "\\_")
+  defp maybe_search_companies(query, opts) do
+    case Keyword.get(opts, :search) do
+      term when is_binary(term) ->
+        case String.trim(term) do
+          "" ->
+            query
 
-    "%#{escaped}%"
+          trimmed ->
+            like = Search.like_pattern(trimmed)
+            where(query, [c], ilike(c.name, ^like) or ilike(c.email, ^like))
+        end
+
+      _ ->
+        query
+    end
   end
+
+  defp maybe_paginate(query, opts) do
+    query
+    |> maybe_limit(Keyword.get(opts, :limit))
+    |> maybe_offset(Keyword.get(opts, :offset))
+  end
+
+  defp maybe_limit(query, nil), do: query
+  defp maybe_limit(query, limit), do: limit(query, ^limit)
+
+  defp maybe_offset(query, nil), do: query
+  defp maybe_offset(query, offset), do: offset(query, ^offset)
 
   defp apply_status_scope(query, opts) do
     cond do

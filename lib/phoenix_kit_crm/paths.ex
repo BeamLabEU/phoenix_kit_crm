@@ -27,6 +27,16 @@ defmodule PhoenixKitCRM.Paths do
   def company(uuid) when is_binary(uuid), do: Routes.path("#{@base}/companies/#{uuid}")
   def company_edit(uuid) when is_binary(uuid), do: Routes.path("#{@base}/companies/#{uuid}/edit")
 
+  # ── Lists ───────────────────────────────────────────────────────────
+  def lists, do: Routes.path("#{@base}/lists")
+  def list_new, do: Routes.path("#{@base}/lists/new")
+  def list_edit(uuid) when is_binary(uuid), do: Routes.path("#{@base}/lists/#{uuid}/edit")
+  def list_members(uuid) when is_binary(uuid), do: Routes.path("#{@base}/lists/#{uuid}/members")
+  def list_import(uuid) when is_binary(uuid), do: Routes.path("#{@base}/lists/#{uuid}/import")
+
+  # ── Comparison ──────────────────────────────────────────────────────
+  def comparison, do: Routes.path("#{@base}/comparison")
+
   # Raw (unprefixed) resource paths for phoenix_kit_comments back-links. The
   # comments module applies the URL prefix/locale itself when rendering the
   # resource chip, so these must NOT be prefixed (else the link double-prefixes).

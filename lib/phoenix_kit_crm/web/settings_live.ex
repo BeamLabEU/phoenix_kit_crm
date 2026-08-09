@@ -59,12 +59,12 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col mx-auto max-w-3xl px-4 py-6 gap-6">
+    <div class="flex flex-col px-4 py-6 gap-6">
       <div class="card bg-base-100 shadow-xl">
         <div class="card-body">
           <h2 class="card-title text-2xl">
             <.icon name="hero-cog-6-tooth" class="w-6 h-6" />
-            {gettext("CRM settings")}
+            {gettext("General")}
           </h2>
           <p class="text-base-content/70 text-sm">
             {gettext("Module-specific configuration will appear here as the CRM grows.")}
@@ -72,22 +72,14 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
 
           <div class="divider"></div>
 
-          <div class="flex items-center justify-between">
-            <div>
-              <div class="font-medium">
-                {gettext("Enable CRM")}
-              </div>
-              <div class="text-xs text-base-content/60">
-                {gettext("Toggles this module on or off. Same setting as the admin Modules page.")}
-              </div>
-            </div>
-            <input
-              type="checkbox"
-              class="toggle toggle-primary"
-              phx-click="toggle"
-              checked={@enabled}
-            />
-          </div>
+          <.checkbox
+            name="crm_enabled"
+            checked={@enabled}
+            label={gettext("Enable CRM")}
+            phx-click="toggle"
+          >
+            <:description>{gettext("Toggles this module on or off. Same setting as the admin Modules page.")}</:description>
+          </.checkbox>
         </div>
       </div>
 

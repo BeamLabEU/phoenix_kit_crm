@@ -91,6 +91,22 @@ defmodule PhoenixKitCRM.CompaniesTest do
       {:ok, _} = Companies.trash_company(company_fixture())
       assert Companies.count_companies(status: "trashed") == 1
     end
+
+    test "escapes LIKE wildcards so % and _ match literally, not everything" do
+      pct = company_fixture(%{"name" => "50% Off Co"})
+      underscore = company_fixture(%{"name" => "under_score Co"})
+      plain = company_fixture(%{"name" => "Plain Co"})
+
+      pct_uuids = Companies.list_companies(search: "%") |> Enum.map(& &1.uuid)
+      assert pct.uuid in pct_uuids
+      refute plain.uuid in pct_uuids
+      refute underscore.uuid in pct_uuids
+
+      underscore_uuids = Companies.list_companies(search: "_") |> Enum.map(& &1.uuid)
+      assert underscore.uuid in underscore_uuids
+      refute plain.uuid in underscore_uuids
+      refute pct.uuid in underscore_uuids
+    end
   end
 
   describe "list_memberships/1" do

@@ -119,12 +119,18 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogueTest do
     alias PhoenixKitCRM.{Companies, PartyRoles}
 
     @moduletag :integration
+    # Excluded by test_helper.exs when the catalogue table/column is absent —
+    # the per-test `catalogue_available: true` match heads below would
+    # otherwise FunctionClauseError (setup can't dynamically skip in ExUnit).
+    @moduletag :requires_catalogue
 
     # Guard: detect whether the catalogue table exists once per suite.
     setup_all do
       repo = RepoHelper.repo()
       prefix = Application.get_env(:phoenix_kit, :prefix, "public")
 
+      # Sandbox ownership failures arrive as EXITs (DBConnection.Holder), not
+      # raises — catch both, or one unowned checkout invalidates the module.
       table_exists? =
         try do
           %{rows: [[result]]} =
@@ -136,10 +142,19 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogueTest do
           result
         rescue
           _ -> false
+        catch
+          :exit, _ -> false
         end
 
       column_exists? =
-        table_exists? and Task.crm_company_uuid_column?(repo, prefix)
+        table_exists? and
+          try do
+            Task.crm_company_uuid_column?(repo, prefix)
+          rescue
+            _ -> false
+          catch
+            :exit, _ -> false
+          end
 
       unless column_exists? do
         IO.puts(

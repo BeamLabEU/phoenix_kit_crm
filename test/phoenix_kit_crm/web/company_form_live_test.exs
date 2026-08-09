@@ -13,6 +13,15 @@ defmodule PhoenixKitCRM.Web.CompanyFormLiveTest do
     assert html =~ "Name"
   end
 
+  test "the way back is the chrome breadcrumb (page_section), not an in-body header",
+       %{conn: conn} do
+    {:ok, view, html} = live(conn, "/en/admin/crm/companies/new")
+
+    assert has_element?(view, "#test-page-section[href='/en/admin/crm/companies']", "Companies")
+    refute html =~ "<h1"
+    refute html =~ "<header"
+  end
+
   test "creating a company persists it and logs crm.company_created with the actor",
        %{conn: conn, scope: scope} do
     {:ok, view, _html} = live(conn, "/en/admin/crm/companies/new")

@@ -24,6 +24,10 @@ defmodule PhoenixKitCRM.Schemas.Contact do
   # Soft-delete sentinel — set via `Contacts.trash_contact/2`, never offered
   # in the form. Allowed by the changeset's status validation list below.
   @soft_delete_status "trashed"
+  # Same format core's `User.validate_locale_value/1` checks, kept local so
+  # this schema doesn't reach into core internals for it.
+  @locale_format ~r/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/
+  @email_format ~r/^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
   @type t :: %__MODULE__{
           uuid: UUIDv7.t() | nil,
@@ -32,6 +36,9 @@ defmodule PhoenixKitCRM.Schemas.Contact do
           email: String.t() | nil,
           phone: String.t() | nil,
           notes: String.t() | nil,
+          locale: String.t() | nil,
+          opted_out_at: DateTime.t() | nil,
+          consent: map(),
           user_uuid: UUIDv7.t() | nil,
           user: User.t() | Ecto.Association.NotLoaded.t() | nil,
           company_memberships: [CompanyMembership.t()] | Ecto.Association.NotLoaded.t(),
@@ -47,6 +54,9 @@ defmodule PhoenixKitCRM.Schemas.Contact do
     field(:email, :string)
     field(:phone, :string)
     field(:notes, :string)
+    field(:locale, :string)
+    field(:opted_out_at, :utc_datetime)
+    field(:consent, :map, default: %{})
     field(:metadata, :map, default: %{})
 
     belongs_to(:user, User, foreign_key: :user_uuid, references: :uuid)
@@ -64,9 +74,13 @@ defmodule PhoenixKitCRM.Schemas.Contact do
     timestamps(type: :utc_datetime)
   end
 
-  @castable ~w(name status email phone notes metadata)a
+  @castable ~w(name status email phone notes locale metadata)a
 
-  @doc "Public changeset for create/edit. `user_uuid` is NOT castable here."
+  @doc """
+  Public changeset for create/edit. `user_uuid` is NOT castable here, nor are
+  `opted_out_at`/`consent` — those are context-managed only, via
+  `PhoenixKitCRM.Lists.opt_out/2` / `opt_in/2`.
+  """
   @spec changeset(t() | Ecto.Changeset.t(t()), map()) :: Ecto.Changeset.t(t())
   def changeset(contact, attrs) do
     contact
@@ -77,6 +91,7 @@ defmodule PhoenixKitCRM.Schemas.Contact do
     |> validate_length(:email, max: 255)
     |> validate_length(:phone, max: 50)
     |> maybe_validate_email()
+    |> maybe_validate_locale()
     |> unique_constraint(:user_uuid,
       name: :idx_crm_contacts_user_uuid,
       message: "already linked to a contact"
@@ -98,8 +113,22 @@ defmodule PhoenixKitCRM.Schemas.Contact do
   defp maybe_validate_email(changeset) do
     case get_field(changeset, :email) do
       e when is_binary(e) and e != "" ->
-        validate_format(changeset, :email, ~r/^[^@\s]+@[^@\s]+\.[^@\s]+$/,
-          message: "must be a valid email"
+        validate_format(changeset, :email, @email_format, message: "must be a valid email")
+
+      _ ->
+        changeset
+    end
+  end
+
+  @doc "Whether `email` matches the same format the changeset validates against. Used by `PhoenixKitCRM.Lists.Import` to pre-check rows before attempting a write."
+  @spec valid_email?(String.t()) :: boolean()
+  def valid_email?(email) when is_binary(email), do: Regex.match?(@email_format, email)
+
+  defp maybe_validate_locale(changeset) do
+    case get_field(changeset, :locale) do
+      l when is_binary(l) and l != "" ->
+        validate_format(changeset, :locale, @locale_format,
+          message: "must be a valid locale format (e.g., en, en-US)"
         )
 
       _ ->

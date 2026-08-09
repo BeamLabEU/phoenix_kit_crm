@@ -47,6 +47,8 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
     |> assign(:companies, Companies.list_companies())
     |> assign(:contact, %Contact{})
     |> assign(:page_title, gettext("New contact"))
+    |> assign(:page_section, gettext("Contacts"))
+    |> assign(:page_section_path, Paths.contacts())
     |> assign(:form, to_form(Contacts.change_contact(%Contact{})))
     |> assign(:company_uuid, nil)
     |> assign(:role_in_company, "")
@@ -62,6 +64,8 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
     |> assign(:companies, Companies.list_companies())
     |> assign(:contact, contact)
     |> assign(:page_title, gettext("Edit contact"))
+    |> assign(:page_section, gettext("Contacts"))
+    |> assign(:page_section_path, Paths.contacts())
     |> assign(:form, to_form(Contacts.change_contact(contact)))
     |> assign(:company_uuid, membership && membership.company_uuid)
     |> assign(:role_in_company, (membership && membership.role_in_company) || "")
@@ -290,13 +294,6 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
   def render(assigns) do
     ~H"""
     <div class="container flex-col mx-auto px-4 py-6 max-w-2xl">
-      <header class="mb-6">
-        <.link navigate={Paths.contacts()} class="btn btn-ghost btn-sm mb-3">
-          <.icon name="hero-arrow-left" class="w-4 h-4" /> {gettext("Contacts")}
-        </.link>
-        <h1 class="text-2xl sm:text-3xl font-bold">{@page_title}</h1>
-      </header>
-
       <.form for={@form} phx-change="validate" phx-submit="save">
         <div class="card bg-base-100 shadow-sm">
           <div class="card-body flex flex-col gap-5">
@@ -304,6 +301,16 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
             <.input field={@form[:email]} type="email" label={gettext("Email")} />
             <.input field={@form[:phone]} label={gettext("Phone")} />
             <.select field={@form[:status]} label={gettext("Status")} options={status_options()} />
+
+            <div>
+              <.input field={@form[:locale]} label={gettext("Locale")} placeholder="en / de-DE" />
+              <p class="text-xs text-base-content/50 mt-1">
+                {gettext(
+                  "Language/region code used to pick this contact's language when sending (e.g. \"en\", \"de-DE\")."
+                )}
+              </p>
+            </div>
+
             <.textarea field={@form[:notes]} label={gettext("Notes")} />
 
             <div class="divider my-1 text-sm font-semibold text-base-content/60">

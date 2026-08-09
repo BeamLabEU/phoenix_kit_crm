@@ -8,8 +8,15 @@ defmodule PhoenixKitCRM.Web.RoleView do
   use PhoenixKitCRM.Web.ColumnManagement
   use Gettext, backend: PhoenixKitCRM.Gettext
 
+  # `row_link/1` isn't part of the `:live_view` macro's default import set
+  # (confirmed: absent from `phoenix_kit_web.ex`'s `import` list), so each
+  # consumer imports it explicitly — the same `only:` form core's own
+  # `users.ex`/`activity/index.ex` use, restricted to keep this module's own
+  # `render_cell/3` clause dispatch unambiguous.
+  import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
+
   alias PhoenixKit.Users.Roles
-  alias PhoenixKitCRM.{ColumnConfig, Paths, Web.CellFormat, Web.ColumnModal}
+  alias PhoenixKitCRM.{ColumnConfig, Contacts, Paths, Web.CellFormat, Web.ColumnModal}
 
   alias PhoenixKitWeb.Components.Core.TableDefault
 
@@ -52,6 +59,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
              # real metadata on connect; the empty map keeps the static first
              # paint safe (labels fall back to the column id until connected).
              |> assign(:column_meta, %{})
+             |> assign(:crm_contacts, %{})
              |> assign(:show_column_modal, false)
              |> assign(:temp_selected_columns, nil)}
         end
@@ -69,9 +77,22 @@ defmodule PhoenixKitCRM.Web.RoleView do
        socket
        |> assign(:users, users)
        |> assign(:selected_columns, selected)
-       |> assign(:column_meta, ColumnConfig.column_metadata_map(socket.assigns.scope))}
+       |> assign(:column_meta, ColumnConfig.column_metadata_map(socket.assigns.scope))
+       |> assign(:crm_contacts, load_crm_contacts(selected, users))}
     else
       {:noreply, socket}
+    end
+  end
+
+  # One query for the whole page instead of one per row. `render/1` runs on
+  # every diff (opening the column modal, a card/table toggle), so a per-row
+  # lookup in a render helper is a query storm, not just an N+1 on load.
+  # Skipped entirely when the column isn't on screen.
+  defp load_crm_contacts(selected_columns, users) do
+    if "crm_contact" in selected_columns do
+      users |> Enum.map(& &1.uuid) |> Contacts.map_by_user_uuids()
+    else
+      %{}
     end
   end
 
@@ -103,28 +124,23 @@ defmodule PhoenixKitCRM.Web.RoleView do
   defp maybe_reload_role(socket, _role_uuid), do: socket
 
   @impl true
-  def handle_event("navigate_to_user", %{"uuid" => uuid}, socket) do
-    {:noreply, push_navigate(socket, to: Paths.user_view(uuid))}
-  end
-
-  @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col mx-auto max-w-6xl px-4 py-6 gap-6">
-      <div class="flex items-center justify-between flex-wrap gap-2">
-        <h1 class="text-2xl font-bold">{@page_title}</h1>
-        <span class="text-sm text-base-content/60">
-          {ngettext("%{count} user", "%{count} users", length(@users), count: length(@users))}
-        </span>
-      </div>
-
+    <div class="flex flex-col px-4 py-6 gap-6">
       <TableDefault.table_default
         id="crm-role-users-table"
         toggleable
         items={@users}
         card_title={fn u -> card_title_link(u) end}
-        card_fields={fn u -> Enum.map(@selected_columns, &card_field(@column_meta, &1, u)) end}
+        card_fields={
+          fn u -> Enum.map(@selected_columns, &card_field(@column_meta, @crm_contacts, &1, u)) end
+        }
       >
+        <:toolbar_title>
+          <span class="text-sm text-base-content/60">
+            {ngettext("%{count} user", "%{count} users", length(@users), count: length(@users))}
+          </span>
+        </:toolbar_title>
         <:toolbar_actions>
           <button class="btn btn-outline btn-sm" phx-click="show_column_modal">
             <.icon name="hero-adjustments-horizontal" class="w-4 h-4" /> {gettext("Columns")}
@@ -142,12 +158,18 @@ defmodule PhoenixKitCRM.Web.RoleView do
         <TableDefault.table_default_body>
           <TableDefault.table_default_row
             :for={user <- @users}
-            class="cursor-pointer"
-            phx-click="navigate_to_user"
-            phx-value-uuid={user.uuid}
+            class="relative transform-gpu cursor-pointer"
           >
-            <TableDefault.table_default_cell :for={col <- @selected_columns}>
-              {render_cell(@column_meta, col, user)}
+            <%!-- The row-link overlay must stay anchored to the `<tr>`, so no
+                 cell may be `relative`: that would make the cell the
+                 positioned ancestor and collapse the overlay onto it. The one
+                 interactive cell (`crm_contact`) lifts its own link above the
+                 overlay instead — see `crm_contact_cell/2`. --%>
+            <TableDefault.table_default_cell :for={
+              {col, index} <- Enum.with_index(@selected_columns)
+            }>
+              <.row_link :if={index == 0} navigate={Paths.user_view(user.uuid)} label={user.email} />
+              {render_cell(@column_meta, @crm_contacts, col, user)}
             </TableDefault.table_default_cell>
           </TableDefault.table_default_row>
 
@@ -178,21 +200,27 @@ defmodule PhoenixKitCRM.Web.RoleView do
     end
   end
 
-  defp card_field(column_meta, col, user),
-    do: %{label: column_label(column_meta, col), value: render_cell(column_meta, col, user)}
+  defp card_field(column_meta, crm_contacts, col, user),
+    do: %{
+      label: column_label(column_meta, col),
+      value: render_cell(column_meta, crm_contacts, col, user)
+    }
 
-  defp render_cell(_meta, "email", u), do: u.email
-  defp render_cell(_meta, "username", u), do: u.username || "—"
-  defp render_cell(_meta, "full_name", u), do: full_name(u)
-  defp render_cell(_meta, "status", u), do: crm_status_html(u.is_active)
-  defp render_cell(_meta, "registered", u), do: format_date(u.inserted_at)
-  defp render_cell(_meta, "last_confirmed", u), do: format_date(u.confirmed_at)
-  defp render_cell(_meta, "location", u), do: location(u)
+  defp render_cell(_meta, _contacts, "email", u), do: u.email
+  defp render_cell(_meta, _contacts, "username", u), do: u.username || "—"
+  defp render_cell(_meta, _contacts, "full_name", u), do: full_name(u)
+  defp render_cell(_meta, _contacts, "status", u), do: crm_status_html(u.is_active)
+  defp render_cell(_meta, _contacts, "registered", u), do: format_date(u.inserted_at)
+  defp render_cell(_meta, _contacts, "last_confirmed", u), do: format_date(u.confirmed_at)
+  defp render_cell(_meta, _contacts, "location", u), do: location(u)
 
-  defp render_cell(meta, "custom_" <> _ = col, u),
+  defp render_cell(_meta, contacts, "crm_contact", u),
+    do: crm_contact_cell(Map.get(contacts, u.uuid))
+
+  defp render_cell(meta, _contacts, "custom_" <> _ = col, u),
     do: CellFormat.render_custom_cell(meta, col, u)
 
-  defp render_cell(_meta, _col, _u), do: "—"
+  defp render_cell(_meta, _contacts, _col, _u), do: "—"
 
   defp full_name(u) do
     [Map.get(u, :first_name), Map.get(u, :last_name)]
@@ -207,6 +235,19 @@ defmodule PhoenixKitCRM.Web.RoleView do
   defp card_title_link(u) do
     assigns = %{href: Paths.user_view(u.uuid), label: u.email}
     ~H|<.link navigate={@href} class="link link-hover font-medium">{@label}</.link>|
+  end
+
+  # "CRM contact" column — a link to the contact when this portal user is
+  # linked to one, "—" otherwise. The contact comes from the page-wide map
+  # loaded in `handle_params/3`, never from a lookup here: this runs once per
+  # row on every render. `relative z-10` lifts the link above the row-link
+  # overlay (which is `z-0`) so it stays clickable — on the link itself, not
+  # the cell, so the overlay keeps spanning the whole row.
+  defp crm_contact_cell(nil), do: "—"
+
+  defp crm_contact_cell(contact) do
+    assigns = %{href: Paths.contact(contact.uuid)}
+    ~H|<.link navigate={@href} class="link link-hover relative z-10">{gettext("View")}</.link>|
   end
 
   defp crm_status_html(true) do

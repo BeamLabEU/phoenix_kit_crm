@@ -98,6 +98,42 @@ defmodule PhoenixKitCRMTest do
     end
   end
 
+  describe "Routes" do
+    alias PhoenixKit.Dashboard.Tab
+
+    # Core turns every tab carrying a `live_view:` into a route, and splices
+    # `PhoenixKitCRM.Routes` in alongside those in the same live_session. A path
+    # declared in both places compiles the host router with "this clause cannot
+    # match because a previous clause matches the same pattern", which fails a
+    # host running `mix compile --warnings-as-errors` — that was PR #18, for
+    # `/admin/crm/comparison`. Only hand-written *parameterized/detail* routes
+    # belong here; list-index paths come from the tabs.
+    test "admin_routes/0 declares no path a tab already generates" do
+      tab_paths =
+        [{:admin, PhoenixKitCRM.admin_tabs()}, {:settings, PhoenixKitCRM.settings_tabs()}]
+        |> Enum.flat_map(fn {context, tabs} ->
+          tabs
+          |> Enum.filter(& &1.live_view)
+          |> Enum.map(&Tab.resolve_path(&1, context).path)
+        end)
+        |> MapSet.new()
+
+      declared = declared_paths(PhoenixKitCRM.Routes.admin_routes())
+      # Guards the guard: an extraction that silently returned [] would pass.
+      refute Enum.empty?(declared)
+
+      for path <- declared do
+        refute path in tab_paths,
+               "#{path} is declared in PhoenixKitCRM.Routes and also generated from a tab"
+      end
+    end
+
+    test "admin_routes/0 and admin_locale_routes/0 cover the same paths" do
+      assert declared_paths(PhoenixKitCRM.Routes.admin_routes()) ==
+               declared_paths(PhoenixKitCRM.Routes.admin_locale_routes())
+    end
+  end
+
   describe "Paths" do
     alias PhoenixKitCRM.Paths
 
@@ -110,5 +146,17 @@ defmodule PhoenixKitCRMTest do
     test "settings/0 points to the CRM settings page" do
       assert String.ends_with?(Paths.settings(), "/admin/settings/crm")
     end
+  end
+
+  # The route builders return a quoted block of `live/4` calls (core splices it
+  # into the host router), so the paths are string literals in the AST.
+  defp declared_paths(ast) do
+    {_ast, paths} =
+      Macro.prewalk(ast, [], fn
+        {:live, _meta, [path | _rest]} = node, acc when is_binary(path) -> {node, [path | acc]}
+        node, acc -> {node, acc}
+      end)
+
+    Enum.reverse(paths)
   end
 end

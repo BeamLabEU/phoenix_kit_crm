@@ -23,6 +23,9 @@ defmodule PhoenixKitCRM.ActivityLabels do
 
   def describe("crm.contact_trashed", _), do: {"hero-trash", gettext("Moved to trash")}
 
+  def describe("crm.contact_restored", _),
+    do: {"hero-arrow-uturn-left", gettext("Restored from trash")}
+
   def describe("crm.contact_deleted", _), do: {"hero-x-circle", gettext("Permanently deleted")}
 
   def describe("crm.company_created", _),
@@ -31,6 +34,9 @@ defmodule PhoenixKitCRM.ActivityLabels do
   def describe("crm.company_updated", _), do: {"hero-pencil-square", gettext("Company updated")}
 
   def describe("crm.company_trashed", _), do: {"hero-trash", gettext("Moved to trash")}
+
+  def describe("crm.company_restored", _),
+    do: {"hero-arrow-uturn-left", gettext("Restored from trash")}
 
   def describe("crm.company_deleted", _), do: {"hero-x-circle", gettext("Permanently deleted")}
 

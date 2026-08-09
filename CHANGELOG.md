@@ -4,6 +4,208 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.1] - 2026-07-31
+
+### Fixed
+
+- The Comparison route was declared twice — once by its `admin_tabs/0` entry
+  (which core turns into a route) and once explicitly in
+  `PhoenixKitCRM.Routes` — so every host router compiled with two
+  "this clause cannot match because a previous clause matches the same
+  pattern" warnings, which fails a host running
+  `mix compile --warnings-as-errors`. The explicit declaration is gone.
+
+### Changed
+
+- Following from that fix, the generated path helper for the Comparison page is
+  now `:admin_crm_comparison` (was `:crm_comparison` / `:crm_comparison_locale`).
+  Routing itself is unchanged — same path, LiveView, action, pipeline and
+  `live_session`, in both the root and the `/:locale` scope — and this matches
+  how the other list-index tabs (Contacts, Companies, Lists) already resolve.
+  A host calling the old helper by name must switch to `:admin_crm_comparison`
+  or to `PhoenixKitCRM.Paths.comparison/0`.
+
+### Added
+
+- A regression guard for the above: `PhoenixKitCRM.Routes` is now asserted to
+  declare no path that an `admin_tabs/0` / `settings_tabs/0` entry already
+  generates a route for, so a re-introduced duplicate fails this module's own
+  suite instead of the host's compile.
+
+## [0.4.0] - 2026-07-29
+
+### Upgrade note — run the party-role data migration
+
+The commercial party role `client` is now `customer`. Rows written by 0.2.x /
+0.3.x keep `role = "client"` and are invisible to the renamed code: absent
+from the Customers filter, absent from the company/contact role checkboxes,
+and rendered as a raw grey badge. Rewrite them once per database:
+
+```bash
+mix phoenix_kit_crm.rename_client_role           # dry-run: reports the count
+mix phoenix_kit_crm.rename_client_role --apply   # rewrite
+```
+
+The task is idempotent and a no-op on databases that never granted the role.
+
+### Added
+
+- **`Compare` admin tab** (`/admin/crm/comparison`) — contacts subscribed to
+  every one of several selected lists (PR #17).
+- **Contact ⇄ login-account linkage** (PR #17): a `CRM contact` column on the
+  per-role users table linking to the matching contact, and a real link from a
+  contact's Overview to its login account.
+- **Orders tab on the contact profile**, populated by the host application's
+  optional `Andi.CRMBridge` and hidden entirely when that bridge is absent
+  (PR #17).
+- **CRM landing page** — company / contact / interaction / list counts, each
+  linking to the page that manages it, plus a clearer "Portal access" section
+  for the PhoenixKit roles that may open the CRM (PR #17).
+- `mix phoenix_kit_crm.rename_client_role` — the `client` → `customer` data
+  migration described above.
+- `PhoenixKitCRM.Contacts.map_by_user_uuids/1`,
+  `PhoenixKitCRM.Lists.count_lists/1`,
+  `PhoenixKitCRM.Interactions.count_interactions/0`, and
+  `PhoenixKitCRM.PartyRoles.{rename_legacy_client_roles/0,
+  count_legacy_client_roles/0}`.
+
+### Changed
+
+- **`client` → `customer`** throughout `PartyRole`, the contacts/companies role
+  filters and the role labels/badges (PR #17). See the upgrade note above.
+- **UI standardisation** (PR #17): page wrappers no longer clamp to
+  `max-w-*`, `phx-click` checkboxes use core's `<.checkbox>`, list-members
+  pagination uses `join` styling, and clickable table rows use core's
+  `<.row_link>` stretched-link overlay instead of a `phx-click` handler. This
+  raises the `phoenix_kit` floor to `>= 1.7.219`, the first release shipping
+  `PhoenixKitWeb.Components.Core.RowLink`.
+- The `Compare` tab now sorts directly after `Lists` in the sidebar rather than
+  after `Organizations`.
+
+### Fixed
+
+- **The `CRM contact` column issued one query per table row, inside `render/1`**
+  — so every re-render (opening the column modal, toggling card/table view)
+  re-ran the whole set, not just the initial load. It is now a single batched
+  lookup per page load, skipped entirely when the column isn't selected.
+- **A row's stretched link could collapse onto a single cell.** `relative` on
+  the `crm_contact` cell made that cell the row-link overlay's positioned
+  ancestor whenever the user ordered it first, so the row stopped being
+  clickable. The link inside the cell lifts itself above the overlay instead.
+- **The host order bridge was queried on every contact-profile tab switch**,
+  not just the Orders tab, and was not rescued — an exception in host code took
+  down the whole profile rather than one tab.
+- **The Overview "Lists" count included archived lists** while the Lists page it
+  links to opens on Active, so the card disagreed with the page one click later.
+- The CRM landing page no longer prints a specific host application's backfill
+  mix task, which does not exist in any other consumer of this package.
+
+## [0.3.3] - 2026-07-20
+
+### Fixed
+
+- **Test suite** — `contact_delete_counters_test.exs` ran a real
+  `ALTER TABLE ... DROP CONSTRAINT` inside a sandboxed transaction while
+  marked `async: true`, holding a table-level `ACCESS EXCLUSIVE` lock on
+  `phoenix_kit_crm_list_members` against other async files reading/writing
+  that same table concurrently — the rare "1 failure in 8 full-suite runs"
+  deadlock flake (`40P01 deadlock_detected`). The file is now `async: false`
+  (PR #16). Test-only change; no published package content is affected.
+
+## [0.3.2] - 2026-07-20
+
+### Fixed
+
+- **`Lists.recount_list/1`** raised if the list row it was recounting was
+  deleted concurrently between the caller loading it and the recount's own
+  `UPDATE` — a narrower race left open by 0.3.1's fix. It now returns
+  `:missing` instead of raising, and `Contacts.delete_contact/1`'s recount
+  step tolerates it: a moot counter on an already-deleted list no longer
+  rolls back the whole contact deletion (PR #15).
+
+## [0.3.1] - 2026-07-19
+
+### Fixed
+
+- **`Contacts.delete_contact/1`** permanently overcounted a list's
+  `subscriber_count` — the FK cascade on `phoenix_kit_crm_list_members`
+  removes membership rows at the DB level when a contact is hard-deleted,
+  bypassing `Lists.remove_from_list/2`'s atomic counter decrement (that
+  path only fires on a live status flip). Deleting a contact still
+  `"subscribed"` on a list left the count permanently stuck one too high.
+  `delete_contact/1` now snapshots the contact's subscribed lists and
+  recounts each one (`Lists.recount_list/1`) in the same transaction as
+  the delete (PR #14).
+
+## [0.3.0] - 2026-07-19
+
+Stage 3 of the restructuring plan (PR #13): CRM contact lists, a CSV/text
+account importer, per-list locale with bulk-apply, contact opt-out/consent,
+and a duplicate-email/list-overlap comparison screen. Requires
+`phoenix_kit >= 1.7.203` (the core migration shipping
+`phoenix_kit_crm_lists`/`phoenix_kit_crm_list_members` and the CRM broadcast
+source columns on newsletters).
+
+### Added
+
+- **`PhoenixKitCRM.Lists`** — named, sluggable contact lists
+  (`active`/`archived`), soft-deleted memberships (`subscribed` / `pending` /
+  `removed`, never hard-deleted), a maintained `subscriber_count` cache, and
+  contact-level opt-out/consent (`opted_out_at` + an append-only `consent`
+  log) that applies across every list a contact belongs to. Every
+  list/membership mutation broadcasts over `crm:lists` for live subscriber
+  counters and admin-UI refresh.
+- **`PhoenixKitCRM.Lists.Import`** — CSV (header row, `email`/`name`/
+  `company`/`locale` columns) and plaintext (one email per line) import,
+  with a no-write dry-run preview and a chunked real run (200 rows/message)
+  so a large file doesn't block the LiveView process. Classifies every row
+  (`imported` / `already_in_list` / `unsubscribed` / `duplicate_in_file` /
+  `no_email` / `invalid_email`); idempotent re-import creates zero duplicate
+  contacts.
+- **Per-list locale + bulk-apply**: a list can carry a content-language tag,
+  bulk-applied to its subscribed members' contacts in `:missing_only`
+  (default) or `:all` (overwrite) mode, with a preview of how many contacts
+  each mode would touch before confirming.
+- **Comparison screen** (`/admin/crm/comparison`): directory-wide duplicate
+  emails (expandable to the actual contacts) and cross-list overlap (2+
+  lists → contacts subscribed to all of them). Read-only — no merge/remove
+  actions.
+- Search + pagination on the existing Contacts, Companies, and
+  `PartyRoles.list_{companies,contacts}_with_role` listings (previously
+  unpaginated, full-table).
+- `nimble_csv` dependency for CSV parsing (pure Elixir, already resolved
+  transitively via `phoenix_kit`).
+
+### Fixed
+
+- `ComparisonLive`, `ListMembersLive`, and `ListImportLive` queried the
+  database directly in `mount/3`, which Phoenix invokes twice per page visit
+  (disconnected HTTP render + connected LiveSocket mount) — doubling a
+  full-table duplicate-email aggregate scan on every comparison-page visit
+  and doubling a primary-key list lookup on the two per-list pages. Moved
+  into `handle_params/3`, matching the pattern this PR's own `ListFormLive`/
+  `ListsLive` (and the pre-existing `ContactShowLive`) already used
+  correctly.
+- `phoenix_kit` dependency floor was `>= 1.7.197`, below **1.7.203** — the
+  version that actually first shipped core migration V152
+  (`phoenix_kit_crm_lists`/`phoenix_kit_crm_list_members`). Installing this
+  package at its own previously-stated floor would compile and boot, then
+  crash the first time any Lists/Comparison page loaded
+  (`relation "phoenix_kit_crm_lists" does not exist`). Floor corrected to
+  `>= 1.7.203`.
+
+### Notes
+
+- Postgres was not available in this release's build environment;
+  `:integration` (DB/LiveView) tests auto-excluded per this repo's
+  documented stance — only unit tests ran (90 passed, 0 failures). The full
+  `ComparisonLiveTest`/`ListMembersLiveTest`/`ListImportLiveTest` suites
+  (which exercise the `mount/3` → `handle_params/3` fix above end-to-end)
+  are expected to run against a real core checkout before this reaches
+  production installs.
+- See `dev_docs/pull_requests/2026/13-crm-contact-lists/CLAUDE_REVIEW.md`
+  for the full post-merge review.
+
 ## [0.2.5] - 2026-07-17
 
 First release of the CRM v2 party-roles work (PRs #9-#12): companies and

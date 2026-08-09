@@ -25,6 +25,10 @@ defmodule PhoenixKitCRM.PubSub do
   @spec topic_contact_interactions(binary()) :: String.t()
   def topic_contact_interactions(contact_uuid), do: "crm:contact:#{contact_uuid}:interactions"
 
+  @doc "Topic for CRM contact-list live updates (membership changes, counters)."
+  @spec topic_lists() :: String.t()
+  def topic_lists, do: "crm:lists"
+
   @doc "Subscribes the calling process to a topic."
   @spec subscribe(String.t()) :: :ok | {:error, term()}
   def subscribe(topic), do: Manager.subscribe(topic)
@@ -61,6 +65,24 @@ defmodule PhoenixKitCRM.PubSub do
     |> Enum.uniq()
     |> Enum.each(&Manager.broadcast(topic_contact_interactions(&1), msg))
 
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  @doc """
+  Broadcasts a CRM list event on the global `crm:lists` topic — `{:crm, event,
+  payload}`, same tuple shape as `broadcast_interaction/2`.
+
+  NET-NEW for CRM: `PhoenixKitCRM.PartyRoles` deliberately doesn't broadcast
+  (see its moduledoc), but list membership counters are shown live in the
+  admin UI, so `PhoenixKitCRM.Lists` broadcasts here on every mutation.
+
+  Best-effort: never raises out to the caller. Call it AFTER the DB commit.
+  """
+  @spec broadcast_list_event(atom(), map()) :: :ok
+  def broadcast_list_event(event, payload) when is_atom(event) and is_map(payload) do
+    Manager.broadcast(topic_lists(), {:crm, event, payload})
     :ok
   rescue
     _ -> :ok

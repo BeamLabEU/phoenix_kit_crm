@@ -28,7 +28,8 @@ defmodule PhoenixKitCRM.ColumnConfig do
     {"status", %{label: "Status", required: false, type: :status}},
     {"registered", %{label: "Registered", required: false, type: :datetime}},
     {"last_confirmed", %{label: "Last Confirmed", required: false, type: :datetime}},
-    {"location", %{label: "Location", required: false, type: :location}}
+    {"location", %{label: "Location", required: false, type: :location}},
+    {"crm_contact", %{label: "CRM contact", required: false, type: :string}}
   ]
 
   @organizations_standard [

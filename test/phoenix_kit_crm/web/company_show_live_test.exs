@@ -21,4 +21,13 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
 
     assert to =~ "/admin/crm/companies"
   end
+
+  test "has a chrome breadcrumb back to Companies (the rich in-body header stays, on purpose)",
+       %{conn: conn} do
+    {:ok, company} = Companies.create_company(%{"name" => "Initech"})
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/companies/#{company.uuid}")
+
+    assert has_element?(view, "#test-page-section[href='/en/admin/crm/companies']", "Companies")
+  end
 end
