@@ -226,6 +226,39 @@ defmodule PhoenixKitCRM do
   @impl PhoenixKit.Module
   def css_sources, do: [:phoenix_kit_crm]
 
+  # Project-extension contribution to the `phoenix_kit_projects` hub — the
+  # duck-typed one-way contract (same shape as dashboards' widget contract):
+  # its Extensions.Registry discovers this function; no dependency on the
+  # projects package. The Client tab links a CRM company to a project via
+  # per-instance CONFIG (company_uuid — no FK, set in the project's
+  # Modules & features panel) and renders read-only company/contacts/
+  # interactions context inside the project.
+  @doc false
+  def phoenix_kit_project_extensions do
+    [
+      %{
+        key: "crm_client",
+        name: "Client",
+        description: "Link a CRM company to this project — contacts and interactions in context",
+        icon: "hero-building-office-2",
+        module_key: "crm",
+        default_enabled: false,
+        tabs: [
+          %{
+            key: "client",
+            label: "Client",
+            icon: "hero-building-office-2",
+            lv: PhoenixKitCRM.Web.ProjectClientLive
+          }
+        ],
+        config_schema: [
+          %{key: "company_uuid", type: :string, label: "Company UUID"}
+        ],
+        permission_actions: [:view]
+      }
+    ]
+  end
+
   # No `@impl` on purpose — older core releases don't declare the `js_sources/0`
   # callback, and annotating it would warn (and fail `--warnings-as-errors`).
   # Core's `:phoenix_kit_js_sources` compiler folds this into the host's module
