@@ -25,7 +25,7 @@ Add to the parent PhoenixKit app's `mix.exs`:
 {:phoenix_kit_crm, path: "../phoenix_kit_crm"}
 
 # or, once published / pinned to a tag
-{:phoenix_kit_crm, "~> 0.1"}
+{:phoenix_kit_crm, "~> 0.6"}
 ```
 
 Then `mix deps.get`. The module appears in **Admin > Modules** and the
