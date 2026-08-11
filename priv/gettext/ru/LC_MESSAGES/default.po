@@ -2039,8 +2039,8 @@ msgstr "Зафиксировано %{ts}"
 
 #: lib/phoenix_kit_crm/web/crm_live.ex:30
 #, elixir-autogen, elixir-format
-msgid "Companies, contacts and the roles that can reach them"
-msgstr "Компании, контакты и роли, которым они доступны"
+msgid "Customer relationship management — companies, contacts and the roles that can reach them"
+msgstr "Управление отношениями с клиентами — компании, контакты и роли, которым они доступны"
 
 #: lib/phoenix_kit_crm/web/contact_show_live.ex:395
 #, elixir-autogen, elixir-format

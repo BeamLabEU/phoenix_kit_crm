@@ -27,7 +27,7 @@ defmodule PhoenixKitCRM.Web.CRMLive do
     {:ok,
      assign(socket,
        page_title: gettext("CRM"),
-       page_subtitle: gettext("Companies, contacts and the roles that can reach them"),
+       page_subtitle: gettext("Customer relationship management — companies, contacts and the roles that can reach them"),
        enabled: PhoenixKitCRM.enabled?(),
        role_stats: [],
        counts: nil
