@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.6.1 - 2026-08-11
+
+### Fixed
+
+- **The remaining untranslated Estonian and Russian strings are filled in**
+  (#21). A large block of msgids had empty `msgstr` values, so those parts of
+  the CRM rendered in English inside an otherwise translated UI.
+
+### Changed
+
+- **The CRM page subtitle now says what the module is.** "Companies, contacts
+  and the roles that can reach them" became "Customer relationship management —
+  companies, contacts and the roles that can reach them", so the page names
+  itself for anyone who has not met the abbreviation.
+
+- Dependency updates (`phoenix_kit` 2.2.0, `phoenix_kit_comments` 0.4.0,
+  `phoenix` 1.8.10, `hackney` 4.7.3).
+
 ## 0.6.0 - 2026-08-10
 
 ### Changed
