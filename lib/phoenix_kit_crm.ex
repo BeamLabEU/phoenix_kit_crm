@@ -41,8 +41,13 @@ defmodule PhoenixKitCRM do
     Settings.update_boolean_setting_with_module(@enabled_setting, false, module_key())
   end
 
+  # Read from mix.exs at compile time rather than hardcoded, so this can never
+  # drift from the package version again — it had: the published 0.6.1 reported
+  # itself as 0.6.0.
+  @version Mix.Project.config()[:version]
+
   @impl PhoenixKit.Module
-  def version, do: "0.6.0"
+  def version, do: @version
 
   @impl PhoenixKit.Module
   def permission_metadata do
