@@ -155,6 +155,7 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
   use PhoenixKitCRM.DataCase
 
   alias PhoenixKitCRM.Migrations
+  alias PhoenixKitCRM.Test.SchemaMigration
 
   describe "companies.user_uuid (the new mirror link)" do
     test "the column exists, nullable, uuid" do
@@ -220,8 +221,8 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
       result =
         Ecto.Migrator.up(
           Repo,
-          PhoenixKitCRM.Test.SchemaMigration.migrator_version(),
-          PhoenixKitCRM.Test.SchemaMigration,
+          SchemaMigration.migrator_version(),
+          SchemaMigration,
           log: false
         )
 

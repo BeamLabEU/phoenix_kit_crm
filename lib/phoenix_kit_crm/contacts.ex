@@ -399,7 +399,7 @@ defmodule PhoenixKitCRM.Contacts do
   defp register_placeholder(email) do
     attrs =
       %{"email" => email, "custom_fields" => %{"source" => @placeholder_source}}
-      |> Map.put("password", random_password())
+      |> Map.put("password", Mirror.random_password())
 
     with {:ok, user} <- Auth.register_user(attrs), do: {:ok, user, :created}
   end
@@ -477,9 +477,9 @@ defmodule PhoenixKitCRM.Contacts do
       attrs =
         :contact
         |> Mirror.attrs_from(contact)
-        |> Map.put(:password, random_password())
+        |> Map.put(:password, Mirror.random_password())
         |> Map.put(:custom_fields, %{"source" => @placeholder_source})
-        |> stringify_keys()
+        |> Mirror.stringify_keys()
 
       with {:ok, user} <- Auth.register_user(attrs),
            {:ok, linked} <- link_user(contact, user.uuid) do
@@ -534,13 +534,6 @@ defmodule PhoenixKitCRM.Contacts do
 
   defp maybe_update_user_profile(user, deltas) when map_size(deltas) == 0, do: {:ok, user}
   defp maybe_update_user_profile(user, deltas), do: Auth.update_user_profile(user, deltas)
-
-  defp random_password do
-    random = :crypto.strong_rand_bytes(24) |> Base.url_encode64() |> binary_part(0, 24)
-    random <> "Aa1!"
-  end
-
-  defp stringify_keys(map), do: Map.new(map, fn {k, v} -> {Atom.to_string(k), v} end)
 
   # ── Helpers ─────────────────────────────────────────────────────────
 

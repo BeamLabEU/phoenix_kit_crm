@@ -241,12 +241,35 @@ defmodule PhoenixKitCRM.Mirror do
     %{name: join_name(user.first_name, user.last_name), email: normalize(user.email)}
   end
 
+  @doc """
+  A random password meeting `Auth.register_user/1`'s complexity rule
+  (mixed-case + digit + symbol), for the "create mirror user" path
+  (`Companies.create_mirror_user/2`, `Contacts.create_mirror_user/1`) —
+  the human never sees or sets it; the account is reached through the CRM
+  record via `mirror_panel`, not this password. Was duplicated
+  byte-for-byte in both contexts; centralized here alongside the other
+  attrs-shaping helpers this module already owns.
+  """
+  @spec random_password() :: String.t()
+  def random_password do
+    random = :crypto.strong_rand_bytes(24) |> Base.url_encode64() |> binary_part(0, 24)
+    random <> "Aa1!"
+  end
+
+  @doc """
+  Atom-keyed map → string-keyed map, for handing `attrs_to_crm/2`'s (or a
+  mirror-user's) result to a context's `create_*/1`, which expects string
+  keys the same way changeset-backed forms submit them. Same dedup
+  rationale as `random_password/0`.
+  """
+  @spec stringify_keys(map()) :: map()
+  def stringify_keys(map), do: Map.new(map, fn {k, v} -> {Atom.to_string(k), v} end)
+
   # ── name join / split ────────────────────────────────────────────────
 
   defp join_name(first_name, last_name) do
     [first_name, last_name]
-    |> Enum.map(&(&1 || ""))
-    |> Enum.join(" ")
+    |> Enum.map_join(" ", &(&1 || ""))
     |> String.trim()
     |> blank_to_nil()
   end

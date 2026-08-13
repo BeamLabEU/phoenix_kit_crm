@@ -203,51 +203,7 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
   def handle_event("mirror_resolve", %{"choices" => raw_choices}, socket) do
     case socket.assigns.mirror_pending do
       %{user_uuid: user_uuid, company_uuid: company_uuid} ->
-        # Re-fetch BOTH sides fresh — either record may have changed while
-        # the modal sat open. Mirror.resolve/4 also re-checks divergence
-        # per field internally (the Task C hardening guard), so this is
-        # belt-and-suspenders, not redundant with nothing.
-        company = Companies.get_company(company_uuid)
-        user = Auth.get_user(user_uuid)
-
-        case {company, user} do
-          {%Company{}, %User{}} ->
-            fresh_conflicts = Mirror.diff(company, user)
-            choices = atomize_choices(raw_choices, allowed_conflict_fields(fresh_conflicts))
-            deltas = Mirror.resolve(:company, company, user, choices)
-
-            case Companies.apply_mirror_resolution(company, user, deltas) do
-              {:ok, {linked_company, _linked_user}} ->
-                {:noreply,
-                 socket
-                 |> update(:companies_by_user, &Map.put(&1, user_uuid, linked_company))
-                 |> close_conflict()
-                 |> put_flash(:info, gettext("Mirror account linked"))}
-
-              {:error, other} ->
-                Logger.warning(
-                  "[CRM] mirror_resolve failed (company=#{inspect(company_uuid)}): #{inspect(other)}"
-                )
-
-                {:noreply,
-                 socket
-                 |> close_conflict()
-                 |> put_flash(
-                   :error,
-                   gettext("Could not apply the resolution — please try again")
-                 )}
-            end
-
-          _ ->
-            Logger.warning(
-              "[CRM] mirror_resolve: company or user missing (company_uuid=#{inspect(company_uuid)}, user_uuid=#{inspect(user_uuid)})"
-            )
-
-            {:noreply,
-             socket
-             |> close_conflict()
-             |> put_flash(:error, gettext("Could not apply the resolution — please try again"))}
-        end
+        resolve_pending(socket, raw_choices, user_uuid, company_uuid)
 
       nil ->
         {:noreply, close_conflict(socket)}
@@ -256,6 +212,55 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
 
   def handle_event("mirror_cancel_conflict", _params, socket) do
     {:noreply, close_conflict(socket)}
+  end
+
+  # Re-fetches BOTH sides fresh — either record may have changed while the
+  # modal sat open. Mirror.resolve/4 also re-checks divergence per field
+  # internally (the Task C hardening guard), so this is belt-and-suspenders,
+  # not redundant with nothing. Split out of mirror_resolve/1 to keep that
+  # handler's own case at depth 2.
+  defp resolve_pending(socket, raw_choices, user_uuid, company_uuid) do
+    company = Companies.get_company(company_uuid)
+    user = Auth.get_user(user_uuid)
+
+    case {company, user} do
+      {%Company{}, %User{}} ->
+        fresh_conflicts = Mirror.diff(company, user)
+        choices = atomize_choices(raw_choices, allowed_conflict_fields(fresh_conflicts))
+        deltas = Mirror.resolve(:company, company, user, choices)
+        apply_pending_resolution(socket, company, user, deltas, user_uuid, company_uuid)
+
+      _ ->
+        Logger.warning(
+          "[CRM] mirror_resolve: company or user missing (company_uuid=#{inspect(company_uuid)}, user_uuid=#{inspect(user_uuid)})"
+        )
+
+        {:noreply,
+         socket
+         |> close_conflict()
+         |> put_flash(:error, gettext("Could not apply the resolution — please try again"))}
+    end
+  end
+
+  defp apply_pending_resolution(socket, company, user, deltas, user_uuid, company_uuid) do
+    case Companies.apply_mirror_resolution(company, user, deltas) do
+      {:ok, {linked_company, _linked_user}} ->
+        {:noreply,
+         socket
+         |> update(:companies_by_user, &Map.put(&1, user_uuid, linked_company))
+         |> close_conflict()
+         |> put_flash(:info, gettext("Mirror account linked"))}
+
+      {:error, other} ->
+        Logger.warning(
+          "[CRM] mirror_resolve failed (company=#{inspect(company_uuid)}): #{inspect(other)}"
+        )
+
+        {:noreply,
+         socket
+         |> close_conflict()
+         |> put_flash(:error, gettext("Could not apply the resolution — please try again"))}
+    end
   end
 
   defp link_without_conflict(socket, company, user) do

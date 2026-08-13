@@ -317,9 +317,9 @@ defmodule PhoenixKitCRM.Companies do
       attrs =
         :company
         |> Mirror.attrs_from(company)
-        |> Map.put(:password, random_password())
+        |> Map.put(:password, Mirror.random_password())
         |> Map.put(:custom_fields, %{"source" => @placeholder_source})
-        |> stringify_keys()
+        |> Mirror.stringify_keys()
 
       with {:ok, user} <- Auth.register_user(attrs),
            {:ok, linked} <- connect_user(company, user.uuid) do
@@ -353,16 +353,18 @@ defmodule PhoenixKitCRM.Companies do
         {:error, {:already_linked, existing}}
 
       nil ->
-        repo().transaction(fn ->
-          case link_or_create(user) do
-            {:ok, linked} -> linked
-            {:error, reason} -> repo().rollback(reason)
-          end
-        end)
+        repo().transaction(fn -> link_or_create_or_rollback(user) end)
     end
   end
 
   def create_from_user(%User{}), do: {:error, :not_an_organization}
+
+  defp link_or_create_or_rollback(user) do
+    case link_or_create(user) do
+      {:ok, linked} -> linked
+      {:error, reason} -> repo().rollback(reason)
+    end
+  end
 
   defp link_or_create(user) do
     case adoptable_company_for(user) do
@@ -370,7 +372,8 @@ defmodule PhoenixKitCRM.Companies do
         connect_user(company, user.uuid)
 
       nil ->
-        with {:ok, company} <- create_company(stringify_keys(Mirror.attrs_to_crm(:company, user))) do
+        with {:ok, company} <-
+               create_company(Mirror.stringify_keys(Mirror.attrs_to_crm(:company, user))) do
           connect_user(company, user.uuid)
         end
     end
@@ -445,13 +448,6 @@ defmodule PhoenixKitCRM.Companies do
 
   defp maybe_update_user_profile(user, deltas) when map_size(deltas) == 0, do: {:ok, user}
   defp maybe_update_user_profile(user, deltas), do: Auth.update_user_profile(user, deltas)
-
-  defp random_password do
-    random = :crypto.strong_rand_bytes(24) |> Base.url_encode64() |> binary_part(0, 24)
-    random <> "Aa1!"
-  end
-
-  defp stringify_keys(map), do: Map.new(map, fn {k, v} -> {Atom.to_string(k), v} end)
 
   defp maybe_search_companies(query, opts) do
     case Keyword.get(opts, :search) do
