@@ -1,6 +1,7 @@
 defmodule PhoenixKitCRM.ContactsTest do
   use PhoenixKitCRM.DataCase, async: true
 
+  alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.Contacts
   alias PhoenixKitCRM.Schemas.Contact
 
@@ -9,10 +10,12 @@ defmodule PhoenixKitCRM.ContactsTest do
     contact
   end
 
-  # `connect_user/2` wants a real `%User{}`; the link itself is just the
-  # controlled changeset, which is all these tests need.
-  defp link_user(contact, user_uuid) do
-    contact |> Contact.link_user_changeset(user_uuid) |> PhoenixKit.RepoHelper.repo().update()
+  defp unique, do: System.unique_integer([:positive])
+
+  defp person_user_fixture(attrs \\ %{}) do
+    base = %{"email" => "person-#{unique()}@example.test", "password" => "Sup3rSecret!24"}
+    {:ok, user} = Auth.register_user(Map.merge(base, attrs))
+    user
   end
 
   describe "create_contact/1" do
@@ -166,14 +169,14 @@ defmodule PhoenixKitCRM.ContactsTest do
 
   describe "map_by_user_uuids/1" do
     test "keys linked contacts by user_uuid; unlinked users are simply absent" do
-      linked_user_uuid = Ecto.UUID.generate()
+      linked_user = person_user_fixture()
       unlinked_user_uuid = Ecto.UUID.generate()
       contact = contact_fixture(%{"name" => "Linked"})
-      {:ok, contact} = link_user(contact, linked_user_uuid)
+      {:ok, contact} = Contacts.link_user(contact, linked_user.uuid)
 
-      map = Contacts.map_by_user_uuids([linked_user_uuid, unlinked_user_uuid])
+      map = Contacts.map_by_user_uuids([linked_user.uuid, unlinked_user_uuid])
 
-      assert map[linked_user_uuid].uuid == contact.uuid
+      assert map[linked_user.uuid].uuid == contact.uuid
       refute Map.has_key?(map, unlinked_user_uuid)
     end
 
