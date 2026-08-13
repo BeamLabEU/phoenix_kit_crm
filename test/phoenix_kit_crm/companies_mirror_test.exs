@@ -256,13 +256,15 @@ defmodule PhoenixKitCRM.CompaniesMirrorTest do
       assert Companies.get_by_user_uuid(user.uuid).uuid == company.uuid
     end
 
-    test "a create failure inside the transaction leaves no orphan company row" do
+    test "a create_company failure inside the transaction leaves no orphan company row" do
       # An in-memory User with a blank organization_name can't be produced
       # by Auth.register_user (registration requires it for account_type:
       # "organization"), but create_from_user only reads the struct's
-      # fields — this exercises create_company's own validation failure
-      # (Company.changeset requires :name) inside the transaction, proving
-      # the wrap rolls back cleanly rather than leaving a stray row.
+      # fields — this exercises create_company's OWN validation failure
+      # (Company.changeset requires :name), so nothing is ever inserted in
+      # the first place. Covers that leg; see the next test for the leg
+      # where create_company SUCCEEDS and connect_user is what fails —
+      # that's the one an unwrapped version would actually leak.
       ghost_email = "ghost-cfu-#{unique()}@example.test"
 
       ghost_user = %User{
@@ -273,6 +275,25 @@ defmodule PhoenixKitCRM.CompaniesMirrorTest do
       }
 
       assert {:error, %Ecto.Changeset{}} = Companies.create_from_user(ghost_user)
+      assert Companies.list_companies(search: ghost_email) == []
+    end
+
+    test "a connect_user failure AFTER a successful create rolls back the created company" do
+      # organization_name is real, so create_company succeeds and inserts
+      # a row — connect_user is what fails (:user_not_found, since this
+      # uuid has no backing user row despite being well-formed). Without
+      # the repo().transaction wrap, this company would be left behind,
+      # created but permanently unlinked — the exact regression reported.
+      ghost_email = "ghost-cfu2-#{unique()}@example.test"
+
+      ghost_user = %User{
+        uuid: Ecto.UUID.generate(),
+        account_type: "organization",
+        organization_name: "Ghost Corp #{unique()}",
+        email: ghost_email
+      }
+
+      assert {:error, :user_not_found} = Companies.create_from_user(ghost_user)
       assert Companies.list_companies(search: ghost_email) == []
     end
   end

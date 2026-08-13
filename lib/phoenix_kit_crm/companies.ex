@@ -306,8 +306,8 @@ defmodule PhoenixKitCRM.Companies do
   first, most plausibly) rolls back the just-created company rather than
   leaving an orphaned, unlinked row behind.
 
-  Rejects `{:error, :already_linked, existing}` when `user` already has a
-  mirror company (checked up front, before touching anything) and
+  Rejects `{:error, {:already_linked, existing}}` when `user` already has
+  a mirror company (checked up front, before touching anything) and
   `{:error, :not_an_organization}` for a non-organization user.
   """
   @spec create_from_user(User.t()) ::
