@@ -8,6 +8,7 @@ defmodule PhoenixKitCRM.Schemas.Company do
   use PhoenixKit.SchemaPrefix
   import Ecto.Changeset
 
+  alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCRM.Schemas.CompanyMembership
 
   @primary_key {:uuid, UUIDv7, autogenerate: true}
@@ -26,6 +27,8 @@ defmodule PhoenixKitCRM.Schemas.Company do
           address: String.t() | nil,
           industry: String.t() | nil,
           notes: String.t() | nil,
+          user_uuid: UUIDv7.t() | nil,
+          user: User.t() | Ecto.Association.NotLoaded.t() | nil,
           company_memberships: [CompanyMembership.t()] | Ecto.Association.NotLoaded.t(),
           metadata: map(),
           inserted_at: DateTime.t() | nil,
@@ -43,6 +46,8 @@ defmodule PhoenixKitCRM.Schemas.Company do
     field(:notes, :string)
     field(:metadata, :map, default: %{})
 
+    belongs_to(:user, User, foreign_key: :user_uuid, references: :uuid)
+
     has_many(:company_memberships, CompanyMembership,
       foreign_key: :company_uuid,
       on_delete: :delete_all
@@ -53,6 +58,11 @@ defmodule PhoenixKitCRM.Schemas.Company do
 
   @castable ~w(name status website email phone address industry notes metadata)a
 
+  @doc """
+  Public changeset for create/edit. `user_uuid` is NOT castable here — the
+  organization-user mirror link is set only via `link_user_changeset/2`, so
+  a crafted form payload can't link an arbitrary user.
+  """
   @spec changeset(t() | Ecto.Changeset.t(t()), map()) :: Ecto.Changeset.t(t())
   def changeset(company, attrs) do
     company
@@ -64,6 +74,18 @@ defmodule PhoenixKitCRM.Schemas.Company do
     |> validate_length(:email, max: 255)
     |> validate_length(:phone, max: 50)
     |> validate_length(:industry, max: 255)
+  end
+
+  @doc "Sets or clears the optional organization-user mirror link (controlled, not from form params)."
+  @spec link_user_changeset(t() | Ecto.Changeset.t(t()), UUIDv7.t() | nil) ::
+          Ecto.Changeset.t(t())
+  def link_user_changeset(company, user_uuid) do
+    company
+    |> change(user_uuid: user_uuid)
+    |> unique_constraint(:user_uuid,
+      name: :idx_crm_companies_user_uuid,
+      message: "already linked to a company"
+    )
   end
 
   @spec statuses() :: [String.t()]
