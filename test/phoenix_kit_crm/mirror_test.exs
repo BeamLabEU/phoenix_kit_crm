@@ -46,8 +46,7 @@ defmodule PhoenixKitCRM.MirrorTest do
         account_type: "organization"
       }
 
-      assert [%{field: :organization_name, crm: "Acme", user: "Acme GmbH"}] =
-               Mirror.diff(company, user)
+      assert [%{field: :name, crm: "Acme", user: "Acme GmbH"}] = Mirror.diff(company, user)
     end
 
     test "reports nothing when every mapped field agrees" do
@@ -76,7 +75,7 @@ defmodule PhoenixKitCRM.MirrorTest do
       diff = Mirror.diff(company, user)
       fields = Enum.map(diff, & &1.field) |> Enum.sort()
 
-      assert fields == [:email, :organization_name]
+      assert fields == [:email, :name]
     end
   end
 
@@ -180,6 +179,91 @@ defmodule PhoenixKitCRM.MirrorTest do
                organization_name: "Acme",
                email: "a@acme.test"
              }
+    end
+  end
+
+  describe "resolve/4 — contact name (split/join)" do
+    setup do
+      %{
+        contact: %Contact{name: "Anna Kask", email: "anna@example.test"},
+        user: %User{first_name: "Anna", last_name: "K.", email: "anna@example.test"}
+      }
+    end
+
+    test "choice :crm on :name splits the CRM name into the user delta, crm delta untouched",
+         %{contact: contact, user: user} do
+      result = Mirror.resolve(:contact, contact, user, %{name: :crm})
+
+      assert result.user == %{first_name: "Anna", last_name: "Kask"}
+      assert result.crm == %{}
+    end
+
+    test "choice :user on :name joins the user's name into the crm delta, user delta untouched",
+         %{contact: contact, user: user} do
+      result = Mirror.resolve(:contact, contact, user, %{name: :user})
+
+      assert result.crm == %{name: "Anna K."}
+      assert result.user == %{}
+    end
+
+    test "a single-token CRM name splits to first_name only, last_name nil", %{user: user} do
+      result = Mirror.resolve(:contact, %Contact{name: "Bob"}, user, %{name: :crm})
+
+      assert result.user == %{first_name: "Bob", last_name: nil}
+    end
+  end
+
+  describe "resolve/4 — email (direct copy, both kinds)" do
+    test "choice :crm on :email copies crm.email into the user delta" do
+      contact = %Contact{name: "Anna", email: "crm@example.test"}
+      user = %User{first_name: "Anna", email: "user@example.test"}
+
+      result = Mirror.resolve(:contact, contact, user, %{email: :crm})
+
+      assert result.user == %{email: "crm@example.test"}
+      assert result.crm == %{}
+    end
+
+    test "choice :user on :email copies user.email into the crm delta" do
+      company = %Company{name: "Acme", email: "crm@acme.test"}
+      user = %User{organization_name: "Acme", email: "user@acme.test"}
+
+      result = Mirror.resolve(:company, company, user, %{email: :user})
+
+      assert result.crm == %{email: "user@acme.test"}
+      assert result.user == %{}
+    end
+  end
+
+  describe "resolve/4 — company name (direct copy, no split)" do
+    test "choice :crm on :name copies crm.name straight into organization_name" do
+      company = %Company{name: "Acme", email: "a@acme.test"}
+      user = %User{organization_name: "Acme GmbH", email: "a@acme.test"}
+
+      result = Mirror.resolve(:company, company, user, %{name: :crm})
+
+      assert result.user == %{organization_name: "Acme"}
+      assert result.crm == %{}
+    end
+  end
+
+  describe "resolve/4 — fields absent from choices are no-ops" do
+    test "a field with no entry in choices contributes nothing to either delta" do
+      contact = %Contact{name: "Anna Kask", email: "anna@example.test"}
+      user = %User{first_name: "Anna", last_name: "K.", email: "user@example.test"}
+
+      # Only :name resolved; :email diverges too but wasn't in choices.
+      result = Mirror.resolve(:contact, contact, user, %{name: :crm})
+
+      assert result.user == %{first_name: "Anna", last_name: "Kask"}
+      assert result.crm == %{}
+    end
+
+    test "an empty choices map produces empty deltas on both sides" do
+      contact = %Contact{name: "Anna Kask", email: "anna@example.test"}
+      user = %User{first_name: "Anna", last_name: "K.", email: "user@example.test"}
+
+      assert Mirror.resolve(:contact, contact, user, %{}) == %{crm: %{}, user: %{}}
     end
   end
 end
