@@ -490,6 +490,51 @@ defmodule PhoenixKitCRM.Contacts do
     end)
   end
 
+  @doc """
+  The set of `user_uuid`s currently linked to any contact — used by the
+  "Link existing…" picker (Task H) to exclude users who are already
+  someone else's mirror.
+  """
+  @spec linked_user_uuids() :: MapSet.t()
+  def linked_user_uuids do
+    Contact
+    |> where([c], not is_nil(c.user_uuid))
+    |> select([c], c.user_uuid)
+    |> repo().all()
+    |> MapSet.new()
+  end
+
+  @doc """
+  Applies a per-field conflict resolution — `PhoenixKitCRM.Mirror.resolve/4`'s
+  `%{crm: crm_deltas, user: user_deltas}` — atomically: writes `crm_deltas`
+  onto `contact`, `user_deltas` onto `user` (via `Auth.update_user_profile/2`,
+  the same changeset core's own profile edits use), then links them. All
+  three in one `repo().transaction/1` so a failure at any step leaves
+  neither side partially rewritten.
+  """
+  @spec apply_mirror_resolution(Contact.t(), User.t(), %{crm: map(), user: map()}) ::
+          {:ok, {Contact.t(), User.t()}} | {:error, term()}
+  def apply_mirror_resolution(%Contact{} = contact, %User{} = user, %{
+        crm: crm_deltas,
+        user: user_deltas
+      }) do
+    repo().transaction(fn ->
+      with {:ok, updated_contact} <- maybe_update_contact(contact, crm_deltas),
+           {:ok, updated_user} <- maybe_update_user_profile(user, user_deltas),
+           {:ok, linked} <- link_user(updated_contact, updated_user.uuid) do
+        {linked, updated_user}
+      else
+        {:error, reason} -> repo().rollback(reason)
+      end
+    end)
+  end
+
+  defp maybe_update_contact(contact, deltas) when map_size(deltas) == 0, do: {:ok, contact}
+  defp maybe_update_contact(contact, deltas), do: update_contact(contact, deltas)
+
+  defp maybe_update_user_profile(user, deltas) when map_size(deltas) == 0, do: {:ok, user}
+  defp maybe_update_user_profile(user, deltas), do: Auth.update_user_profile(user, deltas)
+
   defp random_password do
     random = :crypto.strong_rand_bytes(24) |> Base.url_encode64() |> binary_part(0, 24)
     random <> "Aa1!"
