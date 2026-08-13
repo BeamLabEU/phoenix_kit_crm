@@ -266,4 +266,32 @@ defmodule PhoenixKitCRM.MirrorTest do
       assert Mirror.resolve(:contact, contact, user, %{}) == %{crm: %{}, user: %{}}
     end
   end
+
+  describe "resolve/4 — a multi-field choices map merges independent deltas" do
+    test "opposite winners per field land in opposite deltas, merged together" do
+      contact = %Contact{name: "Anna Kask", email: "crm@example.test"}
+      user = %User{first_name: "Anna", last_name: "K.", email: "user@example.test"}
+
+      # :name resolved CRM-wins (-> user delta), :email resolved User-wins (-> crm delta).
+      result = Mirror.resolve(:contact, contact, user, %{name: :crm, email: :user})
+
+      assert result.user == %{first_name: "Anna", last_name: "Kask"}
+      assert result.crm == %{email: "user@example.test"}
+    end
+
+    test "same-side winners for both fields merge into one delta on that side" do
+      contact = %Contact{name: "Anna Kask", email: "crm@example.test"}
+      user = %User{first_name: "Anna", last_name: "K.", email: "user@example.test"}
+
+      result = Mirror.resolve(:contact, contact, user, %{name: :crm, email: :crm})
+
+      assert result.user == %{
+               first_name: "Anna",
+               last_name: "Kask",
+               email: "crm@example.test"
+             }
+
+      assert result.crm == %{}
+    end
+  end
 end
