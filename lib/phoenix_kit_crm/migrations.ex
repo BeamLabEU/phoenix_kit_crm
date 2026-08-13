@@ -10,18 +10,20 @@ defmodule PhoenixKitCRM.Migrations do
 
   ## What V01 is
 
-  V01 is an ADOPTION step for all ten `phoenix_kit_crm_*` tables, not a
-  create:
+  V01 is an ADOPTION step for the nine pre-existing `phoenix_kit_crm_*`
+  tables, plus one genuinely new column on a tenth:
 
     * on existing installs every table is already there (core's V135 /
-      V138 / V148 / V151 / V152), the `CREATE TABLE IF NOT EXISTS` /
-      `ADD COLUMN IF NOT EXISTS` / guarded `DO $$ ... pg_constraint ...
-      $$` blocks all find their targets already in place, and the only
-      genuinely new objects are `phoenix_kit_crm_companies.user_uuid`
-      (nullable FK → `phoenix_kit_users`, `ON DELETE SET NULL`), its
-      partial unique index `idx_crm_companies_user_uuid`, and the
-      `crm_schema:1` marker — from then on this chain owns every
-      adopted table's future shape;
+      V138 / V148 / V151 / V152) — the `CREATE TABLE IF NOT EXISTS` /
+      guarded `DO $$ ... pg_constraint ... $$` blocks for those nine all
+      find their targets already in place and are no-ops. The one
+      `ADD COLUMN IF NOT EXISTS` statement in this chain is NOT one of
+      those no-ops: it is the sole genuinely new object,
+      `phoenix_kit_crm_companies.user_uuid` (nullable FK →
+      `phoenix_kit_users`, `ON DELETE SET NULL`), which does not exist
+      on any pre-chain install — along with its partial unique index
+      `idx_crm_companies_user_uuid` and the `crm_schema:1` marker.
+      From then on this chain owns every adopted table's future shape;
     * on a hypothetical fresh install whose core baseline no longer
       creates these tables, the same statements create them —
       shape-identical to core's current live DDL, with core's exact
@@ -35,6 +37,14 @@ defmodule PhoenixKitCRM.Migrations do
   first version that changes shape (V2+) must follow the excluded-object
   protocol described in the Legal chain's extraction report before it
   ships.
+
+  `CREATE TABLE IF NOT EXISTS` adoption is a presence check only — it
+  does not repair a table whose columns/constraints have drifted from
+  core's current shape on a host stuck before core V151/V152. That risk
+  is contained, not eliminated: core's own migration chain always runs
+  ahead of this one (`mix phoenix_kit.update` applies core's chain
+  first), so by the time V01 runs, every adopted table is already at
+  core's current shape on any host this chain actually executes against.
 
   ## What `down/1` is NOT
 
