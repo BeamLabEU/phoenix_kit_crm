@@ -67,6 +67,26 @@ repo_available =
       # every integration test fails on its first INSERT.
       PhoenixKit.Migration.ensure_current(TestRepo, log: false)
 
+      # The module-owned chain (V1: adopts all ten phoenix_kit_crm_* tables +
+      # adds companies.user_uuid), version-keyed so a bump re-applies — the
+      # document_creator pattern. Idempotent against both a core that already
+      # created these tables (the common case today) and one that doesn't yet
+      # (every statement is `IF NOT EXISTS` / guarded).
+      #
+      # See `PhoenixKitCRM.Test.SchemaMigration.migrator_version/0` for why
+      # this is not simply `PhoenixKitCRM.Migrations.current_version()` —
+      # small integers collide with unrelated chains on this shared DB.
+      Ecto.Migrator.run(
+        TestRepo,
+        [
+          {PhoenixKitCRM.Test.SchemaMigration.migrator_version(),
+           PhoenixKitCRM.Test.SchemaMigration}
+        ],
+        :up,
+        all: true,
+        log: false
+      )
+
       # Record whether the resolved core actually shipped the CRM tables (its V138
       # migration). Without PHOENIX_KIT_PATH the suite resolves the *published*
       # core, which doesn't have them yet — so the integration + LiveView tests get
