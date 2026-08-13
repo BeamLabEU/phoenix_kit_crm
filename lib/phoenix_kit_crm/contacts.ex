@@ -18,6 +18,7 @@ defmodule PhoenixKitCRM.Contacts do
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCRM.Lists
+  alias PhoenixKitCRM.Mirror
   alias PhoenixKitCRM.Schemas.{CompanyMembership, Contact, ContactList, ListMember}
   alias PhoenixKitCRM.Search
   alias PhoenixKitCRM.SoftDelete
@@ -342,27 +343,28 @@ defmodule PhoenixKitCRM.Contacts do
 
   @doc """
   Connects a contact to a login user by email (staff-style find-or-create).
-  Existing user by email → linked; otherwise a placeholder user is registered.
-  Rolls back a just-created placeholder if the link fails. No-op-safe to call
-  on an already-linked contact (re-links).
+  Existing user by email → linked; otherwise a placeholder user is
+  registered. Atomic: the find-or-create + link run inside one
+  `repo().transaction/1`, so a just-registered placeholder is rolled back
+  automatically if the link fails — no separate compensating delete (the
+  prior implementation deleted by hand, which orphans the placeholder if
+  that delete itself fails or the process dies mid-way). No-op-safe to
+  call on an already-linked contact (re-links).
   """
   @spec connect_user(Contact.t(), String.t()) ::
           {:ok, Contact.t(), :existing | :created} | {:error, atom() | Ecto.Changeset.t()}
   def connect_user(%Contact{} = contact, email) when is_binary(email) do
-    with {:ok, user, user_status} <- find_or_create_user_by_email(email),
-         {:ok, linked} <- link_or_rollback(contact, user, user_status) do
-      {:ok, linked, user_status}
-    end
-  end
-
-  defp link_or_rollback(contact, user, user_status) do
-    case contact |> Contact.link_user_changeset(user.uuid) |> repo().update() do
-      {:ok, linked} ->
-        {:ok, linked}
-
-      {:error, _} = err ->
-        if user_status == :created, do: _ = repo().delete(user)
-        err
+    repo().transaction(fn ->
+      with {:ok, user, user_status} <- find_or_create_user_by_email(email),
+           {:ok, linked} <- contact |> Contact.link_user_changeset(user.uuid) |> repo().update() do
+        {linked, user_status}
+      else
+        {:error, reason} -> repo().rollback(reason)
+      end
+    end)
+    |> case do
+      {:ok, {linked, user_status}} -> {:ok, linked, user_status}
+      {:error, _} = err -> err
     end
   end
 
@@ -395,17 +397,101 @@ defmodule PhoenixKitCRM.Contacts do
   end
 
   defp register_placeholder(email) do
-    random_password =
-      :crypto.strong_rand_bytes(24) |> Base.url_encode64() |> binary_part(0, 24)
-
-    attrs = %{
-      "email" => email,
-      "password" => random_password <> "Aa1!",
-      "custom_fields" => %{"source" => @placeholder_source}
-    }
+    attrs =
+      %{"email" => email, "custom_fields" => %{"source" => @placeholder_source}}
+      |> Map.put("password", random_password())
 
     with {:ok, user} <- Auth.register_user(attrs), do: {:ok, user, :created}
   end
+
+  # ── Explicit login-user connection (picker + "create mirror user") ──
+  #
+  # The opt-in checkbox above is find-or-create-by-email; these two are
+  # the explicit mirror-panel actions (owner Q2: both stay, side by side).
+  # Neither find-or-creates — `link_user/2` links a SPECIFIC, already-
+  # chosen user, `create_mirror_user/1` always mints a fresh one.
+
+  @doc """
+  Links `contact` to an EXISTING person-`User` by uuid — no find-or-create
+  (that's `connect_user/2`, above). Rejects an organization-account user
+  with `{:error, :not_a_person}` (symmetric with `Companies.connect_user/2`'s
+  org-only gate: a contact mirrors a person, an organization mirrors a
+  company), and a missing user with `{:error, :user_not_found}`. A user
+  already linked to another contact surfaces as `{:error, changeset}` via
+  the partial unique index (`idx_crm_contacts_user_uuid`) rather than
+  crashing. No-op-safe to call on an already-linked contact (re-links).
+  """
+  @spec link_user(Contact.t(), UUIDv7.t() | String.t()) ::
+          {:ok, Contact.t()} | {:error, :not_a_person | :user_not_found | Ecto.Changeset.t()}
+  def link_user(%Contact{} = contact, user_uuid) when is_binary(user_uuid) do
+    case Auth.get_user(user_uuid) do
+      nil ->
+        {:error, :user_not_found}
+
+      %User{account_type: "organization"} ->
+        {:error, :not_a_person}
+
+      %User{} ->
+        link_and_log(contact, user_uuid)
+    end
+  end
+
+  defp link_and_log(%Contact{user_uuid: previous_user_uuid} = contact, user_uuid) do
+    case contact |> Contact.link_user_changeset(user_uuid) |> repo().update() do
+      {:ok, updated} = ok ->
+        if previous_user_uuid != user_uuid do
+          Logger.info("[CRM] contact #{updated.uuid} linked to user #{user_uuid}")
+        end
+
+        ok
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc """
+  Creates a fresh person-`User` from `contact` (via `Mirror.attrs_from/2` —
+  `account_type: "person"`, `first_name`/`last_name` split from
+  `contact.name`, `email: contact.email`), tagged
+  `custom_fields.source = "crm_contact"`, and links it — atomically: the
+  created user is rolled back if the link fails.
+
+  Rejects `{:error, :already_linked}` when `contact` already has a mirror
+  user: without this guard a second call would silently mint and link a
+  NEW user, orphaning the previous one (still present, an unrecoverable
+  random password, linked to nothing).
+  """
+  @spec create_mirror_user(Contact.t()) ::
+          {:ok, {Contact.t(), User.t()}} | {:error, :already_linked | term()}
+  def create_mirror_user(%Contact{user_uuid: user_uuid}) when not is_nil(user_uuid) do
+    {:error, :already_linked}
+  end
+
+  def create_mirror_user(%Contact{} = contact) do
+    repo().transaction(fn ->
+      attrs =
+        :contact
+        |> Mirror.attrs_from(contact)
+        |> Map.put(:password, random_password())
+        |> Map.put(:custom_fields, %{"source" => @placeholder_source})
+        |> stringify_keys()
+
+      with {:ok, user} <- Auth.register_user(attrs),
+           {:ok, linked} <- link_user(contact, user.uuid) do
+        {linked, user}
+      else
+        {:error, reason} -> repo().rollback(reason)
+      end
+    end)
+  end
+
+  defp random_password do
+    random = :crypto.strong_rand_bytes(24) |> Base.url_encode64() |> binary_part(0, 24)
+    random <> "Aa1!"
+  end
+
+  defp stringify_keys(map), do: Map.new(map, fn {k, v} -> {Atom.to_string(k), v} end)
 
   # ── Helpers ─────────────────────────────────────────────────────────
 
