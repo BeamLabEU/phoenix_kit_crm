@@ -77,10 +77,15 @@ defmodule PhoenixKitCRM.Web.Components.MirrorPanel do
   defp badge_label(:contact), do: gettext("Login")
   defp badge_label(:company), do: gettext("Mirror")
 
-  # Same precedence Andi.CRMBridge.user_display_name/1 uses for the
-  # reverse (user -> contact) direction: organization name when set,
-  # else the trimmed first+last name, else the email.
-  defp display_name(%User{} = user) do
+  @doc """
+  Same precedence `Andi.CRMBridge.user_display_name/1` uses for the
+  reverse (user -> contact) direction: organization name when set, else
+  the trimmed first+last name, else the email. Public — reused by
+  `CompanyShowLive`'s read-only mirror status row (Task J) so both
+  surfaces render the same name for the same user.
+  """
+  @spec display_name(User.t()) :: String.t()
+  def display_name(%User{} = user) do
     personal = String.trim("#{user.first_name} #{user.last_name}")
 
     cond do
