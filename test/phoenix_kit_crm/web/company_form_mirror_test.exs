@@ -185,6 +185,80 @@ defmodule PhoenixKitCRM.Web.CompanyFormMirrorTest do
       assert Auth.get_user(user.uuid).organization_name == "Acme GmbH"
       assert Companies.get_company(company.uuid).name == "Acme"
     end
+
+    test "a selection made in the modal survives an intervening unrelated re-render", %{
+      conn: conn
+    } do
+      # The actual regression guard for the controlled-radio MAJOR: a
+      # naive fix that updates @mirror_choices but still derives `checked`
+      # from @master somewhere would pass a "handler updates the assign"
+      # test while still losing the selection on render. This asserts the
+      # RENDERED markup after an unrelated re-render, not just the assign.
+      shared_email = "shared-#{unique()}@example.test"
+      company = company_fixture(%{"name" => "Acme", "email" => shared_email})
+      user = org_user_fixture(%{"organization_name" => "Acme GmbH", "email" => shared_email})
+
+      {:ok, view, _html} = edit(conn, company)
+      render_submit(view, "mirror_link", %{"user_uuid" => user.uuid})
+
+      html =
+        render_change(view, "mirror_choice_changed", %{"choices" => %{"name" => "keep_user"}})
+
+      assert html =~ ~r/value="keep_user"[^>]*checked/
+
+      # Unrelated re-render: the company form's own "validate" handler,
+      # which touches @form/@roles_selected but nothing mirror-related.
+      html = render_change(view, "validate", %{"company" => %{"name" => "Acme"}})
+
+      assert html =~ ~r/value="keep_user"[^>]*checked/
+      refute html =~ ~r/value="keep_crm"[^>]*checked/
+    end
+
+    test "a crafted mirror_choice_changed with a bogus field key is ignored, not crashed", %{
+      conn: conn
+    } do
+      shared_email = "shared-#{unique()}@example.test"
+      company = company_fixture(%{"name" => "Acme", "email" => shared_email})
+      user = org_user_fixture(%{"organization_name" => "Acme GmbH", "email" => shared_email})
+
+      {:ok, view, _html} = edit(conn, company)
+      render_submit(view, "mirror_link", %{"user_uuid" => user.uuid})
+
+      html =
+        render_change(view, "mirror_choice_changed", %{
+          "choices" => %{"bogus_field" => "keep_user", "name" => "keep_user"}
+        })
+
+      # The view process is still alive and the legit field's choice applied.
+      assert Process.alive?(view.pid)
+      assert html =~ ~r/value="keep_user"[^>]*checked/
+    end
+
+    test "mirror_resolve recomputes diff fresh — a field no longer diverging at submit time is dropped",
+         %{conn: conn} do
+      shared_email = "shared-#{unique()}@example.test"
+      company = company_fixture(%{"name" => "Acme", "email" => shared_email})
+      user = org_user_fixture(%{"organization_name" => "Acme GmbH", "email" => shared_email})
+
+      {:ok, view, _html} = edit(conn, company)
+      # Opens the conflict; socket.assigns.company is cached with name="Acme".
+      render_submit(view, "mirror_link", %{"user_uuid" => user.uuid})
+
+      # Out-of-band change (a different session/tab): the company's name is
+      # updated to match the user's org name WITHOUT going through this
+      # LiveView, so socket.assigns.company is now stale.
+      {:ok, _} = Companies.update_company(company, %{"name" => "Acme GmbH"})
+
+      # Submit "keep_crm" — the user intends to keep what they SAW ("Acme"),
+      # but the CURRENT company.name is already "Acme GmbH". A naive
+      # implementation trusting the stale cached company would still see a
+      # divergence and overwrite the user's (already-correct) org name with
+      # the stale "Acme". The fresh refetch must see no divergence and
+      # write nothing.
+      render_submit(view, "mirror_resolve", %{"choices" => %{"name" => "keep_crm"}})
+
+      assert Auth.get_user(user.uuid).organization_name == "Acme GmbH"
+    end
   end
 
   describe "mirror_unlink" do
