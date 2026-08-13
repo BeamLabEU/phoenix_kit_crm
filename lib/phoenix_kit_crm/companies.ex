@@ -195,6 +195,40 @@ defmodule PhoenixKitCRM.Companies do
   end
 
   @doc """
+  `%{user_uuid => company}` for the given login users — the batched form
+  of `get_by_user_uuid/1` (mirrors `Contacts.map_by_user_uuids/1`), for
+  table views (Task I's Organizations list) that would otherwise query
+  once per row. Users with no linked company are absent from the map.
+  """
+  @spec map_by_user_uuids([UUIDv7.t() | String.t()]) :: %{optional(String.t()) => Company.t()}
+  def map_by_user_uuids([]), do: %{}
+
+  def map_by_user_uuids(user_uuids) when is_list(user_uuids) do
+    case Enum.filter(user_uuids, &valid_uuid?/1) do
+      [] ->
+        %{}
+
+      valid ->
+        from(c in Company, where: c.user_uuid in ^valid)
+        |> repo().all()
+        |> Map.new(&{&1.user_uuid, &1})
+    end
+  end
+
+  @doc """
+  Non-trashed companies with no mirror user linked — the candidate set
+  for the "Link existing company…" picker (Task I, reverse direction:
+  an organization-user picking a company to adopt).
+  """
+  @spec list_unlinked_companies() :: [Company.t()]
+  def list_unlinked_companies do
+    Company
+    |> where([c], is_nil(c.user_uuid) and c.status != "trashed")
+    |> order_by([c], asc: c.name)
+    |> repo().all()
+  end
+
+  @doc """
   Links `company` to an EXISTING organization-`User` by uuid. Rejects a
   user that isn't `account_type: "organization"` (Q3) with
   `{:error, :not_an_organization}`, and a missing user with
