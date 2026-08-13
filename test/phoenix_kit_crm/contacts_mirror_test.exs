@@ -201,4 +201,62 @@ defmodule PhoenixKitCRM.ContactsMirrorTest do
       refute Auth.get_user_by_email(email)
     end
   end
+
+  describe "apply_mirror_resolution/3" do
+    test "rolls back the contact write when the subsequent user update fails" do
+      # Mixed choice: BOTH deltas non-empty — the contact update runs
+      # FIRST and succeeds; the user update runs SECOND and fails on a
+      # duplicate-email unique violation (resolving an email conflict by
+      # copying an email across can collide with an existing account).
+      # The whole transaction — including the ALREADY-SUCCEEDED contact
+      # write — must roll back.
+      taken_email = "taken-amr-#{unique()}@example.test"
+      _existing = person_user_fixture(%{"email" => taken_email})
+
+      contact =
+        contact_fixture(%{"name" => "Anna Kask", "email" => "anna-amr-#{unique()}@example.test"})
+
+      user =
+        person_user_fixture(%{
+          "first_name" => "Annie",
+          "last_name" => "K.",
+          "email" => "user-amr-#{unique()}@example.test"
+        })
+
+      deltas = %{crm: %{name: "Annie K."}, user: %{email: taken_email}}
+
+      assert {:error, %Ecto.Changeset{}} =
+               Contacts.apply_mirror_resolution(contact, user, deltas)
+
+      # The contact write did NOT survive.
+      assert Contacts.get_contact(contact.uuid).name == "Anna Kask"
+      # No partial link either.
+      refute Contacts.get_contact(contact.uuid).user_uuid
+      refute Auth.get_user(user.uuid).email == taken_email
+    end
+
+    test "applies both deltas and links when both writes succeed" do
+      contact =
+        contact_fixture(%{
+          "name" => "Anna Kask",
+          "email" => "anna-amr2-#{unique()}@example.test"
+        })
+
+      user =
+        person_user_fixture(%{
+          "first_name" => "Annie",
+          "last_name" => "K.",
+          "email" => "user-amr2-#{unique()}@example.test"
+        })
+
+      deltas = %{crm: %{name: "Annie K."}, user: %{email: "new-amr2-#{unique()}@example.test"}}
+
+      assert {:ok, {linked_contact, linked_user}} =
+               Contacts.apply_mirror_resolution(contact, user, deltas)
+
+      assert linked_contact.name == "Annie K."
+      assert linked_user.email == deltas.user.email
+      assert linked_contact.user_uuid == user.uuid
+    end
+  end
 end

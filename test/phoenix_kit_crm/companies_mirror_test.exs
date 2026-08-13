@@ -297,4 +297,59 @@ defmodule PhoenixKitCRM.CompaniesMirrorTest do
       assert Companies.list_companies(search: ghost_email) == []
     end
   end
+
+  describe "apply_mirror_resolution/3" do
+    test "rolls back the company write when the subsequent user update fails" do
+      # Mixed choice: BOTH deltas are non-empty (deltas.crm from choosing
+      # :user on :name, deltas.user from choosing :crm on :email) — the
+      # company update runs FIRST and succeeds; the user update runs
+      # SECOND and fails on a duplicate-email unique violation (a real
+      # scenario: resolving an email conflict by copying an email across
+      # can easily collide with an existing account). The whole
+      # transaction — including the ALREADY-SUCCEEDED company write —
+      # must roll back.
+      taken_email = "taken-amr-#{unique()}@example.test"
+      _existing = org_user_fixture(%{"email" => taken_email})
+
+      company =
+        company_fixture(%{"name" => "Acme", "email" => "acme-amr-#{unique()}@example.test"})
+
+      user =
+        org_user_fixture(%{
+          "organization_name" => "Acme GmbH",
+          "email" => "user-amr-#{unique()}@example.test"
+        })
+
+      deltas = %{crm: %{name: "Acme GmbH"}, user: %{email: taken_email}}
+
+      assert {:error, %Ecto.Changeset{}} =
+               Companies.apply_mirror_resolution(company, user, deltas)
+
+      # The company write did NOT survive.
+      assert Companies.get_company(company.uuid).name == "Acme"
+      # No partial link either.
+      refute Companies.get_company(company.uuid).user_uuid
+      refute Auth.get_user(user.uuid).email == taken_email
+    end
+
+    test "applies both deltas and links when both writes succeed" do
+      company =
+        company_fixture(%{"name" => "Acme", "email" => "acme-amr2-#{unique()}@example.test"})
+
+      user =
+        org_user_fixture(%{
+          "organization_name" => "Acme GmbH",
+          "email" => "user-amr2-#{unique()}@example.test"
+        })
+
+      deltas = %{crm: %{name: "Acme GmbH"}, user: %{email: "new-amr2-#{unique()}@example.test"}}
+
+      assert {:ok, {linked_company, linked_user}} =
+               Companies.apply_mirror_resolution(company, user, deltas)
+
+      assert linked_company.name == "Acme GmbH"
+      assert linked_user.email == deltas.user.email
+      assert linked_company.user_uuid == user.uuid
+    end
+  end
 end
