@@ -413,13 +413,17 @@ defmodule PhoenixKitCRM.Contacts do
 
   @doc """
   Links `contact` to an EXISTING person-`User` by uuid — no find-or-create
-  (that's `connect_user/2`, above). Rejects an organization-account user
-  with `{:error, :not_a_person}` (symmetric with `Companies.connect_user/2`'s
-  org-only gate: a contact mirrors a person, an organization mirrors a
-  company), and a missing user with `{:error, :user_not_found}`. A user
-  already linked to another contact surfaces as `{:error, changeset}` via
-  the partial unique index (`idx_crm_contacts_user_uuid`) rather than
-  crashing. No-op-safe to call on an already-linked contact (re-links).
+  (that's `connect_user/2`, above). Rejects a non-person-account user
+  with `{:error, :not_a_person}` (an ALLOWLIST on `account_type ==
+  "person"`, matching `Companies.connect_user/2`'s allowlist on
+  `"organization"` exactly rather than a denylist on `"organization"` —
+  today the two are equivalent since `person`/`organization` are the only
+  values in use, but the allowlist doesn't silently accept a future third
+  `account_type` the way a denylist would), and a missing user with
+  `{:error, :user_not_found}`. A user already linked to another contact
+  surfaces as `{:error, changeset}` via the partial unique index
+  (`idx_crm_contacts_user_uuid`) rather than crashing. No-op-safe to call
+  on an already-linked contact (re-links).
   """
   @spec link_user(Contact.t(), UUIDv7.t() | String.t()) ::
           {:ok, Contact.t()} | {:error, :not_a_person | :user_not_found | Ecto.Changeset.t()}
@@ -428,11 +432,11 @@ defmodule PhoenixKitCRM.Contacts do
       nil ->
         {:error, :user_not_found}
 
-      %User{account_type: "organization"} ->
-        {:error, :not_a_person}
+      %User{account_type: "person"} ->
+        link_and_log(contact, user_uuid)
 
       %User{} ->
-        link_and_log(contact, user_uuid)
+        {:error, :not_a_person}
     end
   end
 
