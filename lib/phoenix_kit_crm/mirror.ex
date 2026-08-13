@@ -202,14 +202,17 @@ defmodule PhoenixKitCRM.Mirror do
 
   @doc """
   The `User` attrs to write when the CRM record is master (a "create
-  mirror user" or "CRM wins this conflict" write).
+  mirror user" or "CRM wins this conflict" write). Values are normalized
+  (trimmed + blanked-to-nil) the same way `diff/2`/`resolve/4` normalize
+  them, so a padded form value never persists untrimmed via this path
+  while `resolve/4` would have trimmed it.
   """
   @spec attrs_from(kind(), Company.t() | Contact.t()) :: map()
   def attrs_from(:company, %Company{} = company) do
     %{
       account_type: "organization",
-      organization_name: blank_to_nil(company.name),
-      email: blank_to_nil(company.email)
+      organization_name: normalize(company.name),
+      email: normalize(company.email)
     }
   end
 
@@ -220,21 +223,22 @@ defmodule PhoenixKitCRM.Mirror do
       account_type: "person",
       first_name: first_name,
       last_name: last_name,
-      email: blank_to_nil(contact.email)
+      email: normalize(contact.email)
     }
   end
 
   @doc """
   The CRM attrs to write when the `User` is master (a "create CRM card
-  from user" or "User wins this conflict" write).
+  from user" or "User wins this conflict" write). Same normalization
+  guarantee as `attrs_from/2` — see its `@doc`.
   """
   @spec attrs_to_crm(kind(), User.t()) :: map()
   def attrs_to_crm(:company, %User{} = user) do
-    %{name: blank_to_nil(user.organization_name), email: blank_to_nil(user.email)}
+    %{name: normalize(user.organization_name), email: normalize(user.email)}
   end
 
   def attrs_to_crm(:contact, %User{} = user) do
-    %{name: join_name(user.first_name, user.last_name), email: blank_to_nil(user.email)}
+    %{name: join_name(user.first_name, user.last_name), email: normalize(user.email)}
   end
 
   # ── name join / split ────────────────────────────────────────────────

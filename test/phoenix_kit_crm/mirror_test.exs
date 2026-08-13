@@ -244,13 +244,53 @@ defmodule PhoenixKitCRM.MirrorTest do
     test "a padded-but-present user value is written trimmed, not raw" do
       # A padded-but-present user email still diverges from the CRM value
       # and wins the choice — the delta must carry the trimmed value, same
-      # normalization diff/2 already applies when deciding it diverges.
+      # normalization diff/2 already applies when deciding it diverges,
+      # and the SAME trimmed value attrs_to_crm/2 would write via the
+      # create-new path — the two write paths must never disagree.
       company = %Company{name: "Acme", email: "crm@acme.test"}
       user = %User{organization_name: "Acme", email: " user@acme.test "}
 
       result = Mirror.resolve(:company, company, user, %{email: :user})
 
       assert result.crm == %{email: "user@acme.test"}
+      assert result.crm.email == Mirror.attrs_to_crm(:company, user).email
+    end
+  end
+
+  describe "attrs_from/2 and attrs_to_crm/2 normalize padded values the same way resolve/4 does" do
+    test "attrs_to_crm/2 trims a padded organization_name/email (company)" do
+      user = %User{organization_name: " Acme GmbH ", email: " user@acme.test "}
+
+      assert Mirror.attrs_to_crm(:company, user) == %{name: "Acme GmbH", email: "user@acme.test"}
+    end
+
+    test "attrs_to_crm/2 trims a padded email (contact) — name join already trimmed" do
+      user = %User{first_name: "Anna", last_name: "Kask", email: " anna@example.test "}
+
+      assert Mirror.attrs_to_crm(:contact, user).email == "anna@example.test"
+    end
+
+    test "attrs_from/2 trims a padded name/email (company)" do
+      company = %Company{name: " Acme ", email: " acme@example.test "}
+
+      assert Mirror.attrs_from(:company, company) == %{
+               account_type: "organization",
+               organization_name: "Acme",
+               email: "acme@example.test"
+             }
+    end
+
+    test "attrs_from/2 trims a padded email (contact) — name split already trimmed" do
+      contact = %Contact{name: "Anna Kask", email: " anna@example.test "}
+
+      assert Mirror.attrs_from(:contact, contact).email == "anna@example.test"
+    end
+
+    test "a blank-after-trim value (whitespace-only) normalizes to nil, not a stray string" do
+      assert Mirror.attrs_to_crm(:company, %User{organization_name: "   ", email: "a@b.test"}).name ==
+               nil
+
+      assert Mirror.attrs_from(:company, %Company{name: "Acme", email: "   "}).email == nil
     end
   end
 
