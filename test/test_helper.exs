@@ -140,6 +140,18 @@ end
 {:ok, _pid} = PhoenixKit.PubSub.Manager.start_link([])
 {:ok, _pid} = PhoenixKit.ModuleRegistry.start_link([])
 
+# Auth.register_user/2 (the Companies/Contacts mirror contexts' user-creation
+# path) checks the registration rate limit before inserting, which needs its
+# ETS table live — normally started by PhoenixKit.Supervisor, which this
+# test suite never boots. Without this, any test that actually registers a
+# user (rather than inlining a %User{} struct) crashes with "the table
+# identifier does not refer to an existing ETS table" the first time it
+# calls Auth.register_user/2.
+case PhoenixKit.Users.RateLimiter.Backend.start_link([]) do
+  {:ok, _pid} -> :ok
+  {:error, {:already_started, _pid}} -> :ok
+end
+
 # Force PhoenixKit's URL prefix to "/" so Paths.*/Routes.path produce URLs the
 # test router can match. Admin paths always get the default locale ("en") prefix,
 # so the test router scope is `/en/admin/crm`.
