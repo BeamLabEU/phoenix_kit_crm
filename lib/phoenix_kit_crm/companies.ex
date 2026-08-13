@@ -256,12 +256,29 @@ defmodule PhoenixKitCRM.Companies do
   `Mirror.attrs_from/2` — `account_type: "organization"`,
   `organization_name: company.name`, `email: company.email`), tagged
   `custom_fields.source = "crm_company"`, and links it — atomically: the
-  created user is rolled back if the link fails (an already-linked
-  target, a validation error, anything).
+  created user is rolled back if the link fails (a validation error, a
+  race — anything).
+
+  Rejects `{:error, :already_linked}` when `company` already has a mirror
+  user: without this guard a second call would silently mint and link a
+  NEW user, orphaning the previous one (still present, still an
+  organization account with an unrecoverable random password, linked to
+  nothing). `disconnect_user/1` first, then `create_mirror_user/2` again,
+  if that's genuinely what's wanted.
+
+  `opts` is currently unused — reserved for a future extension point
+  (e.g. actor attribution for the log line), kept in the signature so
+  adding one later isn't a breaking change.
   """
   @spec create_mirror_user(Company.t(), keyword()) ::
-          {:ok, {Company.t(), User.t()}} | {:error, term()}
-  def create_mirror_user(%Company{} = company, _opts \\ []) do
+          {:ok, {Company.t(), User.t()}} | {:error, :already_linked | term()}
+  def create_mirror_user(company, opts \\ [])
+
+  def create_mirror_user(%Company{user_uuid: user_uuid}, _opts) when not is_nil(user_uuid) do
+    {:error, :already_linked}
+  end
+
+  def create_mirror_user(%Company{} = company, _opts) do
     repo().transaction(fn ->
       attrs =
         :company
@@ -283,11 +300,37 @@ defmodule PhoenixKitCRM.Companies do
   Reverse of `create_mirror_user/2`: given an organization-`User`, adopts
   an existing UNLINKED company (matched by name first, then email —
   mirrors `Andi.CRMBridge`'s adopt-by-email precedent for contacts) or
-  creates a new one from `Mirror.attrs_to_crm/2`, then links it. Rejects
-  a non-organization user with `{:error, :not_an_organization}`.
+  creates a new one from `Mirror.attrs_to_crm/2`, then links it — the
+  create-then-link is wrapped in one transaction, so a `connect_user/2`
+  failure (a race against a concurrent caller linking the same user
+  first, most plausibly) rolls back the just-created company rather than
+  leaving an orphaned, unlinked row behind.
+
+  Rejects `{:error, :already_linked, existing}` when `user` already has a
+  mirror company (checked up front, before touching anything) and
+  `{:error, :not_an_organization}` for a non-organization user.
   """
-  @spec create_from_user(User.t()) :: {:ok, Company.t()} | {:error, term()}
+  @spec create_from_user(User.t()) ::
+          {:ok, Company.t()}
+          | {:error, {:already_linked, Company.t()} | :not_an_organization | term()}
   def create_from_user(%User{account_type: "organization"} = user) do
+    case get_by_user_uuid(user.uuid) do
+      %Company{} = existing ->
+        {:error, {:already_linked, existing}}
+
+      nil ->
+        repo().transaction(fn ->
+          case link_or_create(user) do
+            {:ok, linked} -> linked
+            {:error, reason} -> repo().rollback(reason)
+          end
+        end)
+    end
+  end
+
+  def create_from_user(%User{}), do: {:error, :not_an_organization}
+
+  defp link_or_create(user) do
     case adoptable_company_for(user) do
       %Company{} = company ->
         connect_user(company, user.uuid)
@@ -298,8 +341,6 @@ defmodule PhoenixKitCRM.Companies do
         end
     end
   end
-
-  def create_from_user(%User{}), do: {:error, :not_an_organization}
 
   defp adoptable_company_for(user) do
     adoptable_company_by_name(user.organization_name) ||

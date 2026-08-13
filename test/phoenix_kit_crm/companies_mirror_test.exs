@@ -11,6 +11,7 @@ defmodule PhoenixKitCRM.CompaniesMirrorTest do
   use PhoenixKitCRM.DataCase, async: true
 
   alias PhoenixKit.Users.Auth
+  alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCRM.Companies
   alias PhoenixKitCRM.Schemas.Company
 
@@ -157,6 +158,26 @@ defmodule PhoenixKitCRM.CompaniesMirrorTest do
 
       refute Auth.get_user_by_email(email)
     end
+
+    test "rejects when the company already has a mirror user — no new user is minted" do
+      company = company_fixture()
+      original_user = org_user_fixture()
+      {:ok, linked} = Companies.connect_user(company, original_user.uuid)
+
+      assert {:error, :already_linked} = Companies.create_mirror_user(linked)
+
+      # The original link survives untouched — no relink, no orphan.
+      assert Companies.get_company(company.uuid).user_uuid == original_user.uuid
+    end
+
+    test "when Auth.register_user fails (duplicate email), the transaction rolls back cleanly — exercises the explicit repo().rollback/1 branch, not just Ecto's exception rollback" do
+      taken_email = "taken-#{unique()}@example.test"
+      _existing = person_user_fixture(%{"email" => taken_email})
+      company = company_fixture(%{"name" => "Acme", "email" => taken_email})
+
+      assert {:error, %Ecto.Changeset{}} = Companies.create_mirror_user(company)
+      refute Companies.get_company(company.uuid).user_uuid
+    end
   end
 
   describe "create_from_user/1" do
@@ -221,6 +242,38 @@ defmodule PhoenixKitCRM.CompaniesMirrorTest do
     test "rejects a person user" do
       user = person_user_fixture()
       assert {:error, :not_an_organization} = Companies.create_from_user(user)
+    end
+
+    test "rejects when the user already has a mirror company — no second company is created" do
+      company = company_fixture(%{"name" => "Acme"})
+      user = org_user_fixture(%{"organization_name" => "Acme #{unique()}"})
+      {:ok, linked} = Companies.connect_user(company, user.uuid)
+
+      assert {:error, {:already_linked, existing}} = Companies.create_from_user(user)
+      assert existing.uuid == linked.uuid
+
+      # Still exactly the one company for this user — no orphan sibling.
+      assert Companies.get_by_user_uuid(user.uuid).uuid == company.uuid
+    end
+
+    test "a create failure inside the transaction leaves no orphan company row" do
+      # An in-memory User with a blank organization_name can't be produced
+      # by Auth.register_user (registration requires it for account_type:
+      # "organization"), but create_from_user only reads the struct's
+      # fields — this exercises create_company's own validation failure
+      # (Company.changeset requires :name) inside the transaction, proving
+      # the wrap rolls back cleanly rather than leaving a stray row.
+      ghost_email = "ghost-cfu-#{unique()}@example.test"
+
+      ghost_user = %User{
+        uuid: Ecto.UUID.generate(),
+        account_type: "organization",
+        organization_name: nil,
+        email: ghost_email
+      }
+
+      assert {:error, %Ecto.Changeset{}} = Companies.create_from_user(ghost_user)
+      assert Companies.list_companies(search: ghost_email) == []
     end
   end
 end
