@@ -100,6 +100,13 @@ defmodule PhoenixKitCRM.MirrorTest do
 
       assert Mirror.diff(contact, user) == []
     end
+
+    test "incidental whitespace around the CRM name is not a false conflict" do
+      contact = %Contact{name: " Anna Kask ", email: "anna@example.test"}
+      user = %User{first_name: "Anna", last_name: "Kask", email: "anna@example.test"}
+
+      assert Mirror.diff(contact, user) == []
+    end
   end
 
   describe "name join (User -> CRM, attrs_to_crm/2)" do
@@ -233,6 +240,18 @@ defmodule PhoenixKitCRM.MirrorTest do
       assert result.crm == %{email: "user@acme.test"}
       assert result.user == %{}
     end
+
+    test "a padded-but-present user value is written trimmed, not raw" do
+      # A padded-but-present user email still diverges from the CRM value
+      # and wins the choice — the delta must carry the trimmed value, same
+      # normalization diff/2 already applies when deciding it diverges.
+      company = %Company{name: "Acme", email: "crm@acme.test"}
+      user = %User{organization_name: "Acme", email: " user@acme.test "}
+
+      result = Mirror.resolve(:company, company, user, %{email: :user})
+
+      assert result.crm == %{email: "user@acme.test"}
+    end
   end
 
   describe "resolve/4 — company name (direct copy, no split)" do
@@ -244,6 +263,34 @@ defmodule PhoenixKitCRM.MirrorTest do
 
       assert result.user == %{organization_name: "Acme"}
       assert result.crm == %{}
+    end
+  end
+
+  describe "resolve/4 — a stray choice on a non-diverging field is guarded, not just documented" do
+    test "a choice for a field that doesn't diverge produces empty deltas" do
+      # The values agree, so :name shouldn't have been in `choices` at all —
+      # but resolve/4 must not blindly trust the caller.
+      contact = %Contact{name: "Anna Kask", email: "anna@example.test"}
+      user = %User{first_name: "Anna", last_name: "Kask", email: "anna@example.test"}
+
+      assert Mirror.resolve(:contact, contact, user, %{name: :crm}) == %{crm: %{}, user: %{}}
+    end
+
+    test "a stray :crm choice can't wipe an already-populated user name from a blank CRM name" do
+      # crm.name is blank, so it can never "win" — without the guard this
+      # would split nil into first_name: nil, last_name: nil and hand that
+      # delta to a caller who'd write it straight over Anna's real name.
+      contact = %Contact{name: nil, email: "anna@example.test"}
+      user = %User{first_name: "Anna", last_name: "Kask", email: "anna@example.test"}
+
+      assert Mirror.resolve(:contact, contact, user, %{name: :crm}) == %{crm: %{}, user: %{}}
+    end
+
+    test "a stray :user choice can't wipe an already-populated CRM name from a blank user name" do
+      contact = %Contact{name: "Anna Kask", email: "anna@example.test"}
+      user = %User{first_name: nil, last_name: nil, email: "anna@example.test"}
+
+      assert Mirror.resolve(:contact, contact, user, %{name: :user}) == %{crm: %{}, user: %{}}
     end
   end
 

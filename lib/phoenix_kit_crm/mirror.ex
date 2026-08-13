@@ -17,7 +17,10 @@ defmodule PhoenixKitCRM.Mirror do
   already carry a NON-BLANK value and those values genuinely differ, that
   is a **conflict** — `diff/2` surfaces it and the caller must ask (the
   conflict modal, Task F), never silently overwrite. When one side is
-  blank, the copy just fills it — not a conflict.
+  blank, the copy just fills it — not a conflict. Values are compared
+  trimmed (`" Anna Kask "` and `"Anna Kask"` are the same value, on
+  either side), so incidental whitespace never manufactures a false
+  conflict.
 
   ## Field maps
 
@@ -60,10 +63,12 @@ defmodule PhoenixKitCRM.Mirror do
       only): `String.trim("\#{first_name} \#{last_name}")`, collapsing to
       `nil` when both sides are blank.
     * **split** (CRM → `User`, `attrs_from/2` and `resolve/4`, contact
-      only): split on the LAST run of whitespace — everything before it
-      becomes `first_name`, the trailing token becomes `last_name`. A
-      single token sets `first_name` and leaves `last_name` `nil`. A
-      blank name yields `nil` for both.
+      only): tokenize on whitespace (any run) — the LAST token becomes
+      `last_name`, every token before it rejoins with a single space to
+      become `first_name`. This collapses internal multi-space/tab runs
+      to a single space; it does not preserve original in-between
+      spacing. A single token sets `first_name` and leaves `last_name`
+      `nil`. A blank name yields `nil` for both.
   """
 
   alias PhoenixKit.Users.Auth.User
@@ -91,9 +96,9 @@ defmodule PhoenixKitCRM.Mirror do
 
   @doc """
   The per-field divergences between a CRM record and a `User` — only
-  fields present (non-blank) on BOTH sides AND unequal. `:field` is the
-  symbolic key described in the moduledoc (`:name` / `:email` for both
-  kinds) — feed it straight to `resolve/4`, never to `put_change/3`.
+  fields present (non-blank, trimmed) on BOTH sides AND unequal. `:field`
+  is the symbolic key described in the moduledoc (`:name` / `:email` for
+  both kinds) — feed it straight to `resolve/4`, never to `put_change/3`.
   """
   @spec diff(Company.t() | Contact.t(), User.t()) :: [
           %{field: atom(), label: String.t(), crm: term(), user: term()}
@@ -104,12 +109,11 @@ defmodule PhoenixKitCRM.Mirror do
   defp diff(kind, crm_struct, user) do
     kind
     |> field_map()
-    |> Enum.flat_map(fn %{crm: crm_field, user: user_field, label: label} ->
-      crm_value = blank_to_nil(Map.fetch!(crm_struct, crm_field))
-      user_value = blank_to_nil(user_value(user_field, user))
-
-      if crm_value != nil and user_value != nil and crm_value != user_value do
-        [%{field: crm_field, label: label, crm: crm_value, user: user_value}]
+    |> Enum.flat_map(fn %{crm: crm_field, user: user_field, label: label} = entry ->
+      if diverges?(entry, crm_struct, user) do
+        crm_val = normalize(Map.fetch!(crm_struct, crm_field))
+        user_val = normalize(user_value(user_field, user))
+        [%{field: crm_field, label: label, crm: crm_val, user: user_val}]
       else
         []
       end
@@ -121,18 +125,25 @@ defmodule PhoenixKitCRM.Mirror do
   needs written — the single place split/join + direction logic lives.
 
   `choices` is `%{symbolic_field => :crm | :user}` (the same `:field` keys
-  `diff/2` emits, e.g. `%{name: :crm, email: :user}`); a field mapped in
-  `field_map/1` but absent from `choices` (no conflict on it, or the
-  caller chose not to touch it) contributes nothing to either delta.
+  `diff/2` emits, e.g. `%{name: :crm, email: :user}`). A field is a no-op
+  — contributes nothing to either delta — when it's absent from `choices`
+  (no conflict on it, or the caller chose not to touch it) OR when it's
+  present but the two sides don't actually diverge (the same non-blank
+  fields — a defensive guard, not just a caller contract, since blindly
+  honoring a stray choice on a non-diverging field can WIPE a populated
+  side: e.g. `%Contact{name: nil}` + `%{name: :crm}` would otherwise null
+  out an already-set `first_name`/`last_name`).
 
-    * choice `:crm` on a field → that field's CRM value wins; the delta
-      needed to bring `User` in line goes into `:user` (split into
-      `first_name`/`last_name` for the contact name mapping, a plain
-      `%{field => value}` otherwise). The `:crm` side of the result is
-      untouched for that field — it already holds the winning value.
-    * choice `:user` on a field → the reverse: the delta needed to bring
-      the CRM record in line goes into `:crm` (joined for the contact
-      name mapping), `:user` untouched for that field.
+    * choice `:crm` on a genuinely diverging field → that field's CRM
+      value wins; the delta needed to bring `User` in line goes into
+      `:user` (split into `first_name`/`last_name` for the contact name
+      mapping, a plain `%{field => value}` otherwise). The `:crm` side of
+      the result is untouched for that field — it already holds the
+      winning value.
+    * choice `:user` on a genuinely diverging field → the reverse: the
+      delta needed to bring the CRM record in line goes into `:crm`
+      (joined for the contact name mapping), `:user` untouched for that
+      field.
 
   Returns `%{crm: map(), user: map()}` — attrs to pass into the
   `Companies`/`Contacts` and `Auth` update calls respectively.
@@ -144,19 +155,34 @@ defmodule PhoenixKitCRM.Mirror do
   def resolve(kind, crm_struct, %User{} = user, choices) when is_map(choices) do
     kind
     |> field_map()
-    |> Enum.reduce(%{crm: %{}, user: %{}}, fn %{crm: crm_field, user: user_field}, acc ->
-      case Map.get(choices, crm_field) do
-        :crm ->
-          crm_value = Map.fetch!(crm_struct, crm_field)
-          %{acc | user: Map.merge(acc.user, user_attrs_for(user_field, crm_value))}
+    |> Enum.reduce(%{crm: %{}, user: %{}}, fn %{crm: crm_field, user: user_field} = entry, acc ->
+      choice = Map.get(choices, crm_field)
 
-        :user ->
-          %{acc | crm: Map.merge(acc.crm, %{crm_field => user_value(user_field, user)})}
-
-        _ ->
-          acc
+      if choice in [:crm, :user] and diverges?(entry, crm_struct, user) do
+        apply_choice(acc, choice, crm_field, user_field, crm_struct, user)
+      else
+        acc
       end
     end)
+  end
+
+  defp apply_choice(acc, :crm, crm_field, user_field, crm_struct, _user) do
+    crm_val = normalize(Map.fetch!(crm_struct, crm_field))
+    %{acc | user: Map.merge(acc.user, user_attrs_for(user_field, crm_val))}
+  end
+
+  defp apply_choice(acc, :user, crm_field, user_field, _crm_struct, user) do
+    user_val = normalize(user_value(user_field, user))
+    %{acc | crm: Map.merge(acc.crm, %{crm_field => user_val})}
+  end
+
+  # Same non-blank-and-unequal predicate `diff/2` surfaces a conflict
+  # with — `resolve/4` reuses it so a choice can never act on a field
+  # that isn't genuinely diverging.
+  defp diverges?(%{crm: crm_field, user: user_field}, crm_struct, user) do
+    crm_val = normalize(Map.fetch!(crm_struct, crm_field))
+    user_val = normalize(user_value(user_field, user))
+    crm_val != nil and user_val != nil and crm_val != user_val
   end
 
   defp user_value({:split, first_field, last_field}, user) do
@@ -171,7 +197,7 @@ defmodule PhoenixKitCRM.Mirror do
   end
 
   defp user_attrs_for(user_field, value) when is_atom(user_field) do
-    %{user_field => blank_to_nil(value)}
+    %{user_field => value}
   end
 
   @doc """
@@ -237,6 +263,13 @@ defmodule PhoenixKitCRM.Mirror do
   end
 
   # ── shared ────────────────────────────────────────────────────────────
+
+  # Trims a string (so incidental whitespace never manufactures a false
+  # conflict or writes a stray "" instead of nil), then blank_to_nil.
+  # Applied symmetrically to both sides of every comparison and every
+  # value resolve/4 writes.
+  defp normalize(value) when is_binary(value), do: value |> String.trim() |> blank_to_nil()
+  defp normalize(value), do: blank_to_nil(value)
 
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
