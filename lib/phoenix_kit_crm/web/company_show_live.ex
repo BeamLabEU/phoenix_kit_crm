@@ -13,9 +13,11 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   require Logger
 
   alias PhoenixKit.Modules.Storage
+  alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.{Activity, Attachments, Companies, Paths}
   alias PhoenixKitCRM.Schemas.{Company, Contact}
   alias PhoenixKitCRM.Web.{CompanyInteractionsComponent, EventsComponent, MediaComponent}
+  alias PhoenixKitCRM.Web.Components.MirrorPanel
   alias PhoenixKitWeb.Live.Components.MediaSelectorModal
 
   @impl true
@@ -51,7 +53,8 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
          |> assign(:page_title, Company.display_name(company))
          |> assign(:page_section, gettext("Companies"))
          |> assign(:page_section_path, Paths.companies())
-         |> assign(:memberships, Companies.list_memberships(company.uuid))}
+         |> assign(:memberships, Companies.list_memberships(company.uuid))
+         |> assign(:mirror_user, mirror_user(company))}
     end
   end
 
@@ -189,6 +192,13 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     _ -> false
   end
 
+  # The linked mirror user, if any — read-only status for the Overview tab
+  # (Task J). All editing/linking lives on the edit form (Task G). `nil`
+  # covers both "never linked" and an orphaned `user_uuid` (the referenced
+  # user no longer exists); the UI treats them the same, as "None".
+  defp mirror_user(%Company{user_uuid: nil}), do: nil
+  defp mirror_user(%Company{user_uuid: uuid}), do: Auth.get_user(uuid)
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -220,6 +230,21 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
           <.field label={gettext("Email")} value={@company.email} />
           <.field label={gettext("Phone")} value={@company.phone} />
           <.field label={gettext("Industry")} value={@company.industry} />
+          <div>
+            <div class="text-xs uppercase tracking-wide text-base-content/50">
+              {gettext("Mirror account")}
+            </div>
+            <div class="text-sm">
+              <.link
+                :if={@mirror_user}
+                navigate={Paths.user_view(@mirror_user.uuid)}
+                class="link link-hover"
+              >
+                {MirrorPanel.display_name(@mirror_user)}
+              </.link>
+              <span :if={!@mirror_user}>{gettext("None")}</span>
+            </div>
+          </div>
           <div class="sm:col-span-2"><.field label={gettext("Address")} value={@company.address} /></div>
           <div class="sm:col-span-2"><.field label={gettext("Notes")} value={@company.notes} /></div>
         </div>

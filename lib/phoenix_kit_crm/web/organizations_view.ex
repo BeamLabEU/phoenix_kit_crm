@@ -18,12 +18,22 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
   # `users.ex`/`activity/index.ex` use, restricted to keep this module's own
   # `render_cell/3` clause dispatch unambiguous.
   import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
+  import PhoenixKitCRM.Web.Components.MirrorConflictModal, only: [mirror_conflict_modal: 1]
+
+  require Logger
 
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
-  alias PhoenixKitCRM.{ColumnConfig, Paths, Web.CellFormat, Web.ColumnModal}
+  alias PhoenixKit.Users.Auth.User
+  alias PhoenixKitCRM.{ColumnConfig, Companies, Mirror, Paths, Web.CellFormat, Web.ColumnModal}
+  alias PhoenixKitCRM.Schemas.Company
 
   alias PhoenixKitWeb.Components.Core.TableDefault
+
+  # Whitelist for the conflict-resolution form's per-field radios — never
+  # `String.to_atom/1` (atom-exhaustion) or `String.to_existing_atom/1`
+  # (crashes the LiveView on a crafted key) a submitted param directly.
+  @resolvable_fields %{"name" => :name, "email" => :email}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -52,7 +62,8 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
          |> assign(:selected_columns, ColumnConfig.default_columns(:organizations))
          |> assign(:column_meta, ColumnConfig.column_metadata_map(:organizations))
          |> assign(:show_column_modal, false)
-         |> assign(:temp_selected_columns, nil)}
+         |> assign(:temp_selected_columns, nil)
+         |> assign_mirror_defaults()}
     end
   end
 
@@ -61,16 +72,278 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
     if connected?(socket) do
       users = Auth.list_organizations()
       selected = ColumnConfig.get_columns(socket.assigns.current_user_uuid, :organizations)
+      companies_by_user = Companies.map_by_user_uuids(Enum.map(users, & &1.uuid))
 
       {:noreply,
        socket
        |> assign(:users, users)
+       |> assign(:companies_by_user, companies_by_user)
        |> assign(:selected_columns, selected)
        |> assign(:column_meta, ColumnConfig.column_metadata_map(:organizations))}
     else
       {:noreply, socket}
     end
   end
+
+  defp assign_mirror_defaults(socket) do
+    socket
+    |> assign(:companies_by_user, %{})
+    |> assign(:mirror_conflicts, [])
+    |> assign(:mirror_choices, %{})
+    |> assign(:mirror_pending, nil)
+    |> assign(:show_conflict, false)
+    |> assign(:show_picker, false)
+    |> assign(:picker_user_uuid, nil)
+    |> assign(:picker_candidates, [])
+  end
+
+  # ── Reverse mirror: create/link a Company FROM an organization-user ──
+  #
+  # The USER is master here (`master: :user`) — this view IS the "form"
+  # transferring from the user side, unlike the Company/Contact forms
+  # (Tasks G/H) where the CRM record is master. The conflict modal is
+  # SHARED across every row on this list — exactly one pending
+  # {user_uuid, company_uuid} pair lives in @mirror_pending at a time,
+  # cleared on open/close so state can't leak between rows.
+
+  @impl true
+  def handle_event("mirror_create_company", %{"user_uuid" => user_uuid}, socket) do
+    case Auth.get_user(user_uuid) do
+      %User{account_type: "organization"} = user ->
+        case Companies.create_from_user(user) do
+          {:ok, company} ->
+            {:noreply,
+             socket
+             |> update(:companies_by_user, &Map.put(&1, user_uuid, company))
+             |> put_flash(:info, gettext("CRM company created and linked"))}
+
+          {:error, {:already_linked, _existing}} ->
+            {:noreply,
+             put_flash(socket, :error, gettext("This account already has a linked company"))}
+
+          {:error, other} ->
+            Logger.warning("[CRM] create_from_user failed: #{inspect(other)}")
+            {:noreply, put_flash(socket, :error, gettext("Could not create a company"))}
+        end
+
+      _ ->
+        {:noreply,
+         put_flash(socket, :error, gettext("Only organization accounts can mirror a company"))}
+    end
+  end
+
+  def handle_event("mirror_open_company_picker", %{"user_uuid" => user_uuid}, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_picker, true)
+     |> assign(:picker_user_uuid, user_uuid)
+     |> assign(:picker_candidates, Companies.list_unlinked_companies())}
+  end
+
+  def handle_event("mirror_close_company_picker", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_picker, false)
+     |> assign(:picker_user_uuid, nil)
+     |> assign(:picker_candidates, [])}
+  end
+
+  def handle_event(
+        "mirror_link_company",
+        %{"user_uuid" => user_uuid, "company_uuid" => company_uuid},
+        socket
+      ) do
+    user = Auth.get_user(user_uuid)
+    company = Companies.get_company(company_uuid)
+
+    cond do
+      is_nil(user) or is_nil(company) ->
+        {:noreply, put_flash(socket, :error, gettext("That account or company no longer exists"))}
+
+      user.account_type != "organization" ->
+        {:noreply,
+         put_flash(socket, :error, gettext("Only organization accounts can mirror a company"))}
+
+      not is_nil(company.user_uuid) ->
+        {:noreply,
+         put_flash(socket, :error, gettext("That company is already linked to another account"))}
+
+      true ->
+        case Mirror.diff(company, user) do
+          [] ->
+            link_without_conflict(socket, company, user)
+
+          conflicts ->
+            {:noreply,
+             socket
+             |> assign(:mirror_conflicts, conflicts)
+             |> assign(:mirror_choices, %{})
+             |> assign(:mirror_pending, %{user_uuid: user_uuid, company_uuid: company_uuid})
+             |> assign(:show_conflict, true)
+             |> assign(:show_picker, false)
+             |> assign(:picker_user_uuid, nil)
+             |> assign(:picker_candidates, [])}
+        end
+    end
+  end
+
+  # Keeps the modal's radio selections in server assigns (@mirror_choices)
+  # rather than trusting the DOM — see MirrorConflictModal's moduledoc.
+  # Filtered against @mirror_conflicts (the modal-open-time diff — cheap,
+  # no DB hit; the DB-backed re-check happens at resolve time, below).
+  def handle_event("mirror_choice_changed", %{"choices" => raw_choices}, socket) do
+    allowed = allowed_conflict_fields(socket.assigns.mirror_conflicts)
+    updates = atomize_choices(raw_choices, allowed)
+
+    {:noreply, update(socket, :mirror_choices, &Map.merge(&1, updates))}
+  end
+
+  def handle_event("mirror_choice_changed", _params, socket), do: {:noreply, socket}
+
+  def handle_event("mirror_resolve", %{"choices" => raw_choices}, socket) do
+    case socket.assigns.mirror_pending do
+      %{user_uuid: user_uuid, company_uuid: company_uuid} ->
+        resolve_pending(socket, raw_choices, user_uuid, company_uuid)
+
+      nil ->
+        {:noreply, close_conflict(socket)}
+    end
+  end
+
+  def handle_event("mirror_cancel_conflict", _params, socket) do
+    {:noreply, close_conflict(socket)}
+  end
+
+  # Re-fetches BOTH sides fresh — either record may have changed while the
+  # modal sat open. Mirror.resolve/4 also re-checks divergence per field
+  # internally (the Task C hardening guard), so this is belt-and-suspenders,
+  # not redundant with nothing. Split out of mirror_resolve/1 to keep that
+  # handler's own case at depth 2.
+  defp resolve_pending(socket, raw_choices, user_uuid, company_uuid) do
+    company = Companies.get_company(company_uuid)
+    user = Auth.get_user(user_uuid)
+
+    case {company, user} do
+      {%Company{}, %User{}} ->
+        fresh_conflicts = Mirror.diff(company, user)
+        choices = atomize_choices(raw_choices, allowed_conflict_fields(fresh_conflicts))
+        deltas = Mirror.resolve(:company, company, user, choices)
+        apply_pending_resolution(socket, company, user, deltas, user_uuid, company_uuid)
+
+      _ ->
+        Logger.warning(
+          "[CRM] mirror_resolve: company or user missing (company_uuid=#{inspect(company_uuid)}, user_uuid=#{inspect(user_uuid)})"
+        )
+
+        {:noreply,
+         socket
+         |> close_conflict()
+         |> put_flash(:error, gettext("Could not apply the resolution — please try again"))}
+    end
+  end
+
+  defp apply_pending_resolution(socket, company, user, deltas, user_uuid, company_uuid) do
+    case Companies.apply_mirror_resolution(company, user, deltas) do
+      {:ok, {linked_company, _linked_user}} ->
+        {:noreply,
+         socket
+         |> update(:companies_by_user, &Map.put(&1, user_uuid, linked_company))
+         |> close_conflict()
+         |> put_flash(:info, gettext("Mirror account linked"))}
+
+      {:error, other} ->
+        Logger.warning(
+          "[CRM] mirror_resolve failed (company=#{inspect(company_uuid)}): #{inspect(other)}"
+        )
+
+        {:noreply,
+         socket
+         |> close_conflict()
+         |> put_flash(:error, gettext("Could not apply the resolution — please try again"))}
+    end
+  end
+
+  defp link_without_conflict(socket, company, user) do
+    case Companies.connect_user(company, user.uuid) do
+      {:ok, linked_company} ->
+        linked_company = fill_blank_company_fields(linked_company, user)
+
+        {:noreply,
+         socket
+         |> update(:companies_by_user, &Map.put(&1, user.uuid, linked_company))
+         |> assign(:show_picker, false)
+         |> assign(:picker_user_uuid, nil)
+         |> assign(:picker_candidates, [])
+         |> put_flash(:info, gettext("Linked to CRM company"))}
+
+      {:error, other} ->
+        Logger.warning("[CRM] connect_user failed: #{inspect(other)}")
+        {:noreply, put_flash(socket, :error, gettext("Could not link this company"))}
+    end
+  end
+
+  # Best-effort secondary write (same discipline as G/H's blank-fill) —
+  # reverse direction: only fills COMPANY fields that are currently BLANK,
+  # sourced from the user (master here). A matching non-blank value is
+  # never touched; a failure here doesn't undo the link, only logs.
+  defp fill_blank_company_fields(company, user) do
+    attrs =
+      :company
+      |> Mirror.attrs_to_crm(user)
+      |> Enum.filter(fn {field, value} ->
+        not is_nil(value) and blank?(Map.get(company, field))
+      end)
+      |> Map.new()
+
+    if attrs == %{} do
+      company
+    else
+      case Companies.update_company(company, attrs) do
+        {:ok, updated} ->
+          updated
+
+        {:error, changeset} ->
+          Logger.warning("[CRM] fill_blank_company_fields failed: #{inspect(changeset.errors)}")
+          company
+      end
+    end
+  end
+
+  defp close_conflict(socket) do
+    socket
+    |> assign(:mirror_conflicts, [])
+    |> assign(:mirror_choices, %{})
+    |> assign(:show_conflict, false)
+    |> assign(:mirror_pending, nil)
+  end
+
+  defp allowed_conflict_fields(conflicts), do: conflicts |> Enum.map(& &1.field) |> MapSet.new()
+
+  # Whitelisted conversion — see @resolvable_fields above for the safety
+  # rationale. Doubly filtered: the field name must be one of the two
+  # fields this kind ever mirrors AND must be in `allowed_fields` (the
+  # fields actually diverging right now). Unknown field names,
+  # non-diverging fields, and unrecognized choice values are all silently
+  # dropped rather than raising on a forged payload.
+  defp atomize_choices(raw_choices, allowed_fields) when is_map(raw_choices) do
+    for {field, value} <- raw_choices,
+        atom_field = Map.get(@resolvable_fields, field),
+        not is_nil(atom_field),
+        MapSet.member?(allowed_fields, atom_field),
+        side = choice_side(value),
+        not is_nil(side),
+        into: %{} do
+      {atom_field, side}
+    end
+  end
+
+  defp atomize_choices(_, _), do: %{}
+
+  defp choice_side("keep_crm"), do: :crm
+  defp choice_side("keep_user"), do: :user
+  defp choice_side(_), do: nil
+
+  defp blank?(v), do: is_nil(v) or (is_binary(v) and String.trim(v) == "")
 
   @impl true
   def render(assigns) do
@@ -101,6 +374,9 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
             <TableDefault.table_default_header_cell :for={col <- @selected_columns}>
               {column_label(@column_meta, col)}
             </TableDefault.table_default_header_cell>
+            <TableDefault.table_default_header_cell>
+              {gettext("CRM company")}
+            </TableDefault.table_default_header_cell>
           </TableDefault.table_default_row>
         </TableDefault.table_default_header>
 
@@ -117,10 +393,13 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
               />
               {render_cell(@column_meta, col, user)}
             </TableDefault.table_default_cell>
+            <TableDefault.table_default_cell class="relative z-10">
+              <.mirror_cell user={user} company={Map.get(@companies_by_user, user.uuid)} />
+            </TableDefault.table_default_cell>
           </TableDefault.table_default_row>
 
           <TableDefault.table_default_row :if={@users == []}>
-            <TableDefault.table_default_cell colspan={length(@selected_columns)}>
+            <TableDefault.table_default_cell colspan={length(@selected_columns) + 1}>
               <div class="text-center text-base-content/50 py-8">
                 {gettext("No organization accounts yet.")}
               </div>
@@ -135,6 +414,77 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
         selected={@selected_columns}
         temp_selected={@temp_selected_columns}
       />
+
+      <.modal
+        :if={@show_picker}
+        show={@show_picker}
+        on_close="mirror_close_company_picker"
+        id="mirror-company-picker-modal"
+      >
+        <:title>{gettext("Link existing company")}</:title>
+        <.form
+          for={%{}}
+          id="mirror-company-picker-form"
+          phx-submit="mirror_link_company"
+          class="space-y-3"
+        >
+          <input type="hidden" name="user_uuid" value={@picker_user_uuid} />
+          <.select
+            id="mirror-company-picker-select"
+            name="company_uuid"
+            value={nil}
+            prompt={gettext("— choose a company —")}
+            options={Enum.map(@picker_candidates, &{&1.name, &1.uuid})}
+          />
+          <div class="modal-action">
+            <.button type="button" variant="ghost" phx-click="mirror_close_company_picker">
+              {gettext("Cancel")}
+            </.button>
+            <.button type="submit" variant="primary">{gettext("Link")}</.button>
+          </div>
+        </.form>
+      </.modal>
+
+      <.mirror_conflict_modal
+        conflicts={@mirror_conflicts}
+        master={:user}
+        choices={@mirror_choices}
+        show={@show_conflict}
+      />
+    </div>
+    """
+  end
+
+  # The per-row "CRM company" cell: badge + link when linked, Create/Link
+  # actions when not.
+  attr(:user, :any, required: true)
+  attr(:company, :any, default: nil)
+
+  defp mirror_cell(assigns) do
+    ~H"""
+    <div :if={@company} class="flex items-center gap-2">
+      <span class="badge badge-success badge-sm">{gettext("Linked")}</span>
+      <.link navigate={Paths.company(@company.uuid)} class="link link-hover text-sm">
+        {@company.name}
+      </.link>
+    </div>
+    <div :if={!@company} class="flex flex-wrap gap-1">
+      <.button
+        phx-click="mirror_create_company"
+        phx-value-user_uuid={@user.uuid}
+        variant="primary"
+        size="xs"
+      >
+        {gettext("Create CRM company")}
+      </.button>
+      <.button
+        phx-click="mirror_open_company_picker"
+        phx-value-user_uuid={@user.uuid}
+        variant="outline"
+        size="xs"
+      >
+        {gettext("Link existing…")}
+      </.button>
     </div>
     """
   end

@@ -12,8 +12,18 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
   import PhoenixKitCRM.Web.PartyRoleHelpers,
     only: [active_role_values: 1, role_label: 1, selected_roles: 1, sync_roles: 3]
 
-  alias PhoenixKitCRM.{Activity, Companies, Contacts, Paths}
+  import PhoenixKitCRM.Web.Components.MirrorPanel, only: [mirror_panel: 1]
+  import PhoenixKitCRM.Web.Components.MirrorConflictModal, only: [mirror_conflict_modal: 1]
+
+  alias PhoenixKit.Users.Auth
+  alias PhoenixKit.Users.Auth.User
+  alias PhoenixKitCRM.{Activity, Companies, Contacts, Mirror, Paths}
   alias PhoenixKitCRM.Schemas.{Contact, PartyRole}
+
+  # Whitelist for the conflict-resolution form's per-field radios — never
+  # `String.to_atom/1` (atom-exhaustion) or `String.to_existing_atom/1`
+  # (crashes the LiveView on a crafted key) a submitted param directly.
+  @resolvable_fields %{"name" => :name, "email" => :email}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -55,10 +65,12 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
     |> assign(:department, "")
     |> assign(:roles_selected, [])
     |> assign(:allow_login, false)
+    |> assign_mirror_defaults(nil, nil)
   end
 
   defp assign_edit_form(socket, contact) do
     membership = Contacts.primary_membership(contact)
+    linked_user = linked_user_for(contact)
 
     socket
     |> assign(:companies, Companies.list_companies())
@@ -72,7 +84,26 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
     |> assign(:department, (membership && membership.department) || "")
     |> assign(:roles_selected, active_role_values(contact))
     |> assign(:allow_login, not is_nil(contact.user_uuid))
+    |> assign_mirror_defaults(
+      linked_user,
+      linked_user && Paths.user_view(linked_user.uuid)
+    )
   end
+
+  defp assign_mirror_defaults(socket, linked_user, linked_account_path) do
+    socket
+    |> assign(:linked_user, linked_user)
+    |> assign(:linked_account_path, linked_account_path)
+    |> assign(:mirror_conflicts, [])
+    |> assign(:mirror_choices, %{})
+    |> assign(:show_conflict, false)
+    |> assign(:mirror_pending_user_uuid, nil)
+    |> assign(:show_picker, false)
+    |> assign(:picker_candidates, [])
+  end
+
+  defp linked_user_for(%Contact{user_uuid: nil}), do: nil
+  defp linked_user_for(%Contact{user_uuid: uuid}), do: Auth.get_user(uuid)
 
   @impl true
   def handle_event("validate", params, socket) do
@@ -124,8 +155,255 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
     end
   end
 
+  # ── Mirror account (person-user link) ─────────────────────────────────
+  #
+  # ADDITIVE to the existing allow_login checkbox/apply_login (Q2: both
+  # stay). Only reachable once the contact is persisted (the panel itself
+  # isn't rendered before then — see render/1), so
+  # `socket.assigns.contact.uuid` is always set in every handler below.
+
+  def handle_event("mirror_create", _params, socket) do
+    case Contacts.create_mirror_user(socket.assigns.contact) do
+      {:ok, {contact, user}} ->
+        {:noreply,
+         socket
+         |> assign(:contact, contact)
+         |> assign(:linked_user, user)
+         |> assign(:linked_account_path, Paths.user_view(user.uuid))
+         |> put_flash(:info, gettext("Mirror account created and linked"))}
+
+      {:error, :already_linked} ->
+        {:noreply,
+         put_flash(socket, :error, gettext("This contact already has a mirror account"))}
+
+      {:error, other} ->
+        Logger.warning("[CRM] create_mirror_user failed: #{inspect(other)}")
+        {:noreply, put_flash(socket, :error, gettext("Could not create a mirror account"))}
+    end
+  end
+
+  def handle_event("mirror_open_picker", _params, socket) do
+    linked = Contacts.linked_user_uuids()
+    %{users: persons} = Auth.list_users_paginated(account_type: "person", page_size: 500)
+    candidates = Enum.reject(persons, &MapSet.member?(linked, &1.uuid))
+
+    {:noreply,
+     socket
+     |> assign(:show_picker, true)
+     |> assign(:picker_candidates, candidates)}
+  end
+
+  def handle_event("mirror_close_picker", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_picker, false)
+     |> assign(:picker_candidates, [])}
+  end
+
+  def handle_event("mirror_link", %{"user_uuid" => user_uuid}, socket) do
+    contact = socket.assigns.contact
+
+    case Auth.get_user(user_uuid) do
+      %User{account_type: "person"} = user ->
+        # Re-check even though link_user/2 also guards — the diff/fill
+        # path below writes to `user` directly and must not run against a
+        # type link_user would reject anyway.
+        case Mirror.diff(contact, user) do
+          [] ->
+            link_without_conflict(socket, contact, user)
+
+          conflicts ->
+            {:noreply,
+             socket
+             |> assign(:mirror_conflicts, conflicts)
+             |> assign(:mirror_choices, %{})
+             |> assign(:mirror_pending_user_uuid, user_uuid)
+             |> assign(:show_conflict, true)
+             |> assign(:show_picker, false)
+             |> assign(:picker_candidates, [])}
+        end
+
+      %User{} ->
+        {:noreply,
+         put_flash(socket, :error, gettext("Only person accounts can mirror a contact"))}
+
+      nil ->
+        {:noreply, put_flash(socket, :error, gettext("That account no longer exists"))}
+    end
+  end
+
+  # Keeps the modal's radio selections in server assigns (@mirror_choices)
+  # rather than trusting the DOM — see MirrorConflictModal's moduledoc for
+  # why an uncontrolled radio is a real bug here. Filtered against
+  # @mirror_conflicts (the modal-open-time diff — cheap, no DB hit; the
+  # DB-backed re-check happens at resolve time, below).
+  def handle_event("mirror_choice_changed", %{"choices" => raw_choices}, socket) do
+    allowed = allowed_conflict_fields(socket.assigns.mirror_conflicts)
+    updates = atomize_choices(raw_choices, allowed)
+
+    {:noreply, update(socket, :mirror_choices, &Map.merge(&1, updates))}
+  end
+
+  def handle_event("mirror_choice_changed", _params, socket), do: {:noreply, socket}
+
+  def handle_event("mirror_resolve", %{"choices" => raw_choices}, socket) do
+    # Re-fetch BOTH sides fresh rather than trusting socket.assigns.contact
+    # or the cached @mirror_conflicts — either record may have changed
+    # while the modal sat open. Mirror.resolve/4 also re-checks divergence
+    # per field internally (the Task C hardening guard), so this is
+    # belt-and-suspenders, not redundant with nothing.
+    contact = Contacts.get_contact(socket.assigns.contact.uuid)
+    user = Auth.get_user(socket.assigns.mirror_pending_user_uuid)
+
+    case {contact, user} do
+      {%Contact{}, %User{}} ->
+        fresh_conflicts = Mirror.diff(contact, user)
+        choices = atomize_choices(raw_choices, allowed_conflict_fields(fresh_conflicts))
+        deltas = Mirror.resolve(:contact, contact, user, choices)
+
+        case Contacts.apply_mirror_resolution(contact, user, deltas) do
+          {:ok, {linked_contact, linked_user}} ->
+            {:noreply,
+             socket
+             |> assign(:contact, linked_contact)
+             |> assign(:linked_user, linked_user)
+             |> assign(:linked_account_path, Paths.user_view(linked_user.uuid))
+             |> close_conflict()
+             |> put_flash(:info, gettext("Mirror account linked"))}
+
+          {:error, other} ->
+            Logger.warning(
+              "[CRM] mirror_resolve failed (contact=#{inspect(contact.uuid)}): #{inspect(other)}"
+            )
+
+            {:noreply,
+             socket
+             |> close_conflict()
+             |> put_flash(:error, gettext("Could not apply the resolution — please try again"))}
+        end
+
+      _ ->
+        Logger.warning(
+          "[CRM] mirror_resolve: contact or user missing (contact_uuid=#{inspect(socket.assigns.contact.uuid)}, " <>
+            "user_uuid=#{inspect(socket.assigns.mirror_pending_user_uuid)})"
+        )
+
+        {:noreply,
+         socket
+         |> close_conflict()
+         |> put_flash(:error, gettext("Could not apply the resolution — please try again"))}
+    end
+  end
+
+  def handle_event("mirror_cancel_conflict", _params, socket) do
+    {:noreply, close_conflict(socket)}
+  end
+
+  def handle_event("mirror_unlink", _params, socket) do
+    case Contacts.disconnect_user(socket.assigns.contact) do
+      {:ok, contact} ->
+        {:noreply,
+         socket
+         |> assign(:contact, contact)
+         |> assign(:linked_user, nil)
+         |> assign(:linked_account_path, nil)
+         |> put_flash(:info, gettext("Mirror account unlinked"))}
+
+      {:error, other} ->
+        Logger.warning("[CRM] disconnect_user failed: #{inspect(other)}")
+        {:noreply, put_flash(socket, :error, gettext("Could not unlink the mirror account"))}
+    end
+  end
+
   # Ignore any unexpected/forged event rather than crashing.
   def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  defp link_without_conflict(socket, contact, user) do
+    case Contacts.link_user(contact, user.uuid) do
+      {:ok, linked_contact} ->
+        linked_user = fill_blank_user_fields(user, contact)
+
+        {:noreply,
+         socket
+         |> assign(:contact, linked_contact)
+         |> assign(:linked_user, linked_user)
+         |> assign(:linked_account_path, Paths.user_view(linked_user.uuid))
+         |> assign(:show_picker, false)
+         |> assign(:picker_candidates, [])
+         |> put_flash(:info, gettext("Linked to mirror account"))}
+
+      {:error, other} ->
+        Logger.warning("[CRM] link_user failed: #{inspect(other)}")
+        {:noreply, put_flash(socket, :error, gettext("Could not link this account"))}
+    end
+  end
+
+  # Best-effort secondary write (mirrors apply_membership/apply_login just
+  # above) — only fills fields the user side is currently BLANK on; a
+  # matching non-blank value is never touched. A failure here doesn't undo
+  # the link, only logs.
+  defp fill_blank_user_fields(user, contact) do
+    attrs =
+      :contact
+      |> Mirror.attrs_from(contact)
+      |> Map.take([:first_name, :last_name, :email])
+      |> Enum.filter(fn {field, value} -> not is_nil(value) and blank?(Map.get(user, field)) end)
+      |> Map.new()
+
+    if attrs == %{} do
+      user
+    else
+      case Auth.update_user_profile(user, attrs) do
+        {:ok, updated} ->
+          updated
+
+        {:error, changeset} ->
+          Logger.warning("[CRM] fill_blank_user_fields failed: #{inspect(changeset.errors)}")
+          user
+      end
+    end
+  end
+
+  defp close_conflict(socket) do
+    socket
+    |> assign(:mirror_conflicts, [])
+    |> assign(:mirror_choices, %{})
+    |> assign(:show_conflict, false)
+    |> assign(:mirror_pending_user_uuid, nil)
+  end
+
+  defp allowed_conflict_fields(conflicts), do: conflicts |> Enum.map(& &1.field) |> MapSet.new()
+
+  # Whitelisted conversion — see @resolvable_fields above for the safety
+  # rationale. Doubly filtered: the field name must be one of the two
+  # fields this kind ever mirrors AND must be in `allowed_fields` (the
+  # fields actually diverging right now). Unknown field names,
+  # non-diverging fields, and unrecognized choice values are all silently
+  # dropped rather than raising on a forged payload.
+  defp atomize_choices(raw_choices, allowed_fields) when is_map(raw_choices) do
+    for {field, value} <- raw_choices,
+        atom_field = Map.get(@resolvable_fields, field),
+        not is_nil(atom_field),
+        MapSet.member?(allowed_fields, atom_field),
+        side = choice_side(value),
+        not is_nil(side),
+        into: %{} do
+      {atom_field, side}
+    end
+  end
+
+  defp atomize_choices(_, _), do: %{}
+
+  defp choice_side("keep_crm"), do: :crm
+  defp choice_side("keep_user"), do: :user
+  defp choice_side(_), do: nil
+
+  defp picker_label(%User{first_name: first, last_name: last, email: email}) do
+    case String.trim("#{first} #{last}") do
+      "" -> email
+      personal -> "#{personal} — #{email}"
+    end
+  end
 
   defp do_save(socket, action, contact_params, company_uuid, role, dept, allow_login, email) do
     result =
@@ -157,6 +435,8 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
           # A requested secondary op failed. STAY on the form (now editing the
           # just-saved contact) so the typed company/role/dept/login aren't lost —
           # re-saving updates, it won't create a duplicate.
+          linked_user = linked_user_for(contact)
+
           {:noreply,
            socket
            |> put_flash(
@@ -169,6 +449,8 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
            |> assign(:live_action, :edit)
            |> assign(:page_title, gettext("Edit contact"))
            |> assign(:roles_selected, active_role_values(contact))
+           |> assign(:linked_user, linked_user)
+           |> assign(:linked_account_path, linked_user && Paths.user_view(linked_user.uuid))
            |> restore_form(
              Contacts.change_contact(contact),
              company_uuid,
@@ -374,7 +656,60 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
           </div>
         </div>
       </.form>
+
+      <%!--
+        A separate card, not inside the form above: this panel and its picker
+        fire their own phx-submit ("mirror_link"), and HTML doesn't allow a
+        <form> nested inside another <form> — the contact save form above
+        must stay self-contained. Additive to the allow_login checkbox above
+        (owner Q2: both stay).
+      --%>
+      <div :if={@contact.uuid} class="card bg-base-100 shadow-sm mt-4">
+        <div class="card-body flex flex-col gap-3">
+          <div class="text-sm font-semibold text-base-content/60">{gettext("Mirror account")}</div>
+
+          <.mirror_panel
+            kind={:contact}
+            linked_user={@linked_user}
+            can_link={true}
+            account_path={@linked_account_path}
+          />
+
+          <.form
+            :if={@show_picker}
+            for={%{}}
+            id="mirror-picker-form"
+            phx-submit="mirror_link"
+            class="space-y-2"
+          >
+            <.select
+              id="mirror-picker-select"
+              name="user_uuid"
+              value={nil}
+              prompt={gettext("— choose an account —")}
+              options={Enum.map(@picker_candidates, &{picker_label(&1), &1.uuid})}
+            />
+            <div class="flex gap-2">
+              <.button type="submit" variant="primary" size="xs">{gettext("Link")}</.button>
+              <.button type="button" phx-click="mirror_close_picker" variant="ghost" size="xs">
+                {gettext("Cancel")}
+              </.button>
+            </div>
+          </.form>
+        </div>
+      </div>
+
+      <p :if={!@contact.uuid} class="mt-4 text-xs text-base-content/50">
+        {gettext("Save the contact first to link or create a mirror account.")}
+      </p>
     </div>
+
+    <.mirror_conflict_modal
+      conflicts={@mirror_conflicts}
+      master={:crm}
+      choices={@mirror_choices}
+      show={@show_conflict}
+    />
     """
   end
 

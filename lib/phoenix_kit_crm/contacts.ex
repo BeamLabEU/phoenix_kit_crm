@@ -18,6 +18,7 @@ defmodule PhoenixKitCRM.Contacts do
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCRM.Lists
+  alias PhoenixKitCRM.Mirror
   alias PhoenixKitCRM.Schemas.{CompanyMembership, Contact, ContactList, ListMember}
   alias PhoenixKitCRM.Search
   alias PhoenixKitCRM.SoftDelete
@@ -342,27 +343,28 @@ defmodule PhoenixKitCRM.Contacts do
 
   @doc """
   Connects a contact to a login user by email (staff-style find-or-create).
-  Existing user by email → linked; otherwise a placeholder user is registered.
-  Rolls back a just-created placeholder if the link fails. No-op-safe to call
-  on an already-linked contact (re-links).
+  Existing user by email → linked; otherwise a placeholder user is
+  registered. Atomic: the find-or-create + link run inside one
+  `repo().transaction/1`, so a just-registered placeholder is rolled back
+  automatically if the link fails — no separate compensating delete (the
+  prior implementation deleted by hand, which orphans the placeholder if
+  that delete itself fails or the process dies mid-way). No-op-safe to
+  call on an already-linked contact (re-links).
   """
   @spec connect_user(Contact.t(), String.t()) ::
           {:ok, Contact.t(), :existing | :created} | {:error, atom() | Ecto.Changeset.t()}
   def connect_user(%Contact{} = contact, email) when is_binary(email) do
-    with {:ok, user, user_status} <- find_or_create_user_by_email(email),
-         {:ok, linked} <- link_or_rollback(contact, user, user_status) do
-      {:ok, linked, user_status}
-    end
-  end
-
-  defp link_or_rollback(contact, user, user_status) do
-    case contact |> Contact.link_user_changeset(user.uuid) |> repo().update() do
-      {:ok, linked} ->
-        {:ok, linked}
-
-      {:error, _} = err ->
-        if user_status == :created, do: _ = repo().delete(user)
-        err
+    repo().transaction(fn ->
+      with {:ok, user, user_status} <- find_or_create_user_by_email(email),
+           {:ok, linked} <- contact |> Contact.link_user_changeset(user.uuid) |> repo().update() do
+        {linked, user_status}
+      else
+        {:error, reason} -> repo().rollback(reason)
+      end
+    end)
+    |> case do
+      {:ok, {linked, user_status}} -> {:ok, linked, user_status}
+      {:error, _} = err -> err
     end
   end
 
@@ -395,17 +397,143 @@ defmodule PhoenixKitCRM.Contacts do
   end
 
   defp register_placeholder(email) do
-    random_password =
-      :crypto.strong_rand_bytes(24) |> Base.url_encode64() |> binary_part(0, 24)
-
-    attrs = %{
-      "email" => email,
-      "password" => random_password <> "Aa1!",
-      "custom_fields" => %{"source" => @placeholder_source}
-    }
+    attrs =
+      %{"email" => email, "custom_fields" => %{"source" => @placeholder_source}}
+      |> Map.put("password", Mirror.random_password())
 
     with {:ok, user} <- Auth.register_user(attrs), do: {:ok, user, :created}
   end
+
+  # ── Explicit login-user connection (picker + "create mirror user") ──
+  #
+  # The opt-in checkbox above is find-or-create-by-email; these two are
+  # the explicit mirror-panel actions (owner Q2: both stay, side by side).
+  # Neither find-or-creates — `link_user/2` links a SPECIFIC, already-
+  # chosen user, `create_mirror_user/1` always mints a fresh one.
+
+  @doc """
+  Links `contact` to an EXISTING person-`User` by uuid — no find-or-create
+  (that's `connect_user/2`, above). Rejects a non-person-account user
+  with `{:error, :not_a_person}` (an ALLOWLIST on `account_type ==
+  "person"`, matching `Companies.connect_user/2`'s allowlist on
+  `"organization"` exactly rather than a denylist on `"organization"` —
+  today the two are equivalent since `person`/`organization` are the only
+  values in use, but the allowlist doesn't silently accept a future third
+  `account_type` the way a denylist would), and a missing user with
+  `{:error, :user_not_found}`. A user already linked to another contact
+  surfaces as `{:error, changeset}` via the partial unique index
+  (`idx_crm_contacts_user_uuid`) rather than crashing. No-op-safe to call
+  on an already-linked contact (re-links).
+  """
+  @spec link_user(Contact.t(), UUIDv7.t() | String.t()) ::
+          {:ok, Contact.t()} | {:error, :not_a_person | :user_not_found | Ecto.Changeset.t()}
+  def link_user(%Contact{} = contact, user_uuid) when is_binary(user_uuid) do
+    case Auth.get_user(user_uuid) do
+      nil ->
+        {:error, :user_not_found}
+
+      %User{account_type: "person"} ->
+        link_and_log(contact, user_uuid)
+
+      %User{} ->
+        {:error, :not_a_person}
+    end
+  end
+
+  defp link_and_log(%Contact{user_uuid: previous_user_uuid} = contact, user_uuid) do
+    case contact |> Contact.link_user_changeset(user_uuid) |> repo().update() do
+      {:ok, updated} = ok ->
+        if previous_user_uuid != user_uuid do
+          Logger.info("[CRM] contact #{updated.uuid} linked to user #{user_uuid}")
+        end
+
+        ok
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc """
+  Creates a fresh person-`User` from `contact` (via `Mirror.attrs_from/2` —
+  `account_type: "person"`, `first_name`/`last_name` split from
+  `contact.name`, `email: contact.email`), tagged
+  `custom_fields.source = "crm_contact"`, and links it — atomically: the
+  created user is rolled back if the link fails.
+
+  Rejects `{:error, :already_linked}` when `contact` already has a mirror
+  user: without this guard a second call would silently mint and link a
+  NEW user, orphaning the previous one (still present, an unrecoverable
+  random password, linked to nothing).
+  """
+  @spec create_mirror_user(Contact.t()) ::
+          {:ok, {Contact.t(), User.t()}} | {:error, :already_linked | term()}
+  def create_mirror_user(%Contact{user_uuid: user_uuid}) when not is_nil(user_uuid) do
+    {:error, :already_linked}
+  end
+
+  def create_mirror_user(%Contact{} = contact) do
+    repo().transaction(fn ->
+      attrs =
+        :contact
+        |> Mirror.attrs_from(contact)
+        |> Map.put(:password, Mirror.random_password())
+        |> Map.put(:custom_fields, %{"source" => @placeholder_source})
+        |> Mirror.stringify_keys()
+
+      with {:ok, user} <- Auth.register_user(attrs),
+           {:ok, linked} <- link_user(contact, user.uuid) do
+        {linked, user}
+      else
+        {:error, reason} -> repo().rollback(reason)
+      end
+    end)
+  end
+
+  @doc """
+  The set of `user_uuid`s currently linked to any contact — used by the
+  "Link existing…" picker (Task H) to exclude users who are already
+  someone else's mirror.
+  """
+  @spec linked_user_uuids() :: MapSet.t()
+  def linked_user_uuids do
+    Contact
+    |> where([c], not is_nil(c.user_uuid))
+    |> select([c], c.user_uuid)
+    |> repo().all()
+    |> MapSet.new()
+  end
+
+  @doc """
+  Applies a per-field conflict resolution — `PhoenixKitCRM.Mirror.resolve/4`'s
+  `%{crm: crm_deltas, user: user_deltas}` — atomically: writes `crm_deltas`
+  onto `contact`, `user_deltas` onto `user` (via `Auth.update_user_profile/2`,
+  the same changeset core's own profile edits use), then links them. All
+  three in one `repo().transaction/1` so a failure at any step leaves
+  neither side partially rewritten.
+  """
+  @spec apply_mirror_resolution(Contact.t(), User.t(), %{crm: map(), user: map()}) ::
+          {:ok, {Contact.t(), User.t()}} | {:error, term()}
+  def apply_mirror_resolution(%Contact{} = contact, %User{} = user, %{
+        crm: crm_deltas,
+        user: user_deltas
+      }) do
+    repo().transaction(fn ->
+      with {:ok, updated_contact} <- maybe_update_contact(contact, crm_deltas),
+           {:ok, updated_user} <- maybe_update_user_profile(user, user_deltas),
+           {:ok, linked} <- link_user(updated_contact, updated_user.uuid) do
+        {linked, updated_user}
+      else
+        {:error, reason} -> repo().rollback(reason)
+      end
+    end)
+  end
+
+  defp maybe_update_contact(contact, deltas) when map_size(deltas) == 0, do: {:ok, contact}
+  defp maybe_update_contact(contact, deltas), do: update_contact(contact, deltas)
+
+  defp maybe_update_user_profile(user, deltas) when map_size(deltas) == 0, do: {:ok, user}
+  defp maybe_update_user_profile(user, deltas), do: Auth.update_user_profile(user, deltas)
 
   # ── Helpers ─────────────────────────────────────────────────────────
 

@@ -5,13 +5,19 @@ defmodule PhoenixKitCRM.Companies do
   """
 
   import Ecto.Query, warn: false
+  require Logger
 
   alias PhoenixKit.RepoHelper
+  alias PhoenixKit.Users.Auth
+  alias PhoenixKit.Users.Auth.User
+  alias PhoenixKitCRM.Mirror
   alias PhoenixKitCRM.Schemas.{Company, CompanyMembership, Contact}
   alias PhoenixKitCRM.Search
   alias PhoenixKitCRM.SoftDelete
 
   defp repo, do: RepoHelper.repo()
+
+  @placeholder_source "crm_company"
 
   @doc """
   Memberships at a company (primary first), each with its contact preloaded.
@@ -166,6 +172,282 @@ defmodule PhoenixKitCRM.Companies do
       |> repo().all()
     end
   end
+
+  # ── Optional organization-user mirror connection (Q3) ────────────────
+  #
+  # A Company mirrors ONLY to an `account_type: "organization"` User — no
+  # membership/organization_uuid propagation. `Company.user_uuid` is a
+  # nullable FK (ON DELETE SET NULL, partial unique index
+  # idx_crm_companies_user_uuid) — mirrors `Contacts`' user connection,
+  # just without the find-or-create-by-email shortcut (Company has no
+  # implicit "log in" checkbox; every link here is explicit).
+
+  @doc "The (at most one) company linked to a given login user, or nil."
+  @spec get_by_user_uuid(UUIDv7.t() | String.t() | nil) :: Company.t() | nil
+  def get_by_user_uuid(nil), do: nil
+
+  def get_by_user_uuid(user_uuid) do
+    # Format-check first so a malformed id returns nil instead of raising.
+    case Ecto.UUID.cast(user_uuid) do
+      {:ok, _} -> repo().get_by(Company, user_uuid: user_uuid)
+      :error -> nil
+    end
+  end
+
+  @doc """
+  `%{user_uuid => company}` for the given login users — the batched form
+  of `get_by_user_uuid/1` (mirrors `Contacts.map_by_user_uuids/1`), for
+  table views (Task I's Organizations list) that would otherwise query
+  once per row. Users with no linked company are absent from the map.
+  """
+  @spec map_by_user_uuids([UUIDv7.t() | String.t()]) :: %{optional(String.t()) => Company.t()}
+  def map_by_user_uuids([]), do: %{}
+
+  def map_by_user_uuids(user_uuids) when is_list(user_uuids) do
+    case Enum.filter(user_uuids, &valid_uuid?/1) do
+      [] ->
+        %{}
+
+      valid ->
+        from(c in Company, where: c.user_uuid in ^valid)
+        |> repo().all()
+        |> Map.new(&{&1.user_uuid, &1})
+    end
+  end
+
+  @doc """
+  Non-trashed companies with no mirror user linked — the candidate set
+  for the "Link existing company…" picker (Task I, reverse direction:
+  an organization-user picking a company to adopt).
+  """
+  @spec list_unlinked_companies() :: [Company.t()]
+  def list_unlinked_companies do
+    Company
+    |> where([c], is_nil(c.user_uuid) and c.status != "trashed")
+    |> order_by([c], asc: c.name)
+    |> repo().all()
+  end
+
+  @doc """
+  Links `company` to an EXISTING organization-`User` by uuid. Rejects a
+  user that isn't `account_type: "organization"` (Q3) with
+  `{:error, :not_an_organization}`, and a missing user with
+  `{:error, :user_not_found}`. A user already linked to another company
+  surfaces as `{:error, changeset}` via the partial unique index
+  (`idx_crm_companies_user_uuid`) rather than crashing. No-op-safe to call
+  on an already-linked company (re-links).
+  """
+  @spec connect_user(Company.t(), UUIDv7.t() | String.t()) ::
+          {:ok, Company.t()}
+          | {:error, :not_an_organization | :user_not_found | Ecto.Changeset.t()}
+  def connect_user(%Company{} = company, user_uuid) when is_binary(user_uuid) do
+    case Auth.get_user(user_uuid) do
+      nil ->
+        {:error, :user_not_found}
+
+      %User{account_type: "organization"} ->
+        link_and_log(company, user_uuid)
+
+      %User{} ->
+        {:error, :not_an_organization}
+    end
+  end
+
+  defp link_and_log(%Company{user_uuid: previous_user_uuid} = company, user_uuid) do
+    case company |> Company.link_user_changeset(user_uuid) |> repo().update() do
+      {:ok, updated} = ok ->
+        if previous_user_uuid != user_uuid do
+          Logger.info("[CRM] company #{updated.uuid} linked to user #{user_uuid}")
+        end
+
+        ok
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc "Disconnects `company` from its mirror user (unlinks only; never deletes the user)."
+  @spec disconnect_user(Company.t()) :: {:ok, Company.t()} | {:error, Ecto.Changeset.t()}
+  def disconnect_user(%Company{user_uuid: previous_user_uuid} = company) do
+    case company |> Company.link_user_changeset(nil) |> repo().update() do
+      {:ok, updated} = ok ->
+        if previous_user_uuid do
+          Logger.info(
+            "[CRM] company #{updated.uuid} disconnected from user #{previous_user_uuid}"
+          )
+        end
+
+        ok
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc """
+  Creates a fresh organization-`User` from `company` (via
+  `Mirror.attrs_from/2` — `account_type: "organization"`,
+  `organization_name: company.name`, `email: company.email`), tagged
+  `custom_fields.source = "crm_company"`, and links it — atomically: the
+  created user is rolled back if the link fails (a validation error, a
+  race — anything).
+
+  Rejects `{:error, :already_linked}` when `company` already has a mirror
+  user: without this guard a second call would silently mint and link a
+  NEW user, orphaning the previous one (still present, still an
+  organization account with an unrecoverable random password, linked to
+  nothing). `disconnect_user/1` first, then `create_mirror_user/2` again,
+  if that's genuinely what's wanted.
+
+  `opts` is currently unused — reserved for a future extension point
+  (e.g. actor attribution for the log line), kept in the signature so
+  adding one later isn't a breaking change.
+  """
+  @spec create_mirror_user(Company.t(), keyword()) ::
+          {:ok, {Company.t(), User.t()}} | {:error, :already_linked | term()}
+  def create_mirror_user(company, opts \\ [])
+
+  def create_mirror_user(%Company{user_uuid: user_uuid}, _opts) when not is_nil(user_uuid) do
+    {:error, :already_linked}
+  end
+
+  def create_mirror_user(%Company{} = company, _opts) do
+    repo().transaction(fn ->
+      attrs =
+        :company
+        |> Mirror.attrs_from(company)
+        |> Map.put(:password, Mirror.random_password())
+        |> Map.put(:custom_fields, %{"source" => @placeholder_source})
+        |> Mirror.stringify_keys()
+
+      with {:ok, user} <- Auth.register_user(attrs),
+           {:ok, linked} <- connect_user(company, user.uuid) do
+        {linked, user}
+      else
+        {:error, reason} -> repo().rollback(reason)
+      end
+    end)
+  end
+
+  @doc """
+  Reverse of `create_mirror_user/2`: given an organization-`User`, adopts
+  an existing UNLINKED company (matched by name first, then email —
+  mirrors `Andi.CRMBridge`'s adopt-by-email precedent for contacts) or
+  creates a new one from `Mirror.attrs_to_crm/2`, then links it — the
+  create-then-link is wrapped in one transaction, so a `connect_user/2`
+  failure (a race against a concurrent caller linking the same user
+  first, most plausibly) rolls back the just-created company rather than
+  leaving an orphaned, unlinked row behind.
+
+  Rejects `{:error, {:already_linked, existing}}` when `user` already has
+  a mirror company (checked up front, before touching anything) and
+  `{:error, :not_an_organization}` for a non-organization user.
+  """
+  @spec create_from_user(User.t()) ::
+          {:ok, Company.t()}
+          | {:error, {:already_linked, Company.t()} | :not_an_organization | term()}
+  def create_from_user(%User{account_type: "organization"} = user) do
+    case get_by_user_uuid(user.uuid) do
+      %Company{} = existing ->
+        {:error, {:already_linked, existing}}
+
+      nil ->
+        repo().transaction(fn -> link_or_create_or_rollback(user) end)
+    end
+  end
+
+  def create_from_user(%User{}), do: {:error, :not_an_organization}
+
+  defp link_or_create_or_rollback(user) do
+    case link_or_create(user) do
+      {:ok, linked} -> linked
+      {:error, reason} -> repo().rollback(reason)
+    end
+  end
+
+  defp link_or_create(user) do
+    case adoptable_company_for(user) do
+      %Company{} = company ->
+        connect_user(company, user.uuid)
+
+      nil ->
+        with {:ok, company} <-
+               create_company(Mirror.stringify_keys(Mirror.attrs_to_crm(:company, user))) do
+          connect_user(company, user.uuid)
+        end
+    end
+  end
+
+  defp adoptable_company_for(user) do
+    adoptable_company_by_name(user.organization_name) ||
+      adoptable_company_by_email(user.email)
+  end
+
+  defp adoptable_company_by_name(name) when is_binary(name) and name != "" do
+    Company
+    |> where([c], c.name == ^name and c.status != "trashed" and is_nil(c.user_uuid))
+    |> order_by([c], asc: c.inserted_at)
+    |> limit(1)
+    |> repo().one()
+  end
+
+  defp adoptable_company_by_name(_), do: nil
+
+  defp adoptable_company_by_email(email) when is_binary(email) and email != "" do
+    Company
+    |> where([c], c.email == ^email and c.status != "trashed" and is_nil(c.user_uuid))
+    |> order_by([c], asc: c.inserted_at)
+    |> limit(1)
+    |> repo().one()
+  end
+
+  defp adoptable_company_by_email(_), do: nil
+
+  @doc """
+  The set of `user_uuid`s currently linked to any company — used by the
+  "Link existing…" picker (Task G) to exclude users who are already
+  someone else's mirror.
+  """
+  @spec linked_user_uuids() :: MapSet.t()
+  def linked_user_uuids do
+    Company
+    |> where([c], not is_nil(c.user_uuid))
+    |> select([c], c.user_uuid)
+    |> repo().all()
+    |> MapSet.new()
+  end
+
+  @doc """
+  Applies a per-field conflict resolution — `PhoenixKitCRM.Mirror.resolve/4`'s
+  `%{crm: crm_deltas, user: user_deltas}` — atomically: writes `crm_deltas`
+  onto `company`, `user_deltas` onto `user` (via `Auth.update_user_profile/2`,
+  the same changeset core's own profile edits use), then links them. All
+  three in one `repo().transaction/1` so a failure at any step leaves
+  neither side partially rewritten.
+  """
+  @spec apply_mirror_resolution(Company.t(), User.t(), %{crm: map(), user: map()}) ::
+          {:ok, {Company.t(), User.t()}} | {:error, term()}
+  def apply_mirror_resolution(%Company{} = company, %User{} = user, %{
+        crm: crm_deltas,
+        user: user_deltas
+      }) do
+    repo().transaction(fn ->
+      with {:ok, updated_company} <- maybe_update_company(company, crm_deltas),
+           {:ok, updated_user} <- maybe_update_user_profile(user, user_deltas),
+           {:ok, linked} <- connect_user(updated_company, updated_user.uuid) do
+        {linked, updated_user}
+      else
+        {:error, reason} -> repo().rollback(reason)
+      end
+    end)
+  end
+
+  defp maybe_update_company(company, deltas) when map_size(deltas) == 0, do: {:ok, company}
+  defp maybe_update_company(company, deltas), do: update_company(company, deltas)
+
+  defp maybe_update_user_profile(user, deltas) when map_size(deltas) == 0, do: {:ok, user}
+  defp maybe_update_user_profile(user, deltas), do: Auth.update_user_profile(user, deltas)
 
   defp maybe_search_companies(query, opts) do
     case Keyword.get(opts, :search) do

@@ -40,6 +40,11 @@ defmodule PhoenixKitCRM.Test.Router do
       live("/companies/:uuid/edit", CompanyFormLive, :edit)
       live("/companies/:uuid", CompanyShowLive, :show)
 
+      # OrganizationsView doesn't have a "Live" suffix (production reaches
+      # it via a Tab.new!(live_view: ...) auto-route, not PhoenixKitCRM.Routes),
+      # so `as:` can't be inferred here — name it explicitly.
+      live("/organizations", OrganizationsView, :index, as: :crm_organizations)
+
       live("/lists", ListsLive, :index)
       live("/lists/new", ListFormLive, :new)
       live("/lists/:uuid/edit", ListFormLive, :edit)

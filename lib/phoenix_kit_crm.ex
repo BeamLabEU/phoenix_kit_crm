@@ -229,6 +229,9 @@ defmodule PhoenixKitCRM do
   def route_module, do: PhoenixKitCRM.Routes
 
   @impl PhoenixKit.Module
+  def migration_module, do: PhoenixKitCRM.Migrations
+
+  @impl PhoenixKit.Module
   def css_sources, do: [:phoenix_kit_crm]
 
   # Project-extension contribution to the `phoenix_kit_projects` hub — the
