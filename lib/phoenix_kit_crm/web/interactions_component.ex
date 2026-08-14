@@ -661,7 +661,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
           <div class="flex flex-col gap-2">
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-1">
-                  <label for="crm-party-search" class="label-text font-semibold leading-none">
+                  <label for="crm-party-search" class="fieldset-legend font-semibold leading-none">
                     {gettext("Involved parties")}
                   </label>
                   <div class="relative inline-flex items-center group">

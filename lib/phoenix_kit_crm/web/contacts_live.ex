@@ -109,7 +109,7 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
     ~H"""
     <div class="flex flex-col px-4 py-6 gap-6">
       <div class="flex items-center justify-between flex-wrap gap-2">
-        <div role="tablist" class="tabs tabs-bordered">
+        <div role="tablist" class="tabs tabs-border">
           <.link
             patch={contacts_path(assigns, filter: "active", page: 1)}
             role="tab"

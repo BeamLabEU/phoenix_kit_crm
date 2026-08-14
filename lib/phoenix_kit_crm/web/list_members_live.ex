@@ -436,7 +436,7 @@ defmodule PhoenixKitCRM.Web.ListMembersLive do
 
       <div class="flex flex-col gap-3">
         <div class="flex items-center justify-between flex-wrap gap-2">
-          <div role="tablist" class="tabs tabs-bordered">
+          <div role="tablist" class="tabs tabs-border">
             <.link
               patch={members_path(assigns, status: nil, page: 1)}
               role="tab"
@@ -538,7 +538,7 @@ defmodule PhoenixKitCRM.Web.ListMembersLive do
                 phx-click="set_locale_mode"
                 phx-value-mode="missing_only"
               />
-              <span class="label-text">{gettext("Only contacts without a locale")}</span>
+              <span class="fieldset-legend">{gettext("Only contacts without a locale")}</span>
             </label>
             <label class="label cursor-pointer justify-start gap-2">
               <input
@@ -549,7 +549,7 @@ defmodule PhoenixKitCRM.Web.ListMembersLive do
                 phx-click="set_locale_mode"
                 phx-value-mode="all"
               />
-              <span class="label-text">{gettext("All (overwrite existing locale)")}</span>
+              <span class="fieldset-legend">{gettext("All (overwrite existing locale)")}</span>
             </label>
           </fieldset>
         </div>

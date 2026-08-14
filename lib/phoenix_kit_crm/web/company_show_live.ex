@@ -203,7 +203,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
         </.link>
       </div>
 
-      <div role="tablist" class="tabs tabs-bordered">
+      <div role="tablist" class="tabs tabs-border">
         <.link
           :for={{value, label, icon} <- tab_defs(@storage_enabled, @comments_enabled)}
           patch={tab_path(@company.uuid, value)}

@@ -181,7 +181,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
                   checked={role in @roles_selected}
                   class="checkbox checkbox-sm"
                 />
-                <span class="label-text">{role_label(role)}</span>
+                <span class="fieldset-legend">{role_label(role)}</span>
               </label>
             </div>
 

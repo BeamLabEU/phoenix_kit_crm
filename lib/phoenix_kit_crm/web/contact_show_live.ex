@@ -320,7 +320,7 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
         </.link>
       </div>
 
-      <div role="tablist" class="tabs tabs-bordered">
+      <div role="tablist" class="tabs tabs-border">
         <.link
           :for={
             {value, label, icon} <- tab_defs(@storage_enabled, @comments_enabled, @andi_available)

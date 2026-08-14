@@ -303,7 +303,7 @@ defmodule PhoenixKitCRM.Web.ListImportLive do
               phx-change="validate_upload"
               class="flex flex-col gap-3"
             >
-              <.live_file_input upload={@uploads.file} class="file-input file-input-bordered w-full" />
+              <.live_file_input upload={@uploads.file} class="file-input w-full" />
 
               <div :for={entry <- @uploads.file.entries} class="flex items-center gap-2 text-sm">
                 <span class="truncate">{entry.client_name}</span>

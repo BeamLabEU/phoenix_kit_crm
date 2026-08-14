@@ -2105,7 +2105,7 @@ msgid "Import into a list"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/project_client_live.ex:122
-#, elixir-autogen, elixir-format, fuzzy
+#, elixir-autogen, elixir-format
 msgid "%{count} member contact"
 msgid_plural "%{count} member contacts"
 msgstr[0] ""
