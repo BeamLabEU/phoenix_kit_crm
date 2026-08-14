@@ -4,6 +4,47 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.7.0 - 2026-08-14
+
+### Added
+
+- **Manual two-way mirror between CRM records and system users** (#22).
+  Company ↔ organization-user (via a new optional
+  `phoenix_kit_crm_companies.user_uuid`) and Contact ↔ person-user (building on
+  the existing `contacts.user_uuid`). Every direction is an explicit admin
+  action — **Create mirror**, **Link existing**, **Unlink** — available from both
+  sides, alongside the existing `allow_login` checkbox rather than replacing it.
+
+  **Nothing is automatic:** no PubSub, no background sync. The form you act from
+  is the master, and when a mirrored field diverges a per-field conflict modal
+  asks which side to keep instead of silently overwriting; a blank field on the
+  target is simply filled from the master. `resolve` recomputes the diff fresh at
+  submit time, so a stale selection or an out-of-band edit cannot drive a bad
+  write, and every write touching two records runs in one transaction.
+
+  `user_uuid` is never cast from form params on either schema — only through a
+  dedicated `link_user_changeset/2`, preserving the invariant `Contact` already
+  had.
+
+- **The module now owns its migrations** (`migration_module/0` →
+  `PhoenixKitCRM.Migrations`), following the `phoenix_kit_legal` precedent. **V01**
+  idempotently adopts the 10 `phoenix_kit_crm_*` tables the core chain
+  historically created (`CREATE TABLE IF NOT EXISTS`, shape-identical, a no-op on
+  existing installs) and adds the one genuinely new object: `companies.user_uuid`
+  (FK → `phoenix_kit_users(uuid)` `ON DELETE SET NULL`) with a **partial** unique
+  index, so any number of companies may be unlinked while a linked user maps to
+  at most one. Version tracked by a `crm_schema:1` `COMMENT ON TABLE`; `down/1`
+  never drops a table, and a committed test pins that.
+
+  Note for hosts: because the column is not in core's manifest,
+  `mix phoenix_kit.repair` reports it as an **info-level** `extra_object`. Repair
+  takes no action on it — it will not be dropped.
+
+### Changed
+
+- Dependency updates: `phoenix_kit` 2.4.0. The `~> 2.0` pin is unchanged — nothing
+  here uses core's new `Slug.put_slug/3`.
+
 ## 0.6.1 - 2026-08-11
 
 ### Fixed
