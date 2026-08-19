@@ -47,6 +47,17 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
       []
     )
 
+    # Round 5: `#{@template_db}` itself carries the "phoenix_kit_crm" marker
+    # (stamped by some earlier, legitimate boot against it directly) — found
+    # by mutation-testing this exact test, where neutralizing stamp!/1 still
+    # left it green. A clone inherits the marker regardless of whether THIS
+    # boot's stamp!/1 call runs, the same no-op-looks-like-a-write blindness
+    # round 5 fixed for the extension and function in the refusal test
+    # below, applied here to the marker itself: cleared right after cloning
+    # so its presence afterward is actually caused by this run's own boot.
+    {:ok, cleaner} = Postgrex.start_link(Keyword.put(admin_opts, :database, @scratch_db))
+    Postgrex.query!(cleaner, "COMMENT ON TABLE schema_migrations IS NULL", [])
+
     on_exit(fn ->
       {:ok, admin} = Postgrex.start_link(admin_opts)
       Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{@scratch_db}", [])
@@ -144,19 +155,54 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
     {:ok, seeder} = Postgrex.start_link(Keyword.put(admin_opts, :database, @foreign_db))
     Postgrex.query!(seeder, "DROP EXTENSION IF EXISTS \"uuid-ossp\"", [])
 
+    # Round 5 (Kimi): the template (`phoenix_kit_crm_test`) already carries
+    # `uuid_generate_v7/0` from its own earlier boot, same as it carries
+    # uuid-ossp. `CREATE OR REPLACE FUNCTION` against an unmodified clone is
+    # a genuine catalog no-op — a schema-only dump is byte-identical whether
+    # the statement ran or not, so a mutation moving that creation ahead of
+    # check!/1 would be invisible on this fixture no matter how the
+    # before/after comparison works.
+    #
+    # Can't fix this the way the extension is fixed (drop it outright): this
+    # function is the DEFAULT on the uuid primary key of ~170 tables in this
+    # schema, so `DROP FUNCTION` refuses without CASCADE, and CASCADE would
+    # strip the DEFAULT clause from every one of them — a much bigger,
+    # unrelated fixture mutation (confirmed by trying it: `DROP FUNCTION IF
+    # EXISTS uuid_generate_v7()` fails outright with exactly this dependency
+    # list). Swapping the body instead keeps the signature — name, arg
+    # types, return type — identical, so every column DEFAULT stays valid
+    # throughout; only the function's own definition differs, which is all
+    # that needs to be true for the real `CREATE OR REPLACE FUNCTION` in
+    # test_helper.exs to be a genuine, dump-visible write instead of a
+    # no-op.
+    Postgrex.query!(
+      seeder,
+      "CREATE OR REPLACE FUNCTION uuid_generate_v7() RETURNS uuid AS $$ " <>
+        "SELECT '00000000-0000-0000-0000-000000000000'::uuid; " <>
+        "$$ LANGUAGE sql",
+      []
+    )
+
     Postgrex.query!(
       seeder,
       "COMMENT ON TABLE schema_migrations IS 'phoenix_kit_document_creator'",
       []
     )
 
-    before_state = snapshot(seeder)
+    before_dump = schema_dump(@foreign_db, admin_opts)
 
-    # Sanity on the snapshot itself, not on the guard: if the extension is
-    # somehow still present, the "untouched" comparison below would be
-    # trivially satisfied by coincidence rather than by check!/1 actually
-    # stopping in time — exactly the blindness this test exists to remove.
-    assert before_state.extensions == []
+    # Sanity on the fixture itself, not on the guard: if the extension is
+    # somehow still present, or the function still carries its real body
+    # instead of the placeholder just installed, the "untouched" comparison
+    # below would be trivially satisfied by coincidence (a no-op re-run)
+    # rather than by check!/1 actually stopping in time — exactly the
+    # blindness this test exists to remove.
+    refute before_dump =~ "uuid-ossp",
+           "fixture still carries the uuid-ossp extension after dropping it"
+
+    refute before_dump =~ "clock_timestamp",
+           "fixture still carries the real uuid_generate_v7 body — the placeholder swap " <>
+             "above didn't take, so its real (re-)creation below would be a no-op"
 
     on_exit(fn ->
       {:ok, admin} = Postgrex.start_link(admin_opts)
@@ -189,49 +235,78 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
            "process failed, but not with the guard's own exception — some other crash " <>
              "reached the same exit code, which this assertion exists to rule out:\n#{output}"
 
-    {:ok, checker} = Postgrex.start_link(Keyword.put(admin_opts, :database, @foreign_db))
-    after_state = snapshot(checker)
+    after_dump = schema_dump(@foreign_db, admin_opts)
 
-    assert after_state.marker == "phoenix_kit_document_creator",
-           "the refusal should leave the DB exactly as it found it, but the marker is now " <>
-             "#{inspect(after_state.marker)} — something ran after check!/1 raised"
-
-    assert after_state.extensions == [],
-           "uuid-ossp exists now, which test_helper.exs only creates AFTER check!/1 — " <>
-             "check!/1 must have run too late, letting a real step through before refusing " <>
-             "(the fault Kimi's round-2 review named: an order violation the earlier " <>
-             "template-based version of this test could not have caught, since re-creating " <>
-             "an already-present extension is a silent no-op)"
-
-    assert after_state.tables == before_state.tables,
-           "the table set changed (before: #{inspect(before_state.tables)}, " <>
-             "after: #{inspect(after_state.tables)}) — something created or dropped a table " <>
-             "after check!/1 should have stopped the boot outright"
+    assert after_dump == before_dump, schema_diff_message(before_dump, after_dump)
   end
 
-  defp snapshot(conn) do
-    %{rows: table_rows} =
-      Postgrex.query!(
-        conn,
-        "SELECT table_name FROM information_schema.tables " <>
-          "WHERE table_schema = 'public' ORDER BY table_name",
-        []
+  # Round 5 (Kimi): `snapshot/1` (tables' NAMES, one specific extension, the
+  # marker) is a hand-picked field list — enumerative, not complete. A
+  # mutation moving `uuid_generate_v7`'s creation ahead of check!/1 passed
+  # all four prior mutations unnoticed: exit code and error-message
+  # assertions above still held (check!/1 still raised, just after the
+  # function statement already ran), and nothing in that field list looks at
+  # functions. The fix isn't a fifth field — a view, a type, or an ALTER on
+  # an existing table would each need their own — it's dropping the
+  # enumeration itself. `pg_dump --schema-only` serializes the database's
+  # entire catalog; comparing its full text before/after makes anything
+  # written between check!/1 and this assertion visible by construction, not
+  # by having been anticipated in a list.
+  defp schema_dump(db_name, admin_opts) do
+    args = [
+      "-h",
+      to_string(admin_opts[:hostname]),
+      "-p",
+      to_string(admin_opts[:port]),
+      "-U",
+      admin_opts[:username],
+      "--schema-only",
+      "--no-owner",
+      "--no-privileges",
+      db_name
+    ]
+
+    {output, 0} =
+      System.cmd("pg_dump", args,
+        env: [{"PGPASSWORD", admin_opts[:password]}],
+        stderr_to_stdout: true
       )
 
-    %{rows: extension_rows} =
-      Postgrex.query!(conn, "SELECT extname FROM pg_extension WHERE extname = 'uuid-ossp'", [])
+    # PG17's pg_dump emits a `\restrict <random-token>` / `\unrestrict
+    # <same-token>` pair on every invocation — a fresh nonce gating
+    # destructive psql commands on restore, unrelated to schema content.
+    # Verified by hand before relying on this: three dumps of an untouched
+    # database differ ONLY in this pair, and a real change (a throwaway
+    # function) shows up correctly once these two lines are excluded. Left
+    # in, every comparison below would fail on every run regardless of
+    # whether anything actually changed — the exact flakiness a
+    # whole-schema comparison was warned against introducing.
+    output
+    |> String.split("\n")
+    |> Enum.reject(&String.starts_with?(&1, ["\\restrict ", "\\unrestrict "]))
+    |> Enum.join("\n")
+  end
 
-    %{rows: [[marker]]} =
-      Postgrex.query!(
-        conn,
-        "SELECT obj_description('schema_migrations'::regclass, 'pg_class')",
-        []
-      )
+  # A character-level `String.myers_difference/2` on two ~10K-line dumps
+  # shards real SQL statements into unreadable word fragments (a single new
+  # `CREATE FUNCTION` renders as a dozen `ins:` chunks a few characters
+  # each). A line-set difference loses positional context but keeps every
+  # changed line whole, which is what actually matters for "what got
+  # written after check!/1 raised" — this is a failure message, not an
+  # edit script.
+  defp schema_diff_message(before_dump, after_dump) do
+    before_lines = MapSet.new(String.split(before_dump, "\n"))
+    after_lines = MapSet.new(String.split(after_dump, "\n"))
 
-    %{
-      tables: Enum.map(table_rows, fn [name] -> name end),
-      extensions: Enum.map(extension_rows, fn [name] -> name end),
-      marker: marker
-    }
+    added = MapSet.difference(after_lines, before_lines) |> Enum.sort()
+    removed = MapSet.difference(before_lines, after_lines) |> Enum.sort()
+
+    diff =
+      Enum.map_join(added, "\n", &"+ #{&1}") <>
+        if(added != [] and removed != [], do: "\n", else: "") <>
+        Enum.map_join(removed, "\n", &"- #{&1}")
+
+    "the refusal should leave the database's entire schema exactly as it found it, but " <>
+      "pg_dump --schema-only shows a difference — something ran after check!/1 raised:\n#{diff}"
   end
 end
