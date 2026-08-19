@@ -16,7 +16,17 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
 
   use ExUnit.Case, async: false
 
-  @scratch_db "i067_wiring_scratch"
+  # Round 6 (Kimi): fixed, literal DB names are the one remaining real risk
+  # once the comparison itself is sound — two concurrent `mix test` runs
+  # against the same shared Postgres instance (the exact "migration_test_db"
+  # scenario I067 exists for in the first place) would `DROP DATABASE IF
+  # EXISTS`/`CREATE DATABASE` on top of each other under a fixed name.
+  # Suffixed per-setup with real randomness (not a PID or node name — either
+  # could coincidentally repeat across two different hosts hitting the same
+  # shared instance, which random bytes practically can't).
+  defp unique_suffix, do: :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
+
+  @scratch_db_prefix "i067_wiring_scratch"
 
   # Cloned from the repo's own already-migrated isolated test DB via
   # `CREATE DATABASE ... TEMPLATE`, rather than created empty. An empty
@@ -38,12 +48,14 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
       database: "postgres"
     ]
 
+    scratch_db = "#{@scratch_db_prefix}_#{unique_suffix()}"
+
     {:ok, admin} = Postgrex.start_link(admin_opts)
-    Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{@scratch_db}", [])
+    Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{scratch_db}", [])
 
     Postgrex.query!(
       admin,
-      "CREATE DATABASE #{@scratch_db} TEMPLATE #{@template_db}",
+      "CREATE DATABASE #{scratch_db} TEMPLATE #{@template_db}",
       []
     )
 
@@ -55,20 +67,23 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
     # round 5 fixed for the extension and function in the refusal test
     # below, applied here to the marker itself: cleared right after cloning
     # so its presence afterward is actually caused by this run's own boot.
-    {:ok, cleaner} = Postgrex.start_link(Keyword.put(admin_opts, :database, @scratch_db))
+    {:ok, cleaner} = Postgrex.start_link(Keyword.put(admin_opts, :database, scratch_db))
     Postgrex.query!(cleaner, "COMMENT ON TABLE schema_migrations IS NULL", [])
 
     on_exit(fn ->
       {:ok, admin} = Postgrex.start_link(admin_opts)
-      Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{@scratch_db}", [])
+      Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{scratch_db}", [])
     end)
 
-    %{admin_opts: admin_opts}
+    %{admin_opts: admin_opts, scratch_db: scratch_db}
   end
 
-  test "a real boot through test_helper.exs stamps the owner marker", %{admin_opts: admin_opts} do
+  test "a real boot through test_helper.exs stamps the owner marker", %{
+    admin_opts: admin_opts,
+    scratch_db: scratch_db
+  } do
     env = [
-      {"PGDATABASE", @scratch_db},
+      {"PGDATABASE", scratch_db},
       {"PGHOST", to_string(admin_opts[:hostname])},
       {"PGPORT", to_string(admin_opts[:port])},
       {"PGUSER", admin_opts[:username]},
@@ -88,7 +103,7 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
 
     assert exit_code == 0, "real boot against a fresh scratch DB should succeed:\n#{output}"
 
-    {:ok, checker} = Postgrex.start_link(Keyword.put(admin_opts, :database, @scratch_db))
+    {:ok, checker} = Postgrex.start_link(Keyword.put(admin_opts, :database, scratch_db))
 
     marker =
       case Postgrex.query!(
@@ -113,7 +128,7 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
   # exactly the half check!/1 exists for. Stamping is bookkeeping; refusing is
   # the protection. Same real-subprocess-plus-outside-assertion shape as the
   # first test, mirrored onto the other half of the wiring.
-  @foreign_db "i067_wiring_scratch_foreign"
+  @foreign_db_prefix "i067_wiring_scratch_foreign"
 
   # Templated from `phoenix_kit_crm_test` (like the stamping test), for a
   # reason that took a run to discover: an EMPTY scratch DB forces
@@ -148,11 +163,13 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
       database: "postgres"
     ]
 
-    {:ok, admin} = Postgrex.start_link(admin_opts)
-    Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{@foreign_db}", [])
-    Postgrex.query!(admin, "CREATE DATABASE #{@foreign_db} TEMPLATE #{@template_db}", [])
+    foreign_db = "#{@foreign_db_prefix}_#{unique_suffix()}"
 
-    {:ok, seeder} = Postgrex.start_link(Keyword.put(admin_opts, :database, @foreign_db))
+    {:ok, admin} = Postgrex.start_link(admin_opts)
+    Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{foreign_db}", [])
+    Postgrex.query!(admin, "CREATE DATABASE #{foreign_db} TEMPLATE #{@template_db}", [])
+
+    {:ok, seeder} = Postgrex.start_link(Keyword.put(admin_opts, :database, foreign_db))
     Postgrex.query!(seeder, "DROP EXTENSION IF EXISTS \"uuid-ossp\"", [])
 
     # Round 5 (Kimi): the template (`phoenix_kit_crm_test`) already carries
@@ -189,7 +206,8 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
       []
     )
 
-    before_dump = schema_dump(@foreign_db, admin_opts)
+    before_dump = schema_dump(foreign_db, admin_opts)
+    before_versions = migration_versions(foreign_db, admin_opts)
 
     # Sanity on the fixture itself, not on the guard: if the extension is
     # somehow still present, or the function still carries its real body
@@ -206,11 +224,11 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
 
     on_exit(fn ->
       {:ok, admin} = Postgrex.start_link(admin_opts)
-      Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{@foreign_db}", [])
+      Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{foreign_db}", [])
     end)
 
     env = [
-      {"PGDATABASE", @foreign_db},
+      {"PGDATABASE", foreign_db},
       {"PGHOST", to_string(admin_opts[:hostname])},
       {"PGPORT", to_string(admin_opts[:port])},
       {"PGUSER", admin_opts[:username]},
@@ -235,9 +253,44 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
            "process failed, but not with the guard's own exception — some other crash " <>
              "reached the same exit code, which this assertion exists to rule out:\n#{output}"
 
-    after_dump = schema_dump(@foreign_db, admin_opts)
+    # Round 6 (Kimi): the primary harm I067 exists to prevent — a foreign
+    # package's migration silently marked "applied" in someone else's
+    # bookkeeping — is a DATA change to schema_migrations, and
+    # `pg_dump --schema-only` never serializes table rows by design. A
+    # migrator that runs before check!/1's refusal takes effect writes
+    # exactly that row and the structural diff below would never see it.
+    # Checked first, ahead of the structural diff, so a mutation that ONLY
+    # touches this table's rows (a future migration whose sole effect is the
+    # bookkeeping insert, not a structural change) is caught by this
+    # assertion specifically, not incidentally by the one after it.
+    after_versions = migration_versions(foreign_db, admin_opts)
+
+    assert after_versions == before_versions,
+           "the refusal should leave schema_migrations' rows untouched, but the applied-" <>
+             "version list changed from #{inspect(before_versions)} to " <>
+             "#{inspect(after_versions)} — the migrator recorded this migration as applied " <>
+             "in someone else's bookkeeping before check!/1's refusal took effect, which is " <>
+             "the exact harm I067 exists to prevent"
+
+    after_dump = schema_dump(foreign_db, admin_opts)
 
     assert after_dump == before_dump, schema_diff_message(before_dump, after_dump)
+  end
+
+  # Round 6 (Kimi): `pg_dump --schema-only` is the right tool for catalog
+  # structure and was never going to cover this — it explicitly excludes
+  # table data by design, not by oversight. `schema_migrations` is the one
+  # table in this whole test where DATA is the thing I067 actually protects
+  # (a version number recorded as "applied" here IS the harm), so it gets
+  # its own explicit row-content check rather than being folded into the
+  # schema dump.
+  defp migration_versions(db_name, admin_opts) do
+    {:ok, conn} = Postgrex.start_link(Keyword.put(admin_opts, :database, db_name))
+
+    %{rows: rows} =
+      Postgrex.query!(conn, "SELECT version FROM schema_migrations ORDER BY version", [])
+
+    Enum.map(rows, fn [version] -> version end)
   end
 
   # Round 5 (Kimi): `snapshot/1` (tables' NAMES, one specific extension, the
