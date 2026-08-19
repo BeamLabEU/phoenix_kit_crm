@@ -206,6 +206,17 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
       []
     )
 
+    # Round 7 (Kimi): the template already carries our own migrator's row
+    # (from its own earlier boot), so a late migrator run under mutation F
+    # finds it already recorded and silently no-ops instead of inserting —
+    # same blindness as the extension/function above, now for a row instead
+    # of a schema object.
+    Postgrex.query!(
+      seeder,
+      "DELETE FROM schema_migrations WHERE version = $1",
+      [PhoenixKitCRM.Test.SchemaMigration.migrator_version()]
+    )
+
     before_dump = schema_dump(foreign_db, admin_opts)
     before_versions = migration_versions(foreign_db, admin_opts)
 
