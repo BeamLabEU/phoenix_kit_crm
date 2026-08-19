@@ -9,6 +9,7 @@ if File.dir?(test_support_ebin) do
 end
 
 alias PhoenixKitCRM.Test.Repo, as: TestRepo
+alias PhoenixKitCRM.Test.SchemaOwnerGuard
 
 db_config = Application.get_env(:phoenix_kit_crm, TestRepo, [])
 db_name = db_config[:database] || "phoenix_kit_crm_test"
@@ -44,6 +45,13 @@ repo_available =
   else
     try do
       {:ok, _} = TestRepo.start_link()
+
+      # I067: PGDATABASE (opted into below, not the default) can point at a
+      # database another package's Ecto.Migrator already owns. Check the
+      # schema_migrations owner marker before trusting this DB with any
+      # migration — see PhoenixKitCRM.Test.SchemaOwnerGuard.
+      SchemaOwnerGuard.check!(&TestRepo.query!/1)
+
       TestRepo.query!("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
 
       TestRepo.query!("""
@@ -87,6 +95,11 @@ repo_available =
         log: false
       )
 
+      # Migrations for this run succeeded — stamp ownership so a future run
+      # against this same DB (still opted in via PGDATABASE) can tell it's
+      # ours vs. having been silently repurposed by another package.
+      SchemaOwnerGuard.stamp!(&TestRepo.query!/1)
+
       # Record whether the resolved core actually shipped the CRM tables (its V138
       # migration). Without PHOENIX_KIT_PATH the suite resolves the *published*
       # core, which doesn't have them yet — so the integration + LiveView tests get
@@ -102,6 +115,9 @@ repo_available =
       Ecto.Adapters.SQL.Sandbox.mode(TestRepo, :manual)
       true
     rescue
+      e in SchemaOwnerGuard.OwnerMismatch ->
+        reraise e, __STACKTRACE__
+
       e ->
         IO.puts("""
         \n  Could not connect to test database — integration tests excluded.
