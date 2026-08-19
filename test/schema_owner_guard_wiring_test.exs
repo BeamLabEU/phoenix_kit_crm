@@ -104,7 +104,31 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
   # first test, mirrored onto the other half of the wiring.
   @foreign_db "i067_wiring_scratch_foreign"
 
-  test "a real boot through test_helper.exs refuses someone else's marker" do
+  # Templated from `phoenix_kit_crm_test` (like the stamping test), for a
+  # reason that took a run to discover: an EMPTY scratch DB forces
+  # `PhoenixKit.Migration.ensure_current/2` to run core's full V135->V169
+  # chain from scratch on every boot, including a boot this test WANTS to
+  # crash before reaching — and that cold-boot chain has its own pre-existing
+  # flakiness (observed to fail partway through on "No repository configured
+  # for PhoenixKit", unrelated to this guard), which confounded this exact
+  # test with a false red for the wrong reason. Core's own migration
+  # bookkeeping lives in a separate table this guard never touches (a fully
+  # empty `phoenix_kit_dev` was found, separately, to carry zero rows there
+  # under version numbers below 1000 even after 170 core-created tables
+  # existed — core does not use the generic `schema_migrations` table at
+  # all), so templating from an already-core-migrated DB sidesteps the crash
+  # entirely without touching anything the guard itself is being judged on.
+  #
+  # What DOES need to be absent, and isn't in the raw template, is the
+  # uuid-ossp extension — the step `test_helper.exs` runs immediately after
+  # check!/1 was originally positioned. Dropped here so the extension's
+  # presence afterward is a direct, order-sensitive signal: `CREATE EXTENSION
+  # IF NOT EXISTS` is idempotent, so if it were already present (as it is in
+  # the raw template) a late check! running after it would look identical to
+  # check! never having let it run at all. Kimi's round-2 review is exactly
+  # this: a migrated template makes the DB-untouched assertion blind to
+  # check!/1 running too LATE, because the steps after it are idempotent.
+  test "a real boot through test_helper.exs refuses someone else's marker, before touching anything" do
     admin_opts = [
       hostname: System.get_env("PGHOST", "localhost"),
       port: String.to_integer(System.get_env("PGPORT", "5432")),
@@ -118,15 +142,21 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
     Postgrex.query!(admin, "CREATE DATABASE #{@foreign_db} TEMPLATE #{@template_db}", [])
 
     {:ok, seeder} = Postgrex.start_link(Keyword.put(admin_opts, :database, @foreign_db))
-    # Overwrite whatever marker the template carried (there shouldn't be one —
-    # phoenix_kit_crm_test's own boot never sets PGDATABASE — but stated
-    # unconditionally rather than assumed) with a different package's name,
-    # so check!/1 must see a real mismatch, not an absent marker.
+    Postgrex.query!(seeder, "DROP EXTENSION IF EXISTS \"uuid-ossp\"", [])
+
     Postgrex.query!(
       seeder,
       "COMMENT ON TABLE schema_migrations IS 'phoenix_kit_document_creator'",
       []
     )
+
+    before_state = snapshot(seeder)
+
+    # Sanity on the snapshot itself, not on the guard: if the extension is
+    # somehow still present, the "untouched" comparison below would be
+    # trivially satisfied by coincidence rather than by check!/1 actually
+    # stopping in time — exactly the blindness this test exists to remove.
+    assert before_state.extensions == []
 
     on_exit(fn ->
       {:ok, admin} = Postgrex.start_link(admin_opts)
@@ -159,21 +189,49 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
            "process failed, but not with the guard's own exception — some other crash " <>
              "reached the same exit code, which this assertion exists to rule out:\n#{output}"
 
-    # And check!/1 runs before anything else in the boot — confirm nothing
-    # downstream ran either: the marker is exactly what was seeded, untouched.
     {:ok, checker} = Postgrex.start_link(Keyword.put(admin_opts, :database, @foreign_db))
+    after_state = snapshot(checker)
 
-    marker =
-      case Postgrex.query!(
-             checker,
-             "SELECT obj_description('schema_migrations'::regclass, 'pg_class')",
-             []
-           ) do
-        %{rows: [[value]]} -> value
-      end
-
-    assert marker == "phoenix_kit_document_creator",
+    assert after_state.marker == "phoenix_kit_document_creator",
            "the refusal should leave the DB exactly as it found it, but the marker is now " <>
-             "#{inspect(marker)} — something ran after check!/1 raised"
+             "#{inspect(after_state.marker)} — something ran after check!/1 raised"
+
+    assert after_state.extensions == [],
+           "uuid-ossp exists now, which test_helper.exs only creates AFTER check!/1 — " <>
+             "check!/1 must have run too late, letting a real step through before refusing " <>
+             "(the fault Kimi's round-2 review named: an order violation the earlier " <>
+             "template-based version of this test could not have caught, since re-creating " <>
+             "an already-present extension is a silent no-op)"
+
+    assert after_state.tables == before_state.tables,
+           "the table set changed (before: #{inspect(before_state.tables)}, " <>
+             "after: #{inspect(after_state.tables)}) — something created or dropped a table " <>
+             "after check!/1 should have stopped the boot outright"
+  end
+
+  defp snapshot(conn) do
+    %{rows: table_rows} =
+      Postgrex.query!(
+        conn,
+        "SELECT table_name FROM information_schema.tables " <>
+          "WHERE table_schema = 'public' ORDER BY table_name",
+        []
+      )
+
+    %{rows: extension_rows} =
+      Postgrex.query!(conn, "SELECT extname FROM pg_extension WHERE extname = 'uuid-ossp'", [])
+
+    %{rows: [[marker]]} =
+      Postgrex.query!(
+        conn,
+        "SELECT obj_description('schema_migrations'::regclass, 'pg_class')",
+        []
+      )
+
+    %{
+      tables: Enum.map(table_rows, fn [name] -> name end),
+      extensions: Enum.map(extension_rows, fn [name] -> name end),
+      marker: marker
+    }
   end
 end
