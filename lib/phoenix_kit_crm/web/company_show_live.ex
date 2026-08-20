@@ -16,7 +16,12 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   # as the contact page's Andi.CRMBridge Orders tab and `StaffLink`. CRM has no
   # compile-time dependency on the catalogue, so a plain qualified call would
   # warn under --warnings-as-errors; `catalogue_available?/0` gates every call.
-  @compile {:no_warn_undefined, [PhoenixKitCatalogue, PhoenixKitCatalogue.Catalogue]}
+  @compile {:no_warn_undefined,
+            [
+              PhoenixKitCatalogue,
+              PhoenixKitCatalogue.Catalogue,
+              PhoenixKitCatalogue.Web.Components
+            ]}
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Users.Auth
@@ -243,31 +248,26 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     })
   end
 
-  # The catalogue hands back `:item_path` — it owns its own routes, so this
-  # never assembles a catalogue URL itself.
-  defp item_link(row) do
-    assigns = %{path: row.item_path, name: row.item_name}
+  # The catalogue renders its own items — image column, card/table toggle,
+  # price and status formatting — so an embedded list matches the catalogue's
+  # own instead of drifting from it. Called through `apply/3` because CRM has
+  # no compile-time dependency on the catalogue; `party_items_table/1` exists
+  # on that side precisely so this stays a two-key contract.
+  defp catalogue_items_table([], _id), do: nil
 
-    ~H"""
-    <.link navigate={@path} class="link link-hover">{@name}</.link>
-    """
+  defp catalogue_items_table(items, id) do
+    # credo:disable-for-next-line Credo.Check.Refactor.Apply
+    apply(PhoenixKitCatalogue.Web.Components, :party_items_table, [%{items: items, id: id}])
+  rescue
+    error ->
+      Logger.warning(
+        "CRM: could not render the catalogue item table: #{Exception.message(error)}"
+      )
+
+      nil
+  catch
+    :exit, _ -> nil
   end
-
-  # Card view (narrow screens) — table_default renders these instead of columns.
-  defp supplied_card_fields(row) do
-    [
-      %{label: gettext("Their code"), value: row.supplier_sku || "—"},
-      %{label: gettext("Unit cost"), value: unit_cost(row)},
-      %{label: gettext("Lead time"), value: lead_time(row)}
-    ]
-  end
-
-  defp unit_cost(%{unit_cost: nil}), do: "—"
-  defp unit_cost(%{unit_cost: cost, currency: currency}), do: "#{cost} #{currency}"
-
-  defp lead_time(%{lead_time_days: nil}), do: "—"
-
-  defp lead_time(%{lead_time_days: days}), do: gettext("%{n} d", n: days)
 
   defp holds_role?(company, role) do
     PartyRoles.has_role?(company, role)
@@ -458,49 +458,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
             variant="card"
           />
 
-          <.table_default
-            :if={@supplied_items != []}
-            id={"crm-company-supplied-#{@company.uuid}"}
-            size="sm"
-            items={@supplied_items}
-            card_title={&item_link/1}
-            card_fields={&supplied_card_fields/1}
-          >
-            <.table_default_header>
-              <.table_default_row>
-                <.table_default_header_cell>{gettext("Item")}</.table_default_header_cell>
-                <.table_default_header_cell>{gettext("Their code")}</.table_default_header_cell>
-                <.table_default_header_cell class="text-right">
-                  {gettext("Unit cost")}
-                </.table_default_header_cell>
-                <.table_default_header_cell class="text-right">
-                  {gettext("Lead time")}
-                </.table_default_header_cell>
-              </.table_default_row>
-            </.table_default_header>
-            <.table_default_body>
-              <.table_default_row :for={row <- @supplied_items}>
-                <.table_default_cell class="font-medium">
-                  <.link navigate={row.item_path} class="link link-hover">{row.item_name}</.link>
-                  <span :if={row.item_sku} class="text-base-content/50 text-xs ml-1">
-                    {row.item_sku}
-                  </span>
-                  <span :if={row.is_primary} class="badge badge-primary badge-xs ml-1">
-                    {gettext("primary")}
-                  </span>
-                </.table_default_cell>
-                <.table_default_cell class="text-base-content/70">
-                  {row.supplier_sku || "—"}
-                </.table_default_cell>
-                <.table_default_cell class="text-right tabular-nums">
-                  {unit_cost(row)}
-                </.table_default_cell>
-                <.table_default_cell class="text-right tabular-nums">
-                  {lead_time(row)}
-                </.table_default_cell>
-              </.table_default_row>
-            </.table_default_body>
-          </.table_default>
+          {catalogue_items_table(@supplied_items, "crm-company-supplied-#{@company.uuid}")}
         </div>
 
         <div :if={@show_manufactured} class="flex flex-col gap-2">
@@ -526,31 +484,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
             variant="card"
           />
 
-          <.table_default
-            :if={@manufactured_items != []}
-            id={"crm-company-manufactured-#{@company.uuid}"}
-            size="sm"
-            items={@manufactured_items}
-            card_title={&item_link/1}
-            card_fields={fn row -> [%{label: gettext("SKU"), value: row.item_sku || "—"}] end}
-          >
-            <.table_default_header>
-              <.table_default_row>
-                <.table_default_header_cell>{gettext("Item")}</.table_default_header_cell>
-                <.table_default_header_cell>{gettext("SKU")}</.table_default_header_cell>
-              </.table_default_row>
-            </.table_default_header>
-            <.table_default_body>
-              <.table_default_row :for={row <- @manufactured_items}>
-                <.table_default_cell class="font-medium">
-                  <.link navigate={row.item_path} class="link link-hover">{row.item_name}</.link>
-                </.table_default_cell>
-                <.table_default_cell class="text-base-content/70">
-                  {row.item_sku || "—"}
-                </.table_default_cell>
-              </.table_default_row>
-            </.table_default_body>
-          </.table_default>
+          {catalogue_items_table(@manufactured_items, "crm-company-manufactured-#{@company.uuid}")}
         </div>
       </div>
 
