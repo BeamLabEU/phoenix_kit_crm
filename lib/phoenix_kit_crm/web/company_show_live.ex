@@ -243,6 +243,16 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     })
   end
 
+  # The catalogue hands back `:item_path` — it owns its own routes, so this
+  # never assembles a catalogue URL itself.
+  defp item_link(row) do
+    assigns = %{path: row.item_path, name: row.item_name}
+
+    ~H"""
+    <.link navigate={@path} class="link link-hover">{@name}</.link>
+    """
+  end
+
   # Card view (narrow screens) — table_default renders these instead of columns.
   defp supplied_card_fields(row) do
     [
@@ -453,8 +463,8 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
             id={"crm-company-supplied-#{@company.uuid}"}
             size="sm"
             items={@supplied_items}
-            card_title={fn row -> row.item_name end}
-            card_fields={fn row -> supplied_card_fields(row) end}
+            card_title={&item_link/1}
+            card_fields={&supplied_card_fields/1}
           >
             <.table_default_header>
               <.table_default_row>
@@ -471,7 +481,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
             <.table_default_body>
               <.table_default_row :for={row <- @supplied_items}>
                 <.table_default_cell class="font-medium">
-                  {row.item_name}
+                  <.link navigate={row.item_path} class="link link-hover">{row.item_name}</.link>
                   <span :if={row.item_sku} class="text-base-content/50 text-xs ml-1">
                     {row.item_sku}
                   </span>
@@ -521,7 +531,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
             id={"crm-company-manufactured-#{@company.uuid}"}
             size="sm"
             items={@manufactured_items}
-            card_title={fn row -> row.item_name end}
+            card_title={&item_link/1}
             card_fields={fn row -> [%{label: gettext("SKU"), value: row.item_sku || "—"}] end}
           >
             <.table_default_header>
@@ -532,7 +542,9 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
             </.table_default_header>
             <.table_default_body>
               <.table_default_row :for={row <- @manufactured_items}>
-                <.table_default_cell class="font-medium">{row.item_name}</.table_default_cell>
+                <.table_default_cell class="font-medium">
+                  <.link navigate={row.item_path} class="link link-hover">{row.item_name}</.link>
+                </.table_default_cell>
                 <.table_default_cell class="text-base-content/70">
                   {row.item_sku || "—"}
                 </.table_default_cell>
