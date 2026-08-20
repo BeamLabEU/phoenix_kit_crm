@@ -290,8 +290,22 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogue do
 
     repo.query!(
       "UPDATE #{table} SET crm_company_uuid = $1 WHERE uuid = $2",
-      [company_uuid, supplier_uuid]
+      [dump_uuid(company_uuid), dump_uuid(supplier_uuid)]
     )
+  end
+
+  # Raw SQL means no Ecto type casting: a `uuid` parameter has to be the
+  # 16-byte binary, and a text uuid raises "expected a binary of 16 bytes".
+  # The companion of `display_uuid/1` on the read side — this task moves uuids
+  # in both directions across that boundary, and had it wrong both ways.
+  defp dump_uuid(nil), do: nil
+  defp dump_uuid(<<_::128>> = raw), do: raw
+
+  defp dump_uuid(text) when is_binary(text) do
+    case Ecto.UUID.dump(text) do
+      {:ok, raw} -> raw
+      :error -> text
+    end
   end
 
   # ── Normalization helpers (public — tested independently) ────────────
