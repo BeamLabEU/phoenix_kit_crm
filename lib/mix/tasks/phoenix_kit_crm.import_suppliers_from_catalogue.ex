@@ -355,7 +355,7 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogue do
         "#{pad(trunc_str(r.name, name_w - 1), name_w)} " <>
           "#{pad((r.status || "") <> inactive_flag, status_w)} " <>
           "#{pad(action_label, action_w)} " <>
-          "#{r.company_uuid || "(dry-run)"}"
+          "#{display_uuid(r.company_uuid) || "(dry-run)"}"
       )
     end
 
@@ -396,6 +396,22 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogue do
   defp action_label(:error_creating), do: "ERROR"
   defp action_label(:error), do: "ERROR"
   defp action_label(other), do: to_string(other)
+
+  # The supplier rows are read with raw SQL, and Postgrex hands back a `uuid`
+  # column as its 16-byte binary rather than the canonical text form. Printing
+  # that straight to IO raises ArgumentError — which nothing noticed until the
+  # first supplier was actually linked, because the crash only happens on rows
+  # that HAVE a `crm_company_uuid` and there were none anywhere.
+  defp display_uuid(nil), do: nil
+
+  defp display_uuid(<<_::128>> = raw) do
+    case Ecto.UUID.load(raw) do
+      {:ok, text} -> text
+      :error -> Base.encode16(raw, case: :lower)
+    end
+  end
+
+  defp display_uuid(text) when is_binary(text), do: text
 
   defp pad(str, width) do
     str = str || ""
