@@ -64,7 +64,7 @@ defmodule PhoenixKitCRM.Migrations do
 
   use Ecto.Migration
 
-  @current_version 2
+  @current_version 3
   @marker_prefix "crm_schema:"
   @version_table "phoenix_kit_crm_contacts"
 
@@ -147,6 +147,7 @@ defmodule PhoenixKitCRM.Migrations do
       lists_statements(p),
       list_members_statements(p),
       v2_statements(p),
+      v3_statements(p),
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{@current_version}'"
     ])
   end
@@ -271,6 +272,16 @@ defmodule PhoenixKitCRM.Migrations do
   defp v2_statements(p) do
     [
       "ALTER TABLE #{p}phoenix_kit_crm_companies ADD COLUMN IF NOT EXISTS description TEXT"
+    ]
+  end
+
+  # ── V03 ─────────────────────────────────────────────────────────────
+  # Manufacturers moved here too, so a company can carry the brand mark
+  # the catalogue's manufacturer rows used to hold. Additive, same lane
+  # as V02.
+  defp v3_statements(p) do
+    [
+      "ALTER TABLE #{p}phoenix_kit_crm_companies ADD COLUMN IF NOT EXISTS logo_url VARCHAR(500)"
     ]
   end
 

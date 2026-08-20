@@ -30,8 +30,8 @@ defmodule PhoenixKitCRM.MigrationsTest do
   alias PhoenixKitCRM.Migrations
 
   describe "current_version/0 and version_table/0" do
-    test "current_version is 2" do
-      assert Migrations.current_version() == 2
+    test "current_version is 3" do
+      assert Migrations.current_version() == 3
     end
 
     test "version_table is the contacts table (the marker carrier)" do
@@ -105,7 +105,7 @@ defmodule PhoenixKitCRM.MigrationsTest do
       statements = Migrations.up_statements()
 
       assert List.last(statements) ==
-               "COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:2'"
+               "COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:3'"
     end
 
     test "the extension guard runs first, before any citext column is created" do
@@ -199,8 +199,8 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
   end
 
   describe "migrated_version_runtime/1" do
-    test "reads back 2 after the chain has applied" do
-      assert Migrations.migrated_version_runtime(prefix: "public") == 2
+    test "reads back 3 after the chain has applied" do
+      assert Migrations.migrated_version_runtime(prefix: "public") == 3
     end
 
     test "an unsafe prefix reads as 0, not raised — the function guards its own boundary" do
@@ -232,7 +232,7 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
       assert result in [:already_up, :ok]
 
       # And the effects are unchanged.
-      assert Migrations.migrated_version_runtime(prefix: "public") == 2
+      assert Migrations.migrated_version_runtime(prefix: "public") == 3
     end
   end
 end
