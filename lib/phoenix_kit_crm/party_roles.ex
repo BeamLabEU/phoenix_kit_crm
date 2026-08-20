@@ -248,6 +248,104 @@ defmodule PhoenixKitCRM.PartyRoles do
     companies ++ contacts
   end
 
+  @doc """
+  Batch counterpart of `get_supplier/1` / `get_manufacturer/1`: resolves many
+  party uuids holding an active `role` in ONE pair of queries, returning
+  `%{uuid => party_map}`. Uuids with no active role for `role` are absent.
+
+  This is the function a catalogue page renders 100 items through — resolving
+  them one at a time across the module boundary is the N+1 this exists to
+  prevent. Malformed uuids are dropped rather than raising, because the caller
+  is feeding in soft cross-module references that nothing constrains.
+  """
+  @spec get_parties_with_role([UUIDv7.t() | String.t()], String.t()) :: %{UUIDv7.t() => map()}
+  def get_parties_with_role([], _role), do: %{}
+
+  def get_parties_with_role(uuids, role) when is_list(uuids) do
+    uuids = valid_uuids(uuids)
+
+    if uuids == [] do
+      %{}
+    else
+      roles = active_role_rows(uuids, role)
+
+      company_uuids = for {uuid, "company"} <- roles, do: uuid
+      contact_uuids = for {uuid, "contact"} <- roles, do: uuid
+
+      Map.merge(hydrate_companies(company_uuids), hydrate_contacts(contact_uuids))
+    end
+  end
+
+  @doc "Batch `supplier` resolution. See `get_parties_with_role/2`."
+  @spec get_suppliers([UUIDv7.t() | String.t()]) :: %{UUIDv7.t() => map()}
+  def get_suppliers(uuids), do: get_parties_with_role(uuids, "supplier")
+
+  @doc "Batch `manufacturer` resolution. See `get_parties_with_role/2`."
+  @spec get_manufacturers([UUIDv7.t() | String.t()]) :: %{UUIDv7.t() => map()}
+  def get_manufacturers(uuids), do: get_parties_with_role(uuids, "manufacturer")
+
+  defp valid_uuids(uuids) do
+    uuids
+    |> Enum.flat_map(fn uuid ->
+      case Ecto.UUID.cast(uuid) do
+        {:ok, _} -> [uuid]
+        :error -> []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  # One row per uuid: the same uuid could in principle carry the role under both
+  # roleable types (soft ref, audited). Company wins deterministically, matching
+  # `get_party_with_role/2`'s oldest-first single pick closely enough that the
+  # batch and single paths cannot disagree about which side a uuid resolves on.
+  defp active_role_rows(uuids, role) do
+    PartyRole
+    |> where([pr], pr.roleable_uuid in ^uuids and pr.role == ^role and pr.is_active == true)
+    |> order_by([pr], asc: pr.inserted_at)
+    |> select([pr], {pr.roleable_uuid, pr.roleable_type})
+    |> repo().all()
+    |> Enum.uniq_by(fn {uuid, _type} -> uuid end)
+  end
+
+  defp hydrate_companies([]), do: %{}
+
+  defp hydrate_companies(uuids) do
+    Company
+    |> where([c], c.uuid in ^uuids)
+    |> repo().all()
+    |> Map.new(fn c ->
+      {c.uuid,
+       %{
+         uuid: c.uuid,
+         name: Company.display_name(c),
+         email: c.email,
+         phone: c.phone,
+         website: c.website,
+         source: :crm
+       }}
+    end)
+  end
+
+  defp hydrate_contacts([]), do: %{}
+
+  defp hydrate_contacts(uuids) do
+    Contact
+    |> where([c], c.uuid in ^uuids)
+    |> repo().all()
+    |> Map.new(fn c ->
+      {c.uuid,
+       %{
+         uuid: c.uuid,
+         name: Contact.display_name(c),
+         email: c.email,
+         phone: c.phone,
+         website: nil,
+         source: :crm
+       }}
+    end)
+  end
+
   @doc "Parties holding an active `supplier` role. See `list_parties_with_role/2`."
   @spec list_suppliers(keyword()) :: [map()]
   def list_suppliers(opts \\ []), do: list_parties_with_role("supplier", opts)
