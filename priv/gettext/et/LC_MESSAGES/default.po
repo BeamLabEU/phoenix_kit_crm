@@ -2142,3 +2142,39 @@ msgid "Recent interactions"
 msgstr "Hiljutised suhtlused"
 msgid "Manufacturer"
 msgstr "Tootja"
+
+msgid "Catalogue"
+msgstr "Kataloog"
+
+msgid "Supplies"
+msgstr "Tarnib"
+
+msgid "This company is not the supplier of any item yet."
+msgstr "See ettevõte ei ole veel ühegi toote tarnija."
+
+msgid "Item"
+msgstr "Toode"
+
+msgid "Their code"
+msgstr "Nende kood"
+
+msgid "Unit cost"
+msgstr "Ühiku hind"
+
+msgid "Lead time"
+msgstr "Tarneaeg"
+
+msgid "primary"
+msgstr "peamine"
+
+msgid "%{n} d"
+msgstr "%{n} p"
+
+msgid "Manufactures"
+msgstr "Toodab"
+
+msgid "No item lists this company as its manufacturer yet."
+msgstr "Ükski toode ei märgi veel seda ettevõtet tootjaks."
+
+msgid "Logo URL"
+msgstr "Logo URL"

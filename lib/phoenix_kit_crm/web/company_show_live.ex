@@ -12,6 +12,12 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
   require Logger
 
+  # Guarded soft-dependency on the catalogue for the Catalogue tab — same idiom
+  # as the contact page's Andi.CRMBridge Orders tab and `StaffLink`. CRM has no
+  # compile-time dependency on the catalogue, so a plain qualified call would
+  # warn under --warnings-as-errors; `catalogue_available?/0` gates every call.
+  @compile {:no_warn_undefined, PhoenixKitCatalogue.Catalogue}
+
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.{Activity, Attachments, Companies, Paths}
@@ -36,9 +42,10 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
       company ->
         storage_enabled = storage_enabled?()
         comments_enabled = comments_available?()
+        catalogue_enabled = catalogue_available?()
 
         tab =
-          if params["tab"] in valid_tabs(storage_enabled, comments_enabled),
+          if params["tab"] in valid_tabs(storage_enabled, comments_enabled, catalogue_enabled),
             do: params["tab"],
             else: "overview"
 
@@ -48,6 +55,9 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
          |> assign(:tab, tab)
          |> assign(:storage_enabled, storage_enabled)
          |> assign(:comments_enabled, comments_enabled)
+         |> assign(:catalogue_enabled, catalogue_enabled)
+         |> assign(:supplied_items, supplied_items(catalogue_enabled, company))
+         |> assign(:manufactured_items, manufactured_items(catalogue_enabled, company))
          |> assign(:avatar_url, Attachments.avatar_url(company))
          |> assign(:tz_offset, tz_offset(socket.assigns[:phoenix_kit_current_user]))
          |> assign(:page_title, Company.display_name(company))
@@ -152,13 +162,16 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     )
   end
 
-  defp tab_defs(storage_enabled?, comments_enabled?) do
+  defp tab_defs(storage_enabled?, comments_enabled?, catalogue_enabled?) do
     [
       {"overview", gettext("Overview"), "hero-identification"},
       {"members", gettext("Members"), "hero-users"},
       {"interactions", gettext("Interactions"), "hero-chat-bubble-left-right"},
       {"events", gettext("Events"), "hero-clock"}
     ]
+    |> maybe_concat(catalogue_enabled?, [
+      {"catalogue", gettext("Catalogue"), "hero-rectangle-stack"}
+    ])
     |> maybe_concat(storage_enabled?, [
       {"files", gettext("Files"), "hero-document"},
       {"images", gettext("Images"), "hero-photo"}
@@ -171,9 +184,11 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   defp maybe_concat(list, true, extra), do: list ++ extra
   defp maybe_concat(list, false, _extra), do: list
 
-  defp valid_tabs(storage_enabled?, comments_enabled?),
+  defp valid_tabs(storage_enabled?, comments_enabled?, catalogue_enabled?),
     do:
-      Enum.map(tab_defs(storage_enabled?, comments_enabled?), fn {value, _label, _icon} ->
+      Enum.map(tab_defs(storage_enabled?, comments_enabled?, catalogue_enabled?), fn {value,
+                                                                                      _label,
+                                                                                      _icon} ->
         value
       end)
 
@@ -184,6 +199,45 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     Storage.enabled?()
   rescue
     _ -> false
+  end
+
+  # ── Catalogue tab ───────────────────────────────────────────────────
+  # Suppliers and manufacturers are CRM companies now, so this page is the
+  # only place they exist — which makes "what do they actually supply?" a
+  # question it has to be able to answer. The catalogue keeps the per-item
+  # sourcing facts; this reads them, never writes them.
+
+  defp catalogue_available? do
+    Code.ensure_loaded?(PhoenixKitCatalogue.Catalogue) and
+      function_exported?(PhoenixKitCatalogue.Catalogue, :items_supplied_by, 1)
+  rescue
+    _ -> false
+  end
+
+  defp supplied_items(false, _company), do: []
+
+  defp supplied_items(true, company) do
+    # credo:disable-for-next-line Credo.Check.Refactor.Apply
+    apply(PhoenixKitCatalogue.Catalogue, :items_supplied_by, [company.uuid])
+  rescue
+    error ->
+      Logger.warning("CRM: could not load supplied items: #{Exception.message(error)}")
+      []
+  catch
+    :exit, _ -> []
+  end
+
+  defp manufactured_items(false, _company), do: []
+
+  defp manufactured_items(true, company) do
+    # credo:disable-for-next-line Credo.Check.Refactor.Apply
+    apply(PhoenixKitCatalogue.Catalogue, :items_manufactured_by, [company.uuid])
+  rescue
+    error ->
+      Logger.warning("CRM: could not load manufactured items: #{Exception.message(error)}")
+      []
+  catch
+    :exit, _ -> []
   end
 
   defp comments_available? do
@@ -215,7 +269,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
       <div role="tablist" class="tabs tabs-border">
         <.link
-          :for={{value, label, icon} <- tab_defs(@storage_enabled, @comments_enabled)}
+          :for={{value, label, icon} <- tab_defs(@storage_enabled, @comments_enabled, @catalogue_enabled)}
           patch={tab_path(@company.uuid, value)}
           role="tab"
           class={["tab gap-1.5", @tab == value && "tab-active"]}
@@ -300,6 +354,76 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
           company={@company}
           tz_offset={@tz_offset}
         />
+      </div>
+
+      <div :if={@tab == "catalogue"} class="flex flex-col gap-4">
+        <div class="card bg-base-100 shadow-sm">
+          <div class="card-body">
+            <h2 class="card-title text-base">
+              {gettext("Supplies")}
+              <span class="badge badge-ghost badge-sm">{length(@supplied_items)}</span>
+            </h2>
+
+            <p :if={@supplied_items == []} class="text-sm text-base-content/50">
+              {gettext("This company is not the supplier of any item yet.")}
+            </p>
+
+            <div :if={@supplied_items != []} class="overflow-x-auto">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>{gettext("Item")}</th>
+                    <th>{gettext("Their code")}</th>
+                    <th class="text-right">{gettext("Unit cost")}</th>
+                    <th class="text-right">{gettext("Lead time")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr :for={row <- @supplied_items}>
+                    <td>
+                      <span class="font-medium">{row.item_name}</span>
+                      <span :if={row.item_sku} class="text-base-content/50 text-xs ml-1">
+                        {row.item_sku}
+                      </span>
+                      <span :if={row.is_primary} class="badge badge-primary badge-xs ml-1">
+                        {gettext("primary")}
+                      </span>
+                    </td>
+                    <td class="text-base-content/70">{row.supplier_sku || "—"}</td>
+                    <td class="text-right tabular-nums">
+                      {if row.unit_cost, do: "#{row.unit_cost} #{row.currency}", else: "—"}
+                    </td>
+                    <td class="text-right tabular-nums">
+                      {if row.lead_time_days, do: gettext("%{n} d", n: row.lead_time_days), else: "—"}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="card bg-base-100 shadow-sm">
+          <div class="card-body">
+            <h2 class="card-title text-base">
+              {gettext("Manufactures")}
+              <span class="badge badge-ghost badge-sm">{length(@manufactured_items)}</span>
+            </h2>
+
+            <p :if={@manufactured_items == []} class="text-sm text-base-content/50">
+              {gettext("No item lists this company as its manufacturer yet.")}
+            </p>
+
+            <ul :if={@manufactured_items != []} class="flex flex-col gap-1">
+              <li :for={row <- @manufactured_items} class="text-sm">
+                <span class="font-medium">{row.item_name}</span>
+                <span :if={row.item_sku} class="text-base-content/50 text-xs ml-1">
+                  {row.item_sku}
+                </span>
+              </li>
+            </ul>
+          </div>
+        </div>
       </div>
 
       <div :if={@tab == "events"}>

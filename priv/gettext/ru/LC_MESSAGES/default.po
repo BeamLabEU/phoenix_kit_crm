@@ -2162,3 +2162,39 @@ msgid "Recent interactions"
 msgstr "Недавние взаимодействия"
 msgid "Manufacturer"
 msgstr "Производитель"
+
+msgid "Catalogue"
+msgstr "Каталог"
+
+msgid "Supplies"
+msgstr "Поставляет"
+
+msgid "This company is not the supplier of any item yet."
+msgstr "Эта компания пока не является поставщиком ни одного товара."
+
+msgid "Item"
+msgstr "Товар"
+
+msgid "Their code"
+msgstr "Их код"
+
+msgid "Unit cost"
+msgstr "Цена за единицу"
+
+msgid "Lead time"
+msgstr "Срок поставки"
+
+msgid "primary"
+msgstr "основной"
+
+msgid "%{n} d"
+msgstr "%{n} дн."
+
+msgid "Manufactures"
+msgstr "Производит"
+
+msgid "No item lists this company as its manufacturer yet."
+msgstr "Ни один товар пока не указывает эту компанию производителем."
+
+msgid "Logo URL"
+msgstr "URL логотипа"

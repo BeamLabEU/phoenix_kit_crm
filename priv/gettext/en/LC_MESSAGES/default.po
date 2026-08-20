@@ -2143,3 +2143,39 @@ msgstr ""
 
 msgid "Manufacturer"
 msgstr ""
+
+msgid "Catalogue"
+msgstr ""
+
+msgid "Supplies"
+msgstr ""
+
+msgid "This company is not the supplier of any item yet."
+msgstr ""
+
+msgid "Item"
+msgstr ""
+
+msgid "Their code"
+msgstr ""
+
+msgid "Unit cost"
+msgstr ""
+
+msgid "Lead time"
+msgstr ""
+
+msgid "primary"
+msgstr ""
+
+msgid "%{n} d"
+msgstr ""
+
+msgid "Manufactures"
+msgstr ""
+
+msgid "No item lists this company as its manufacturer yet."
+msgstr ""
+
+msgid "Logo URL"
+msgstr ""
