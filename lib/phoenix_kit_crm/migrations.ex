@@ -64,7 +64,7 @@ defmodule PhoenixKitCRM.Migrations do
 
   use Ecto.Migration
 
-  @current_version 1
+  @current_version 2
   @marker_prefix "crm_schema:"
   @version_table "phoenix_kit_crm_contacts"
 
@@ -146,6 +146,7 @@ defmodule PhoenixKitCRM.Migrations do
       party_roles_statements(prefix, p),
       lists_statements(p),
       list_members_statements(p),
+      v2_statements(p),
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{@current_version}'"
     ])
   end
@@ -254,6 +255,24 @@ defmodule PhoenixKitCRM.Migrations do
   end
 
   # ── companies (core V138 + V151 citext email) + NEW user_uuid ───────
+
+  # ── V02 ─────────────────────────────────────────────────────────────
+  # Purely additive: one new column, so nothing is owed to core's
+  # ExpectedSchema manifest (an extra column on a manifest-known table is
+  # an info-level finding, never drift — the precedent is
+  # `phoenix_kit_doc_documents.project_uuid` and the five columns the
+  # projects chain added to `phoenix_kit_project_assignments`).
+  #
+  # `description` was the last field the catalogue's own supplier rows
+  # carried that a CRM company did not, now that suppliers are managed
+  # here rather than in the catalogue. Everything else they held is
+  # already covered, and covered better: structured `email`/`phone`/
+  # `address` instead of one free-text "email or phone" line.
+  defp v2_statements(p) do
+    [
+      "ALTER TABLE #{p}phoenix_kit_crm_companies ADD COLUMN IF NOT EXISTS description TEXT"
+    ]
+  end
 
   defp companies_statements(p) do
     [

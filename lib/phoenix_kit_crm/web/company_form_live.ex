@@ -456,6 +456,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
             <.input field={@form[:email]} type="email" label={gettext("Email")} />
             <.input field={@form[:phone]} label={gettext("Phone")} />
             <.input field={@form[:industry]} label={gettext("Industry")} />
+            <.textarea field={@form[:description]} label={gettext("Description")} />
             <.textarea field={@form[:address]} label={gettext("Address")} />
             <.textarea field={@form[:notes]} label={gettext("Notes")} />
 

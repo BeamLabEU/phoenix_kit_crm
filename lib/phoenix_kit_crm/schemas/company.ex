@@ -38,6 +38,7 @@ defmodule PhoenixKitCRM.Schemas.Company do
   schema "phoenix_kit_crm_companies" do
     field(:name, :string)
     field(:status, :string, default: "active")
+    field(:description, :string)
     field(:website, :string)
     field(:email, :string)
     field(:phone, :string)
@@ -56,7 +57,7 @@ defmodule PhoenixKitCRM.Schemas.Company do
     timestamps(type: :utc_datetime)
   end
 
-  @castable ~w(name status website email phone address industry notes metadata)a
+  @castable ~w(name status description website email phone address industry notes metadata)a
 
   @doc """
   Public changeset for create/edit. `user_uuid` is NOT castable here — the
