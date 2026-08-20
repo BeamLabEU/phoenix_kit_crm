@@ -8,7 +8,7 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
   alias PhoenixKitCRM.{Activity, Companies, PartyRoles, Paths}
   alias PhoenixKitCRM.Schemas.Company
 
-  @role_filters ~w(supplier customer)
+  @role_filters ~w(supplier customer manufacturer)
   @page_size 25
 
   @impl true

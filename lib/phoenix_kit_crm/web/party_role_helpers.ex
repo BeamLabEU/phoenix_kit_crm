@@ -15,11 +15,13 @@ defmodule PhoenixKitCRM.Web.PartyRoleHelpers do
   def role_label("supplier"), do: gettext("Supplier")
   def role_label("customer"), do: gettext("Customer")
   def role_label("partner"), do: gettext("Partner")
+  def role_label("manufacturer"), do: gettext("Manufacturer")
   def role_label(role), do: role
 
   @doc "daisyUI badge modifier for a role value."
   def role_badge_class("supplier"), do: "badge-info"
   def role_badge_class("customer"), do: "badge-success"
+  def role_badge_class("manufacturer"), do: "badge-warning"
   def role_badge_class(_), do: "badge-ghost"
 
   @doc """

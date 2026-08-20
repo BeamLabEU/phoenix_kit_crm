@@ -2140,3 +2140,5 @@ msgstr "Vali kliendiettevõte projekti paneelil „Moodulid ja funktsioonid“."
 #, elixir-autogen, elixir-format
 msgid "Recent interactions"
 msgstr "Hiljutised suhtlused"
+msgid "Manufacturer"
+msgstr "Tootja"

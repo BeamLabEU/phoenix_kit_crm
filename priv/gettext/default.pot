@@ -2158,3 +2158,6 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgid "Recent interactions"
 msgstr ""
+
+msgid "Manufacturer"
+msgstr ""

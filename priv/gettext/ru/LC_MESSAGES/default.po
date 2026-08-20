@@ -2160,3 +2160,5 @@ msgstr "Выберите компанию-клиента в панели «Мо�
 #, elixir-autogen, elixir-format
 msgid "Recent interactions"
 msgstr "Недавние взаимодействия"
+msgid "Manufacturer"
+msgstr "Производитель"
