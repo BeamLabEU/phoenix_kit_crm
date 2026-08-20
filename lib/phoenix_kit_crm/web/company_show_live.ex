@@ -16,7 +16,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   # as the contact page's Andi.CRMBridge Orders tab and `StaffLink`. CRM has no
   # compile-time dependency on the catalogue, so a plain qualified call would
   # warn under --warnings-as-errors; `catalogue_available?/0` gates every call.
-  @compile {:no_warn_undefined, PhoenixKitCatalogue.Catalogue}
+  @compile {:no_warn_undefined, [PhoenixKitCatalogue, PhoenixKitCatalogue.Catalogue]}
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Users.Auth
@@ -207,8 +207,13 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   # question it has to be able to answer. The catalogue keeps the per-item
   # sourcing facts; this reads them, never writes them.
 
+  # Installed AND switched on, matching how the Comments tab gates itself.
+  # Checking only that the module is loaded would leave this tab showing after
+  # an admin disabled the catalogue — its own admin tabs would vanish from the
+  # nav while this one went on querying it.
   defp catalogue_available? do
-    Code.ensure_loaded?(PhoenixKitCatalogue.Catalogue) and
+    Code.ensure_loaded?(PhoenixKitCatalogue) and PhoenixKitCatalogue.enabled?() and
+      Code.ensure_loaded?(PhoenixKitCatalogue.Catalogue) and
       function_exported?(PhoenixKitCatalogue.Catalogue, :items_supplied_by, 1)
   rescue
     _ -> false
