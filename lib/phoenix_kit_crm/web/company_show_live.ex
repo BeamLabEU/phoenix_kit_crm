@@ -61,6 +61,8 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
          |> assign(:storage_enabled, storage_enabled)
          |> assign(:comments_enabled, comments_enabled)
          |> assign(:catalogue_enabled, catalogue_enabled)
+         |> assign_new(:show_catalogue_columns, fn -> false end)
+         |> assign_new(:catalogue_columns, fn -> catalogue_default_columns() end)
          |> assign_catalogue(catalogue_enabled, company)
          |> assign(:avatar_url, Attachments.avatar_url(company))
          |> assign(:tz_offset, tz_offset(socket.assigns[:phoenix_kit_current_user]))
@@ -148,7 +150,61 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     end
   end
 
+  # Core's column_settings_modal event contract. It is pure presentation — the
+  # consumer owns the catalog, the selection and persistence — so these four
+  # plus the close are all it asks for.
+  def handle_event("show_column_modal", _params, socket),
+    do: {:noreply, assign(socket, :show_catalogue_columns, true)}
+
+  def handle_event("hide_column_modal", _params, socket),
+    do: {:noreply, assign(socket, :show_catalogue_columns, false)}
+
+  def handle_event("add_column", %{"column_id" => id}, socket) do
+    {:noreply, put_catalogue_columns(socket, socket.assigns.catalogue_columns ++ [id])}
+  end
+
+  def handle_event("remove_column", %{"column_id" => id}, socket) do
+    {:noreply, put_catalogue_columns(socket, socket.assigns.catalogue_columns -- [id])}
+  end
+
+  def handle_event("reorder_columns", %{"ordered_ids" => ids}, socket) when is_list(ids) do
+    {:noreply, put_catalogue_columns(socket, ids)}
+  end
+
+  def handle_event("reset_columns", _params, socket),
+    do: {:noreply, put_catalogue_columns(socket, catalogue_default_columns())}
+
   def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  # Only ids the catalogue actually offers, so a forged payload cannot inject
+  # a column name into the table.
+  defp put_catalogue_columns(socket, ids) do
+    known = MapSet.new(catalogue_column_catalog(), & &1.id)
+
+    assign(
+      socket,
+      :catalogue_columns,
+      ids |> Enum.filter(&MapSet.member?(known, &1)) |> Enum.uniq()
+    )
+  end
+
+  defp catalogue_column_catalog do
+    # credo:disable-for-next-line Credo.Check.Refactor.Apply
+    apply(PhoenixKitCatalogue.Web.Components, :party_items_columns, [])
+  rescue
+    _ -> []
+  catch
+    :exit, _ -> []
+  end
+
+  defp catalogue_default_columns do
+    # credo:disable-for-next-line Credo.Check.Refactor.Apply
+    apply(PhoenixKitCatalogue.Web.Components, :party_items_default_columns, [])
+  rescue
+    _ -> []
+  catch
+    :exit, _ -> []
+  end
 
   defp actor_uuid(socket) do
     case socket.assigns[:phoenix_kit_current_user] do
@@ -253,11 +309,13 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   # own instead of drifting from it. Called through `apply/3` because CRM has
   # no compile-time dependency on the catalogue; `party_items_table/1` exists
   # on that side precisely so this stays a two-key contract.
-  defp catalogue_items_table([], _id), do: nil
+  defp catalogue_items_table([], _id, _columns), do: nil
 
-  defp catalogue_items_table(items, id) do
+  defp catalogue_items_table(items, id, columns) do
     # credo:disable-for-next-line Credo.Check.Refactor.Apply
-    apply(PhoenixKitCatalogue.Web.Components, :party_items_table, [%{items: items, id: id}])
+    apply(PhoenixKitCatalogue.Web.Components, :party_items_table, [
+      %{items: items, id: id, columns: Enum.map(columns, &String.to_existing_atom/1)}
+    ])
   rescue
     error ->
       Logger.warning(
@@ -422,6 +480,20 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
       </div>
 
       <div :if={@tab == "catalogue"} class="flex flex-col gap-6">
+        <div :if={@show_supplied or @show_manufactured} class="flex justify-end -mb-2">
+          <button type="button" class="btn btn-ghost btn-sm" phx-click="show_column_modal">
+            <.icon name="hero-view-columns" class="h-4 w-4" />
+            {gettext("Columns")}
+          </button>
+        </div>
+
+        <PhoenixKitWeb.Components.Core.ColumnSettings.column_settings_modal
+          id="crm-company-catalogue-columns"
+          show={@show_catalogue_columns}
+          columns={catalogue_column_catalog()}
+          selected={@catalogue_columns}
+        />
+
         <.empty_state
           :if={not @show_supplied and not @show_manufactured}
           icon="hero-rectangle-stack"
@@ -458,7 +530,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
             variant="card"
           />
 
-          {catalogue_items_table(@supplied_items, "crm-company-supplied-#{@company.uuid}")}
+          {catalogue_items_table(@supplied_items, "crm-company-supplied-#{@company.uuid}", @catalogue_columns)}
         </div>
 
         <div :if={@show_manufactured} class="flex flex-col gap-2">
@@ -484,7 +556,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
             variant="card"
           />
 
-          {catalogue_items_table(@manufactured_items, "crm-company-manufactured-#{@company.uuid}")}
+          {catalogue_items_table(@manufactured_items, "crm-company-manufactured-#{@company.uuid}", @catalogue_columns)}
         </div>
       </div>
 
