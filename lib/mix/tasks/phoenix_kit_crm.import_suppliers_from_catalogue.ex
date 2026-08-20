@@ -57,9 +57,9 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogue do
 
     unless crm_company_uuid_column?(repo, prefix) do
       Mix.shell().error(
-        "phoenix_kit_cat_suppliers.crm_company_uuid is missing — this task requires " <>
-          "phoenix_kit >= 1.7.197 (core migration V151). Upgrade the core dependency " <>
-          "and run mix phoenix_kit.update first."
+        "phoenix_kit_cat_suppliers.crm_company_uuid is missing — the column is added " <>
+          "by core migration V149. Upgrade the phoenix_kit dependency and run " <>
+          "mix phoenix_kit.update first."
       )
 
       exit({:shutdown, 1})

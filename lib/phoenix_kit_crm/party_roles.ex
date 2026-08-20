@@ -205,6 +205,62 @@ defmodule PhoenixKitCRM.PartyRoles do
   end
 
   @doc """
+  Every party holding an active `role`, companies first then contacts, each
+  normalized to the resolver's map shape (`:uuid`, `:name`, `:email`,
+  `:phone`, `:website`, `:source`).
+
+  `:source` is the specific `:crm_company` / `:crm_contact` tag rather than
+  the generic `:crm` that `get_supplier/1` returns — callers persisting a
+  source tag (the catalogue item form) need to know which side they picked.
+  Takes the same options as `list_companies_with_role/2`.
+  """
+  @spec list_parties_with_role(String.t(), keyword()) :: [map()]
+  def list_parties_with_role(role, opts \\ []) do
+    companies =
+      role
+      |> list_companies_with_role(opts)
+      |> Enum.map(fn c ->
+        %{
+          uuid: c.uuid,
+          name: Company.display_name(c),
+          email: c.email,
+          phone: c.phone,
+          website: c.website,
+          source: :crm_company
+        }
+      end)
+
+    contacts =
+      role
+      |> list_contacts_with_role(opts)
+      |> Enum.map(fn c ->
+        %{
+          uuid: c.uuid,
+          name: Contact.display_name(c),
+          email: c.email,
+          phone: c.phone,
+          # Contacts carry no website column.
+          website: nil,
+          source: :crm_contact
+        }
+      end)
+
+    companies ++ contacts
+  end
+
+  @doc "Parties holding an active `supplier` role. See `list_parties_with_role/2`."
+  @spec list_suppliers(keyword()) :: [map()]
+  def list_suppliers(opts \\ []), do: list_parties_with_role("supplier", opts)
+
+  @doc "Parties holding an active `manufacturer` role. See `list_parties_with_role/2`."
+  @spec list_manufacturers(keyword()) :: [map()]
+  def list_manufacturers(opts \\ []), do: list_parties_with_role("manufacturer", opts)
+
+  @doc "Parties holding an active `customer` role. See `list_parties_with_role/2`."
+  @spec list_customers(keyword()) :: [map()]
+  def list_customers(opts \\ []), do: list_parties_with_role("customer", opts)
+
+  @doc """
   Active roles for a batch of companies/contacts in one query — for role
   badges on list pages. Returns `%{roleable_uuid => [role, ...]}` (uuids
   with no active roles are absent).
@@ -294,10 +350,33 @@ defmodule PhoenixKitCRM.PartyRoles do
             source: :crm
           }
           | nil
-  def get_supplier(uuid) do
+  def get_supplier(uuid), do: get_party_with_role(uuid, "supplier")
+
+  @doc """
+  The `manufacturer`-role counterpart of `get_supplier/1`, with the identical
+  return shape — the contract
+  `PhoenixKitCatalogue.Catalogue.Manufacturers.resolve/1` calls.
+
+  Note what this does NOT mean: catalogue items still reference the local
+  `phoenix_kit_cat_manufacturers` row through a hard FK. This resolver
+  federates the manufacturer *directory* and pickers, not item references.
+  """
+  @spec get_manufacturer(UUIDv7.t() | String.t() | nil) ::
+          %{
+            uuid: UUIDv7.t(),
+            name: String.t(),
+            email: String.t() | nil,
+            phone: String.t() | nil,
+            website: String.t() | nil,
+            source: :crm
+          }
+          | nil
+  def get_manufacturer(uuid), do: get_party_with_role(uuid, "manufacturer")
+
+  defp get_party_with_role(uuid, role) do
     case Ecto.UUID.cast(uuid) do
       {:ok, _} ->
-        case active_supplier_role(uuid) do
+        case active_role_row(uuid, role) do
           %PartyRole{roleable_type: "company"} -> hydrate_company_supplier(uuid)
           %PartyRole{roleable_type: "contact"} -> hydrate_contact_supplier(uuid)
           nil -> nil
@@ -308,14 +387,14 @@ defmodule PhoenixKitCRM.PartyRoles do
     end
   end
 
-  defp active_supplier_role(uuid) do
+  defp active_role_row(uuid, role) do
     # limit(1): a boundary resolver federating two modules must not raise on a
     # dirty soft-ref. The unique index is per (roleable_type, roleable_uuid,
-    # role), so the same uuid could in principle hold an active supplier row
-    # under both types (audited soft-ref risk); take one deterministically
+    # role), so the same uuid could in principle hold an active row for this
+    # role under both types (audited soft-ref risk); take one deterministically
     # rather than let repo().one() raise Ecto.MultipleResultsError.
     PartyRole
-    |> where([pr], pr.roleable_uuid == ^uuid and pr.role == "supplier" and pr.is_active == true)
+    |> where([pr], pr.roleable_uuid == ^uuid and pr.role == ^role and pr.is_active == true)
     |> order_by([pr], asc: pr.inserted_at)
     |> limit(1)
     |> repo().one()
