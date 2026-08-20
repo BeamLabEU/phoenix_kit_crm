@@ -246,9 +246,9 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   # Card view (narrow screens) — table_default renders these instead of columns.
   defp supplied_card_fields(row) do
     [
-      {Gettext.gettext(PhoenixKitCRM.Gettext, "Their code"), row.supplier_sku || "—"},
-      {Gettext.gettext(PhoenixKitCRM.Gettext, "Unit cost"), unit_cost(row)},
-      {Gettext.gettext(PhoenixKitCRM.Gettext, "Lead time"), lead_time(row)}
+      %{label: gettext("Their code"), value: row.supplier_sku || "—"},
+      %{label: gettext("Unit cost"), value: unit_cost(row)},
+      %{label: gettext("Lead time"), value: lead_time(row)}
     ]
   end
 
@@ -257,8 +257,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
   defp lead_time(%{lead_time_days: nil}), do: "—"
 
-  defp lead_time(%{lead_time_days: days}),
-    do: Gettext.gettext(PhoenixKitCRM.Gettext, "%{n} d", n: days)
+  defp lead_time(%{lead_time_days: days}), do: gettext("%{n} d", n: days)
 
   defp holds_role?(company, role) do
     PartyRoles.has_role?(company, role)
@@ -523,7 +522,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
             size="sm"
             items={@manufactured_items}
             card_title={fn row -> row.item_name end}
-            card_fields={fn row -> [{gettext("SKU"), row.item_sku || "—"}] end}
+            card_fields={fn row -> [%{label: gettext("SKU"), value: row.item_sku || "—"}] end}
           >
             <.table_default_header>
               <.table_default_row>
