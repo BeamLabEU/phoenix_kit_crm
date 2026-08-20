@@ -2165,11 +2165,7 @@ msgstr ""
 msgid "Catalogue"
 msgstr ""
 
-msgid "Supplies"
-msgstr ""
 
-msgid "This company is not the supplier of any item yet."
-msgstr ""
 
 msgid "Item"
 msgstr ""
@@ -2189,11 +2185,7 @@ msgstr ""
 msgid "%{n} d"
 msgstr ""
 
-msgid "Manufactures"
-msgstr ""
 
-msgid "No item lists this company as its manufacturer yet."
-msgstr ""
 
 msgid "Logo URL"
 msgstr ""
@@ -2202,4 +2194,31 @@ msgid "Manufacturers"
 msgstr ""
 
 msgid "Partners"
+msgstr ""
+
+msgid "Supplied items"
+msgstr ""
+
+msgid "Manufactured items"
+msgstr ""
+
+msgid "SKU"
+msgstr ""
+
+msgid "Nothing in the catalogue yet"
+msgstr ""
+
+msgid "Give this company the supplier or manufacturer role, then pick it when sourcing an item."
+msgstr ""
+
+msgid "No items source from this company yet"
+msgstr ""
+
+msgid "No items name this company as their manufacturer yet"
+msgstr ""
+
+msgid "This company no longer has the supplier role, but items still source from it."
+msgstr ""
+
+msgid "This company no longer has the manufacturer role, but items still name it as their manufacturer."
 msgstr ""

@@ -2166,11 +2166,7 @@ msgstr "Производитель"
 msgid "Catalogue"
 msgstr "Каталог"
 
-msgid "Supplies"
-msgstr "Поставляет"
 
-msgid "This company is not the supplier of any item yet."
-msgstr "Эта компания пока не является поставщиком ни одного товара."
 
 msgid "Item"
 msgstr "Товар"
@@ -2190,11 +2186,7 @@ msgstr "основной"
 msgid "%{n} d"
 msgstr "%{n} дн."
 
-msgid "Manufactures"
-msgstr "Производит"
 
-msgid "No item lists this company as its manufacturer yet."
-msgstr "Ни один товар пока не указывает эту компанию производителем."
 
 msgid "Logo URL"
 msgstr "URL логотипа"
@@ -2204,3 +2196,30 @@ msgstr "Производители"
 
 msgid "Partners"
 msgstr "Партнёры"
+
+msgid "Supplied items"
+msgstr "Поставляемые товары"
+
+msgid "Manufactured items"
+msgstr "Производимые товары"
+
+msgid "SKU"
+msgstr "Артикул"
+
+msgid "Nothing in the catalogue yet"
+msgstr "В каталоге пока ничего нет"
+
+msgid "Give this company the supplier or manufacturer role, then pick it when sourcing an item."
+msgstr "Назначьте этой компании роль поставщика или производителя, затем выберите её при закупке товара."
+
+msgid "No items source from this company yet"
+msgstr "Пока ни один товар не закупается у этой компании"
+
+msgid "No items name this company as their manufacturer yet"
+msgstr "Пока ни один товар не указывает эту компанию производителем"
+
+msgid "This company no longer has the supplier role, but items still source from it."
+msgstr "У этой компании больше нет роли поставщика, но товары всё ещё закупаются у неё."
+
+msgid "This company no longer has the manufacturer role, but items still name it as their manufacturer."
+msgstr "У этой компании больше нет роли производителя, но товары всё ещё указывают её производителем."

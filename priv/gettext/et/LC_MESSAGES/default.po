@@ -2146,11 +2146,7 @@ msgstr "Tootja"
 msgid "Catalogue"
 msgstr "Kataloog"
 
-msgid "Supplies"
-msgstr "Tarnib"
 
-msgid "This company is not the supplier of any item yet."
-msgstr "See ettevõte ei ole veel ühegi toote tarnija."
 
 msgid "Item"
 msgstr "Toode"
@@ -2170,11 +2166,7 @@ msgstr "peamine"
 msgid "%{n} d"
 msgstr "%{n} p"
 
-msgid "Manufactures"
-msgstr "Toodab"
 
-msgid "No item lists this company as its manufacturer yet."
-msgstr "Ükski toode ei märgi veel seda ettevõtet tootjaks."
 
 msgid "Logo URL"
 msgstr "Logo URL"
@@ -2184,3 +2176,30 @@ msgstr "Tootjad"
 
 msgid "Partners"
 msgstr "Partnerid"
+
+msgid "Supplied items"
+msgstr "Tarnitavad tooted"
+
+msgid "Manufactured items"
+msgstr "Toodetavad tooted"
+
+msgid "SKU"
+msgstr "SKU"
+
+msgid "Nothing in the catalogue yet"
+msgstr "Kataloogis pole veel midagi"
+
+msgid "Give this company the supplier or manufacturer role, then pick it when sourcing an item."
+msgstr "Anna sellele ettevõttele tarnija või tootja roll ja vali ta siis toote hankimisel."
+
+msgid "No items source from this company yet"
+msgstr "Ükski toode ei hangi veel sellelt ettevõttelt"
+
+msgid "No items name this company as their manufacturer yet"
+msgstr "Ükski toode ei märgi veel seda ettevõtet tootjaks"
+
+msgid "This company no longer has the supplier role, but items still source from it."
+msgstr "Sellel ettevõttel ei ole enam tarnija rolli, kuid tooteid hangitakse endiselt temalt."
+
+msgid "This company no longer has the manufacturer role, but items still name it as their manufacturer."
+msgstr "Sellel ettevõttel ei ole enam tootja rolli, kuid tooted märgivad teda endiselt tootjaks."

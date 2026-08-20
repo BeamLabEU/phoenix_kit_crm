@@ -20,7 +20,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Users.Auth
-  alias PhoenixKitCRM.{Activity, Attachments, Companies, Paths}
+  alias PhoenixKitCRM.{Activity, Attachments, Companies, PartyRoles, Paths}
   alias PhoenixKitCRM.Schemas.{Company, Contact}
   alias PhoenixKitCRM.Web.{CompanyInteractionsComponent, EventsComponent, MediaComponent}
   alias PhoenixKitCRM.Web.Components.MirrorPanel
@@ -56,8 +56,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
          |> assign(:storage_enabled, storage_enabled)
          |> assign(:comments_enabled, comments_enabled)
          |> assign(:catalogue_enabled, catalogue_enabled)
-         |> assign(:supplied_items, supplied_items(catalogue_enabled, company))
-         |> assign(:manufactured_items, manufactured_items(catalogue_enabled, company))
+         |> assign_catalogue(catalogue_enabled, company)
          |> assign(:avatar_url, Attachments.avatar_url(company))
          |> assign(:tz_offset, tz_offset(socket.assigns[:phoenix_kit_current_user]))
          |> assign(:page_title, Company.display_name(company))
@@ -211,6 +210,62 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   # Checking only that the module is loaded would leave this tab showing after
   # an admin disabled the catalogue — its own admin tabs would vanish from the
   # nav while this one went on querying it.
+  # The tab follows the company's roles, not a fixed layout: a company that
+  # only supplies has no business being shown an empty "Manufactured items"
+  # list. The exception is leftover data — a role revoked while items still
+  # reference it — which is surfaced rather than hidden, because that is the
+  # inconsistency someone needs to see.
+  defp assign_catalogue(socket, false, _company) do
+    assign(socket, %{
+      supplied_items: [],
+      manufactured_items: [],
+      show_supplied: false,
+      show_manufactured: false,
+      orphan_supplied: false,
+      orphan_manufactured: false
+    })
+  end
+
+  defp assign_catalogue(socket, true, company) do
+    supplied = supplied_items(company)
+    manufactured = manufactured_items(company)
+    supplier? = holds_role?(company, "supplier")
+    manufacturer? = holds_role?(company, "manufacturer")
+
+    assign(socket, %{
+      supplied_items: supplied,
+      manufactured_items: manufactured,
+      show_supplied: supplier? or supplied != [],
+      show_manufactured: manufacturer? or manufactured != [],
+      # Items still pointing here after the role was taken away.
+      orphan_supplied: not supplier? and supplied != [],
+      orphan_manufactured: not manufacturer? and manufactured != []
+    })
+  end
+
+  # Card view (narrow screens) — table_default renders these instead of columns.
+  defp supplied_card_fields(row) do
+    [
+      {Gettext.gettext(PhoenixKitCRM.Gettext, "Their code"), row.supplier_sku || "—"},
+      {Gettext.gettext(PhoenixKitCRM.Gettext, "Unit cost"), unit_cost(row)},
+      {Gettext.gettext(PhoenixKitCRM.Gettext, "Lead time"), lead_time(row)}
+    ]
+  end
+
+  defp unit_cost(%{unit_cost: nil}), do: "—"
+  defp unit_cost(%{unit_cost: cost, currency: currency}), do: "#{cost} #{currency}"
+
+  defp lead_time(%{lead_time_days: nil}), do: "—"
+
+  defp lead_time(%{lead_time_days: days}),
+    do: Gettext.gettext(PhoenixKitCRM.Gettext, "%{n} d", n: days)
+
+  defp holds_role?(company, role) do
+    PartyRoles.has_role?(company, role)
+  rescue
+    _ -> false
+  end
+
   defp catalogue_available? do
     Code.ensure_loaded?(PhoenixKitCatalogue) and PhoenixKitCatalogue.enabled?() and
       Code.ensure_loaded?(PhoenixKitCatalogue.Catalogue) and
@@ -219,9 +274,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     _ -> false
   end
 
-  defp supplied_items(false, _company), do: []
-
-  defp supplied_items(true, company) do
+  defp supplied_items(company) do
     # credo:disable-for-next-line Credo.Check.Refactor.Apply
     apply(PhoenixKitCatalogue.Catalogue, :items_supplied_by, [company.uuid])
   rescue
@@ -232,9 +285,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     :exit, _ -> []
   end
 
-  defp manufactured_items(false, _company), do: []
-
-  defp manufactured_items(true, company) do
+  defp manufactured_items(company) do
     # credo:disable-for-next-line Credo.Check.Refactor.Apply
     apply(PhoenixKitCatalogue.Catalogue, :items_manufactured_by, [company.uuid])
   rescue
@@ -361,73 +412,134 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
         />
       </div>
 
-      <div :if={@tab == "catalogue"} class="flex flex-col gap-4">
-        <div class="card bg-base-100 shadow-sm">
-          <div class="card-body">
-            <h2 class="card-title text-base">
-              {gettext("Supplies")}
-              <span class="badge badge-ghost badge-sm">{length(@supplied_items)}</span>
-            </h2>
+      <div :if={@tab == "catalogue"} class="flex flex-col gap-6">
+        <.empty_state
+          :if={not @show_supplied and not @show_manufactured}
+          icon="hero-rectangle-stack"
+          title={gettext("Nothing in the catalogue yet")}
+          variant="card"
+        >
+          <p class="text-sm text-base-content/60">
+            {gettext(
+              "Give this company the supplier or manufacturer role, then pick it when sourcing an item."
+            )}
+          </p>
+        </.empty_state>
 
-            <p :if={@supplied_items == []} class="text-sm text-base-content/50">
-              {gettext("This company is not the supplier of any item yet.")}
-            </p>
+        <div :if={@show_supplied} class="flex flex-col gap-2">
+          <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+            <.icon name="hero-truck" class="h-4 w-4" />
+            {gettext("Supplied items")}
+            <span class="badge badge-ghost badge-sm">{length(@supplied_items)}</span>
+          </h2>
 
-            <div :if={@supplied_items != []} class="overflow-x-auto">
-              <table class="table table-sm">
-                <thead>
-                  <tr>
-                    <th>{gettext("Item")}</th>
-                    <th>{gettext("Their code")}</th>
-                    <th class="text-right">{gettext("Unit cost")}</th>
-                    <th class="text-right">{gettext("Lead time")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr :for={row <- @supplied_items}>
-                    <td>
-                      <span class="font-medium">{row.item_name}</span>
-                      <span :if={row.item_sku} class="text-base-content/50 text-xs ml-1">
-                        {row.item_sku}
-                      </span>
-                      <span :if={row.is_primary} class="badge badge-primary badge-xs ml-1">
-                        {gettext("primary")}
-                      </span>
-                    </td>
-                    <td class="text-base-content/70">{row.supplier_sku || "—"}</td>
-                    <td class="text-right tabular-nums">
-                      {if row.unit_cost, do: "#{row.unit_cost} #{row.currency}", else: "—"}
-                    </td>
-                    <td class="text-right tabular-nums">
-                      {if row.lead_time_days, do: gettext("%{n} d", n: row.lead_time_days), else: "—"}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+          <div :if={@orphan_supplied} class="alert alert-warning py-2">
+            <.icon name="hero-exclamation-triangle" class="h-4 w-4 shrink-0" />
+            <span class="text-sm">
+              {gettext(
+                "This company no longer has the supplier role, but items still source from it."
+              )}
+            </span>
           </div>
+
+          <.empty_state
+            :if={@supplied_items == []}
+            icon="hero-truck"
+            title={gettext("No items source from this company yet")}
+            variant="card"
+          />
+
+          <.table_default
+            :if={@supplied_items != []}
+            id={"crm-company-supplied-#{@company.uuid}"}
+            size="sm"
+            items={@supplied_items}
+            card_title={fn row -> row.item_name end}
+            card_fields={fn row -> supplied_card_fields(row) end}
+          >
+            <.table_default_header>
+              <.table_default_row>
+                <.table_default_header_cell>{gettext("Item")}</.table_default_header_cell>
+                <.table_default_header_cell>{gettext("Their code")}</.table_default_header_cell>
+                <.table_default_header_cell class="text-right">
+                  {gettext("Unit cost")}
+                </.table_default_header_cell>
+                <.table_default_header_cell class="text-right">
+                  {gettext("Lead time")}
+                </.table_default_header_cell>
+              </.table_default_row>
+            </.table_default_header>
+            <.table_default_body>
+              <.table_default_row :for={row <- @supplied_items}>
+                <.table_default_cell class="font-medium">
+                  {row.item_name}
+                  <span :if={row.item_sku} class="text-base-content/50 text-xs ml-1">
+                    {row.item_sku}
+                  </span>
+                  <span :if={row.is_primary} class="badge badge-primary badge-xs ml-1">
+                    {gettext("primary")}
+                  </span>
+                </.table_default_cell>
+                <.table_default_cell class="text-base-content/70">
+                  {row.supplier_sku || "—"}
+                </.table_default_cell>
+                <.table_default_cell class="text-right tabular-nums">
+                  {unit_cost(row)}
+                </.table_default_cell>
+                <.table_default_cell class="text-right tabular-nums">
+                  {lead_time(row)}
+                </.table_default_cell>
+              </.table_default_row>
+            </.table_default_body>
+          </.table_default>
         </div>
 
-        <div class="card bg-base-100 shadow-sm">
-          <div class="card-body">
-            <h2 class="card-title text-base">
-              {gettext("Manufactures")}
-              <span class="badge badge-ghost badge-sm">{length(@manufactured_items)}</span>
-            </h2>
+        <div :if={@show_manufactured} class="flex flex-col gap-2">
+          <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+            <.icon name="hero-wrench-screwdriver" class="h-4 w-4" />
+            {gettext("Manufactured items")}
+            <span class="badge badge-ghost badge-sm">{length(@manufactured_items)}</span>
+          </h2>
 
-            <p :if={@manufactured_items == []} class="text-sm text-base-content/50">
-              {gettext("No item lists this company as its manufacturer yet.")}
-            </p>
-
-            <ul :if={@manufactured_items != []} class="flex flex-col gap-1">
-              <li :for={row <- @manufactured_items} class="text-sm">
-                <span class="font-medium">{row.item_name}</span>
-                <span :if={row.item_sku} class="text-base-content/50 text-xs ml-1">
-                  {row.item_sku}
-                </span>
-              </li>
-            </ul>
+          <div :if={@orphan_manufactured} class="alert alert-warning py-2">
+            <.icon name="hero-exclamation-triangle" class="h-4 w-4 shrink-0" />
+            <span class="text-sm">
+              {gettext(
+                "This company no longer has the manufacturer role, but items still name it as their manufacturer."
+              )}
+            </span>
           </div>
+
+          <.empty_state
+            :if={@manufactured_items == []}
+            icon="hero-wrench-screwdriver"
+            title={gettext("No items name this company as their manufacturer yet")}
+            variant="card"
+          />
+
+          <.table_default
+            :if={@manufactured_items != []}
+            id={"crm-company-manufactured-#{@company.uuid}"}
+            size="sm"
+            items={@manufactured_items}
+            card_title={fn row -> row.item_name end}
+            card_fields={fn row -> [{gettext("SKU"), row.item_sku || "—"}] end}
+          >
+            <.table_default_header>
+              <.table_default_row>
+                <.table_default_header_cell>{gettext("Item")}</.table_default_header_cell>
+                <.table_default_header_cell>{gettext("SKU")}</.table_default_header_cell>
+              </.table_default_row>
+            </.table_default_header>
+            <.table_default_body>
+              <.table_default_row :for={row <- @manufactured_items}>
+                <.table_default_cell class="font-medium">{row.item_name}</.table_default_cell>
+                <.table_default_cell class="text-base-content/70">
+                  {row.item_sku || "—"}
+                </.table_default_cell>
+              </.table_default_row>
+            </.table_default_body>
+          </.table_default>
         </div>
       </div>
 
