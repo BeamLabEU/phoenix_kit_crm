@@ -2197,3 +2197,9 @@ msgstr ""
 
 msgid "Logo URL"
 msgstr ""
+
+msgid "Manufacturers"
+msgstr ""
+
+msgid "Partners"
+msgstr ""

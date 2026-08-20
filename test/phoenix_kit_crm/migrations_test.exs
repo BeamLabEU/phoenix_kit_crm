@@ -30,8 +30,8 @@ defmodule PhoenixKitCRM.MigrationsTest do
   alias PhoenixKitCRM.Migrations
 
   describe "current_version/0 and version_table/0" do
-    test "current_version is 3" do
-      assert Migrations.current_version() == 3
+    test "current_version is 4" do
+      assert Migrations.current_version() == 4
     end
 
     test "version_table is the contacts table (the marker carrier)" do
@@ -105,7 +105,7 @@ defmodule PhoenixKitCRM.MigrationsTest do
       statements = Migrations.up_statements()
 
       assert List.last(statements) ==
-               "COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:3'"
+               "COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:4'"
     end
 
     test "the extension guard runs first, before any citext column is created" do
@@ -199,8 +199,8 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
   end
 
   describe "migrated_version_runtime/1" do
-    test "reads back 3 after the chain has applied" do
-      assert Migrations.migrated_version_runtime(prefix: "public") == 3
+    test "reads back 4 after the chain has applied" do
+      assert Migrations.migrated_version_runtime(prefix: "public") == 4
     end
 
     test "an unsafe prefix reads as 0, not raised — the function guards its own boundary" do
@@ -232,7 +232,39 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
       assert result in [:already_up, :ok]
 
       # And the effects are unchanged.
-      assert Migrations.migrated_version_runtime(prefix: "public") == 3
+      assert Migrations.migrated_version_runtime(prefix: "public") == 4
+    end
+  end
+
+  describe "V04 legacy normalisation" do
+    test "normalises legacy client rows BEFORE adding the role CHECK" do
+      statements = Migrations.up_statements()
+
+      normalise_at =
+        Enum.find_index(statements, &(&1 =~ "SET role = 'customer' WHERE role = 'client'"))
+
+      check_at = Enum.find_index(statements, &(&1 =~ "phoenix_kit_crm_party_roles_role_check"))
+
+      assert normalise_at, "V04 must normalise legacy 'client' rows"
+      assert check_at, "V04 must add the role CHECK"
+
+      # ADD CONSTRAINT validates existing rows: constrain before cleaning and
+      # any install still holding a 0.2.x `client` row fails the migration.
+      assert normalise_at < check_at
+    end
+
+    test "drops a legacy row whose party already holds customer, so the rename cannot collide" do
+      statements = Migrations.up_statements()
+
+      assert Enum.any?(statements, fn s ->
+               s =~ "DELETE FROM" and s =~ "legacy.role = 'client'" and s =~ "'customer'"
+             end)
+    end
+
+    test "adds the partial unique index that makes a dual-type active role impossible" do
+      assert Enum.any?(Migrations.up_statements(), fn s ->
+               s =~ "phoenix_kit_crm_party_roles_active_uniq" and s =~ "WHERE is_active"
+             end)
     end
   end
 end

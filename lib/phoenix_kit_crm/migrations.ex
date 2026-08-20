@@ -64,7 +64,7 @@ defmodule PhoenixKitCRM.Migrations do
 
   use Ecto.Migration
 
-  @current_version 3
+  @current_version 4
   @marker_prefix "crm_schema:"
   @version_table "phoenix_kit_crm_contacts"
 
@@ -148,6 +148,7 @@ defmodule PhoenixKitCRM.Migrations do
       list_members_statements(p),
       v2_statements(p),
       v3_statements(p),
+      v4_statements(prefix, p),
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{@current_version}'"
     ])
   end
@@ -282,6 +283,72 @@ defmodule PhoenixKitCRM.Migrations do
   defp v3_statements(p) do
     [
       "ALTER TABLE #{p}phoenix_kit_crm_companies ADD COLUMN IF NOT EXISTS logo_url VARCHAR(500)"
+    ]
+  end
+
+  # ── V04 ─────────────────────────────────────────────────────────────
+  # Two integrity constraints the party-role table has always wanted, both
+  # from an external review of the role system.
+  #
+  # 1. A CHECK on the vocabulary. It was changeset-only, so insert_all, a
+  #    migration, psql or a future module could write a value the UI can never
+  #    remove: `sync_roles/3` iterates the KNOWN roles, so a typo'd row is
+  #    immortal garbage that renders raw in badges. Adding a role already
+  #    requires a deploy, and this chain runs on deploy, so the constraint
+  #    costs nothing it did not already cost.
+  #
+  # 2. A partial unique index on (roleable_uuid, role) WHERE is_active. Party
+  #    uuids are globally unique, so one uuid holding the same ACTIVE role as
+  #    both a company and a contact is not a state that can legitimately
+  #    exist -- and it is the state `get_supplier/1` had to defend against
+  #    with limit(1) and a deterministic sort. Making it impossible is better
+  #    than resolving it consistently.
+  defp v4_statements(prefix, p) do
+    [
+      # Legacy data FIRST. 0.2.x wrote `client` before the value was renamed to
+      # `customer`, and ADD CONSTRAINT validates existing rows — so on any
+      # install still holding one, adding the CHECK below would abort the whole
+      # migration. This is the same normalisation `rename_legacy_client_roles/0`
+      # performs, done in SQL so it cannot be skipped: drop the legacy row where
+      # the party already holds `customer` (the unique index would reject the
+      # rename), then rename whatever is left.
+      """
+      DO $$
+      BEGIN
+        DELETE FROM #{p}phoenix_kit_crm_party_roles legacy
+        WHERE legacy.role = 'client'
+          AND EXISTS (
+            SELECT 1 FROM #{p}phoenix_kit_crm_party_roles current
+            WHERE current.roleable_type = legacy.roleable_type
+              AND current.roleable_uuid = legacy.roleable_uuid
+              AND current.role = 'customer'
+          );
+
+        UPDATE #{p}phoenix_kit_crm_party_roles SET role = 'customer' WHERE role = 'client';
+      END $$;
+      """,
+      """
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE c.conname = 'phoenix_kit_crm_party_roles_role_check'
+            AND t.relname = 'phoenix_kit_crm_party_roles'
+            AND n.nspname = '#{prefix}'
+        ) THEN
+          ALTER TABLE #{p}phoenix_kit_crm_party_roles
+            ADD CONSTRAINT phoenix_kit_crm_party_roles_role_check
+            CHECK (role IN ('supplier', 'customer', 'partner', 'manufacturer'));
+        END IF;
+      END $$;
+      """,
+      """
+      CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_crm_party_roles_active_uniq
+        ON #{p}phoenix_kit_crm_party_roles (roleable_uuid, role)
+        WHERE is_active
+      """
     ]
   end
 

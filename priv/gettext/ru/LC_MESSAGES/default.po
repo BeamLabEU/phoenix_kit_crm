@@ -2198,3 +2198,9 @@ msgstr "Ни один товар пока не указывает эту ком�
 
 msgid "Logo URL"
 msgstr "URL логотипа"
+
+msgid "Manufacturers"
+msgstr "Производители"
+
+msgid "Partners"
+msgstr "Партнёры"

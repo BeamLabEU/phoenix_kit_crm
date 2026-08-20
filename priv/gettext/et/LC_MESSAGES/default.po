@@ -2178,3 +2178,9 @@ msgstr "Ükski toode ei märgi veel seda ettevõtet tootjaks."
 
 msgid "Logo URL"
 msgstr "Logo URL"
+
+msgid "Manufacturers"
+msgstr "Tootjad"
+
+msgid "Partners"
+msgstr "Partnerid"

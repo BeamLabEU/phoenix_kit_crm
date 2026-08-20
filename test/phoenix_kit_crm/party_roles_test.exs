@@ -397,61 +397,124 @@ defmodule PhoenixKitCRM.PartyRolesTest do
     end
   end
 
-  describe "rename_legacy_client_roles/0 (the 0.2.x `client` → `customer` upgrade)" do
-    test "a stranded client row becomes a manageable customer role" do
+  # The `rename_legacy_client_roles/0` tests lived here. They fabricated a
+  # legacy `client` row to migrate, which chain version 4's CHECK constraint
+  # now makes impossible to insert — the value cannot exist in the database at
+  # all. V04 performs that same normalisation in SQL before adding the
+  # constraint (it has to: ADD CONSTRAINT validates existing rows, so an
+  # install still holding a `client` row would otherwise fail the migration),
+  # and `migrations_test.exs` covers it there.
+
+  describe "hardening from the 2026-08-20 role-system review" do
+    test "grant_role ignores a caller-supplied is_active: false" do
       company = company_fixture()
-      legacy = legacy_client_role!(company, "company")
 
-      # The state this fixes: granted, active, and invisible to every code
-      # path that has moved on to "customer".
-      refute PartyRoles.has_role?(company, "customer")
-      assert PartyRoles.list_companies_with_role("customer") == []
-      assert PartyRoles.count_legacy_client_roles() == 1
-
-      assert %{renamed: 1, dropped: 0} = PartyRoles.rename_legacy_client_roles()
-
-      assert PartyRoles.has_role?(company, "customer")
-      assert [%{uuid: uuid}] = PartyRoles.list_companies_with_role("customer")
-      assert uuid == company.uuid
-      # Same row, rewritten — not a new grant.
-      assert [%{uuid: role_uuid}] = PartyRoles.list_roles(company)
-      assert role_uuid == legacy.uuid
+      # Casting it would insert a dormant row and then log it as granted.
+      assert {:ok, role} = PartyRoles.grant_role(company, "supplier", %{"is_active" => false})
+      assert role.is_active
+      assert PartyRoles.has_role?(company, "supplier")
     end
 
-    test "renames contact rows too, not just companies" do
-      contact = contact_fixture()
-      legacy_client_role!(contact, "contact")
-
-      assert %{renamed: 1, dropped: 0} = PartyRoles.rename_legacy_client_roles()
-
-      assert [%{uuid: uuid}] = PartyRoles.list_contacts_with_role("customer")
-      assert uuid == contact.uuid
-    end
-
-    test "drops the legacy row when the party already holds customer" do
+    test "a role whose window has closed is not in force, even while is_active is true" do
       company = company_fixture()
-      {:ok, current} = PartyRoles.grant_role(company, "customer")
-      legacy_client_role!(company, "company")
 
-      # Renaming this one would collide with the (type, uuid, role) unique index.
-      assert %{renamed: 0, dropped: 1} = PartyRoles.rename_legacy_client_roles()
+      {:ok, _} =
+        PartyRoles.grant_role(company, "supplier", %{
+          "valid_from" => Date.add(Date.utc_today(), -10),
+          "valid_to" => Date.add(Date.utc_today(), -1)
+        })
 
-      assert [%{uuid: uuid}] = PartyRoles.list_roles(company)
-      assert uuid == current.uuid
+      refute PartyRoles.has_role?(company, "supplier")
+      assert PartyRoles.get_supplier(company.uuid) == nil
+      assert PartyRoles.list_suppliers() == []
     end
 
-    test "leaves supplier and partner rows alone and is idempotent" do
+    test "a role whose window has not opened yet is not in force either" do
+      company = company_fixture()
+
+      {:ok, _} =
+        PartyRoles.grant_role(company, "supplier", %{
+          "valid_from" => Date.add(Date.utc_today(), 7)
+        })
+
+      refute PartyRoles.has_role?(company, "supplier")
+    end
+
+    test "re-granting a revoked role starts a fresh tenure rather than claiming an unbroken one" do
+      company = company_fixture()
+
+      {:ok, granted} =
+        PartyRoles.grant_role(company, "supplier", %{
+          "valid_from" => Date.add(Date.utc_today(), -30)
+        })
+
+      assert granted.valid_from == Date.add(Date.utc_today(), -30)
+
+      {:ok, _} = PartyRoles.revoke_role(company, "supplier")
+      {:ok, regranted} = PartyRoles.grant_role(company, "supplier")
+
+      assert regranted.valid_from == Date.utc_today()
+      assert regranted.valid_to == nil
+      assert PartyRoles.has_role?(company, "supplier")
+    end
+
+    test "the batch resolver agrees with the single one" do
       company = company_fixture()
       {:ok, _} = PartyRoles.grant_role(company, "supplier")
-      legacy_client_role!(company, "company")
 
-      assert %{renamed: 1, dropped: 0} = PartyRoles.rename_legacy_client_roles()
-      assert %{renamed: 0, dropped: 0} = PartyRoles.rename_legacy_client_roles()
+      single = PartyRoles.get_supplier(company.uuid)
+      batch = PartyRoles.get_suppliers([company.uuid])
 
-      assert PartyRoles.count_legacy_client_roles() == 0
+      assert batch[company.uuid] == single
+    end
 
-      assert Enum.sort(PartyRoles.active_roles_map("company", [company.uuid])[company.uuid]) ==
-               ["customer", "supplier"]
+    test "deleting a company takes its role rows with it" do
+      company = company_fixture()
+      {:ok, _} = PartyRoles.grant_role(company, "supplier")
+      {:ok, _} = PartyRoles.grant_role(company, "manufacturer")
+
+      assert length(PartyRoles.list_roles(company)) == 2
+
+      {:ok, _} = Companies.delete_company(company)
+
+      assert PartyRoles.list_roles(company) == []
+    end
+
+    test "deleting a contact takes its role rows with it" do
+      contact = contact_fixture()
+      {:ok, _} = PartyRoles.grant_role(contact, "supplier")
+
+      {:ok, _} = Contacts.delete_contact(contact)
+
+      assert PartyRoles.list_roles(contact) == []
+    end
+  end
+
+  describe "trashed parties and combined limits" do
+    test "a trashed company stops resolving, matching its removal from the listings" do
+      company = company_fixture()
+      {:ok, _} = PartyRoles.grant_role(company, "supplier")
+
+      assert PartyRoles.get_supplier(company.uuid)
+
+      {:ok, trashed} = Companies.trash_company(company)
+
+      # Previously the picker hid it while item pages went on resolving it.
+      assert PartyRoles.get_supplier(trashed.uuid) == nil
+      assert PartyRoles.get_suppliers([trashed.uuid]) == %{}
+      assert PartyRoles.list_suppliers() == []
+    end
+
+    test ":limit bounds the combined list, not each side" do
+      for n <- 1..3 do
+        {:ok, c} = Companies.create_company(%{"name" => "Limit Co #{n}"})
+        {:ok, _} = PartyRoles.grant_role(c, "supplier")
+        {:ok, ct} = Contacts.create_contact(%{"name" => "Limit Contact #{n}"})
+        {:ok, _} = PartyRoles.grant_role(ct, "supplier")
+      end
+
+      # Six parties in total; asking for 4 must not return 8.
+      assert length(PartyRoles.list_suppliers(limit: 4)) == 4
     end
   end
 end

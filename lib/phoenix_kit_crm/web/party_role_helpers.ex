@@ -22,6 +22,7 @@ defmodule PhoenixKitCRM.Web.PartyRoleHelpers do
   def role_badge_class("supplier"), do: "badge-info"
   def role_badge_class("customer"), do: "badge-success"
   def role_badge_class("manufacturer"), do: "badge-warning"
+  def role_badge_class("partner"), do: "badge-accent"
   def role_badge_class(_), do: "badge-ghost"
 
   @doc """
@@ -65,6 +66,20 @@ defmodule PhoenixKitCRM.Web.PartyRoleHelpers do
   @spec sync_roles(struct(), [String.t()], UUIDv7.t() | String.t() | nil) ::
           :ok | {:partial, [String.t()]}
   def sync_roles(roleable, selected, actor_uuid \\ nil) when is_list(selected) do
+    # One transaction: a crash or dropped connection halfway through used to
+    # leave an arbitrary prefix of the checkboxes applied, with the form still
+    # showing what the user asked for. Either every role matches the form or
+    # none of them moved.
+    case PhoenixKit.RepoHelper.repo().transaction(fn ->
+           reconcile(roleable, selected, actor_uuid)
+         end) do
+      {:ok, :ok} -> :ok
+      {:ok, {:partial, roles}} -> {:partial, roles}
+      {:error, _reason} -> {:partial, PartyRole.roles()}
+    end
+  end
+
+  defp reconcile(roleable, selected, actor_uuid) do
     failed =
       Enum.reduce(PartyRole.roles(), [], fn role, failed ->
         result =
