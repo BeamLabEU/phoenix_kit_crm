@@ -30,8 +30,8 @@ defmodule PhoenixKitCRM.MigrationsTest do
   alias PhoenixKitCRM.Migrations
 
   describe "current_version/0 and version_table/0" do
-    test "current_version is 1" do
-      assert Migrations.current_version() == 1
+    test "current_version is 4" do
+      assert Migrations.current_version() == 4
     end
 
     test "version_table is the contacts table (the marker carrier)" do
@@ -78,6 +78,9 @@ defmodule PhoenixKitCRM.MigrationsTest do
 
       assert Migrations.down_statements("public", 1) ==
                ["COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:1'"]
+
+      assert Migrations.down_statements("public", 2) ==
+               ["COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:2'"]
     end
   end
 
@@ -102,7 +105,7 @@ defmodule PhoenixKitCRM.MigrationsTest do
       statements = Migrations.up_statements()
 
       assert List.last(statements) ==
-               "COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:1'"
+               "COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:4'"
     end
 
     test "the extension guard runs first, before any citext column is created" do
@@ -196,8 +199,8 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
   end
 
   describe "migrated_version_runtime/1" do
-    test "reads back 1 after the chain has applied" do
-      assert Migrations.migrated_version_runtime(prefix: "public") == 1
+    test "reads back 4 after the chain has applied" do
+      assert Migrations.migrated_version_runtime(prefix: "public") == 4
     end
 
     test "an unsafe prefix reads as 0, not raised — the function guards its own boundary" do
@@ -229,7 +232,77 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
       assert result in [:already_up, :ok]
 
       # And the effects are unchanged.
-      assert Migrations.migrated_version_runtime(prefix: "public") == 1
+      assert Migrations.migrated_version_runtime(prefix: "public") == 4
+    end
+  end
+
+  describe "V04 legacy normalisation" do
+    test "normalises legacy client rows BEFORE adding the role CHECK" do
+      statements = Migrations.up_statements()
+
+      normalise_at =
+        Enum.find_index(statements, &(&1 =~ "SET role = 'customer' WHERE role = 'client'"))
+
+      check_at = Enum.find_index(statements, &(&1 =~ "phoenix_kit_crm_party_roles_role_check"))
+
+      assert normalise_at, "V04 must normalise legacy 'client' rows"
+      assert check_at, "V04 must add the role CHECK"
+
+      # ADD CONSTRAINT validates existing rows: constrain before cleaning and
+      # any install still holding a 0.2.x `client` row fails the migration.
+      assert normalise_at < check_at
+    end
+
+    test "drops a legacy row whose party already holds customer, so the rename cannot collide" do
+      statements = Migrations.up_statements()
+
+      assert Enum.any?(statements, fn s ->
+               s =~ "DELETE FROM" and s =~ "legacy.role = 'client'" and s =~ "'customer'"
+             end)
+    end
+
+    test "adds the partial unique index that makes a dual-type active role impossible" do
+      assert Enum.any?(Migrations.up_statements(), fn s ->
+               s =~ "phoenix_kit_crm_party_roles_active_uniq" and s =~ "WHERE is_active"
+             end)
+    end
+  end
+
+  # From the 2026-08-21 external review. V04 rewrites live role data, so its
+  # SQL is pinned by shape here — the suite has no pre-V04 fixture database to
+  # run it against, and a statement-level assertion still catches the two ways
+  # the original could destroy or abort.
+  describe "V04 legacy normalisation — data-safety fixes" do
+    test "the legacy DELETE never drops a live role for a merely dormant customer" do
+      sql = Enum.join(Migrations.up_statements(), "\n")
+
+      # The redundancy test must consider is_active. Without it, an ACTIVE
+      # `client` is deleted because a long-revoked `customer` exists.
+      assert sql =~ "current.is_active OR NOT legacy.is_active",
+             "the client/customer DELETE must not ignore is_active"
+
+      # And the mirror case: a dormant customer beside a live client has to go,
+      # or the rename collides with the older unique index.
+      assert sql =~ "dormant.role = 'customer'"
+      assert sql =~ "NOT dormant.is_active"
+    end
+
+    test "active duplicates are deactivated before the partial unique index" do
+      statements = Migrations.up_statements()
+
+      dedupe = Enum.find_index(statements, &(&1 =~ "PARTITION BY roleable_uuid, role"))
+      index = Enum.find_index(statements, &(&1 =~ "phoenix_kit_crm_party_roles_active_uniq"))
+
+      assert dedupe, "V04 must deactivate cross-type active duplicates"
+      assert index, "V04 must create the partial unique index"
+
+      assert dedupe < index,
+             "the dedupe has to run BEFORE the index, or CREATE UNIQUE INDEX aborts the migration"
+    end
+
+    test "the dedupe keeps the company side, matching the documented tiebreak" do
+      sql = Enum.join(Migrations.up_statements(), "\n")
+      assert sql =~ "(roleable_type = 'company') DESC"
     end
   end
 end

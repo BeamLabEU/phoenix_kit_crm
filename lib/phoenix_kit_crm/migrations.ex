@@ -64,7 +64,7 @@ defmodule PhoenixKitCRM.Migrations do
 
   use Ecto.Migration
 
-  @current_version 1
+  @current_version 4
   @marker_prefix "crm_schema:"
   @version_table "phoenix_kit_crm_contacts"
 
@@ -146,6 +146,9 @@ defmodule PhoenixKitCRM.Migrations do
       party_roles_statements(prefix, p),
       lists_statements(p),
       list_members_statements(p),
+      v2_statements(p),
+      v3_statements(p),
+      v4_statements(prefix, p),
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{@current_version}'"
     ])
   end
@@ -254,6 +257,146 @@ defmodule PhoenixKitCRM.Migrations do
   end
 
   # ── companies (core V138 + V151 citext email) + NEW user_uuid ───────
+
+  # ── V02 ─────────────────────────────────────────────────────────────
+  # Purely additive: one new column, so nothing is owed to core's
+  # ExpectedSchema manifest (an extra column on a manifest-known table is
+  # an info-level finding, never drift — the precedent is
+  # `phoenix_kit_doc_documents.project_uuid` and the five columns the
+  # projects chain added to `phoenix_kit_project_assignments`).
+  #
+  # `description` was the last field the catalogue's own supplier rows
+  # carried that a CRM company did not, now that suppliers are managed
+  # here rather than in the catalogue. Everything else they held is
+  # already covered, and covered better: structured `email`/`phone`/
+  # `address` instead of one free-text "email or phone" line.
+  defp v2_statements(p) do
+    [
+      "ALTER TABLE #{p}phoenix_kit_crm_companies ADD COLUMN IF NOT EXISTS description TEXT"
+    ]
+  end
+
+  # ── V03 ─────────────────────────────────────────────────────────────
+  # Manufacturers moved here too, so a company can carry the brand mark
+  # the catalogue's manufacturer rows used to hold. Additive, same lane
+  # as V02.
+  defp v3_statements(p) do
+    [
+      "ALTER TABLE #{p}phoenix_kit_crm_companies ADD COLUMN IF NOT EXISTS logo_url VARCHAR(500)"
+    ]
+  end
+
+  # ── V04 ─────────────────────────────────────────────────────────────
+  # Two integrity constraints the party-role table has always wanted, both
+  # from an external review of the role system.
+  #
+  # 1. A CHECK on the vocabulary. It was changeset-only, so insert_all, a
+  #    migration, psql or a future module could write a value the UI can never
+  #    remove: `sync_roles/3` iterates the KNOWN roles, so a typo'd row is
+  #    immortal garbage that renders raw in badges. Adding a role already
+  #    requires a deploy, and this chain runs on deploy, so the constraint
+  #    costs nothing it did not already cost.
+  #
+  # 2. A partial unique index on (roleable_uuid, role) WHERE is_active. Party
+  #    uuids are globally unique, so one uuid holding the same ACTIVE role as
+  #    both a company and a contact is not a state that can legitimately
+  #    exist -- and it is the state `get_supplier/1` had to defend against
+  #    with limit(1) and a deterministic sort. Making it impossible is better
+  #    than resolving it consistently.
+  defp v4_statements(prefix, p) do
+    [
+      # Legacy data FIRST. 0.2.x wrote `client` before the value was renamed to
+      # `customer`, and ADD CONSTRAINT validates existing rows — so on any
+      # install still holding one, adding the CHECK below would abort the whole
+      # migration. This is the same normalisation `rename_legacy_client_roles/0`
+      # performs, done in SQL so it cannot be skipped: drop the legacy row where
+      # the party already holds `customer` (the unique index would reject the
+      # rename), then rename whatever is left.
+      """
+      DO $$
+      BEGIN
+        -- Drop the legacy row only when it is genuinely redundant: the party
+        -- already holds a LIVE `customer`, or the legacy row is itself
+        -- dormant. Testing merely that SOME `customer` exists would delete an
+        -- ACTIVE `client` because of a long-revoked `customer`, silently
+        -- stripping a live role.
+        DELETE FROM #{p}phoenix_kit_crm_party_roles legacy
+        WHERE legacy.role = 'client'
+          AND EXISTS (
+            SELECT 1 FROM #{p}phoenix_kit_crm_party_roles current
+            WHERE current.roleable_type = legacy.roleable_type
+              AND current.roleable_uuid = legacy.roleable_uuid
+              AND current.role = 'customer'
+              AND (current.is_active OR NOT legacy.is_active)
+          );
+
+        -- The mirror case: a dormant `customer` sitting beside a live
+        -- `client`. Drop the dormant one so the rename below does not collide
+        -- with the pre-existing (roleable_type, roleable_uuid, role) index.
+        DELETE FROM #{p}phoenix_kit_crm_party_roles dormant
+        WHERE dormant.role = 'customer'
+          AND NOT dormant.is_active
+          AND EXISTS (
+            SELECT 1 FROM #{p}phoenix_kit_crm_party_roles live
+            WHERE live.roleable_type = dormant.roleable_type
+              AND live.roleable_uuid = dormant.roleable_uuid
+              AND live.role = 'client'
+              AND live.is_active
+          );
+
+        UPDATE #{p}phoenix_kit_crm_party_roles SET role = 'customer' WHERE role = 'client';
+      END $$;
+      """,
+      """
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE c.conname = 'phoenix_kit_crm_party_roles_role_check'
+            AND t.relname = 'phoenix_kit_crm_party_roles'
+            AND n.nspname = '#{prefix}'
+        ) THEN
+          ALTER TABLE #{p}phoenix_kit_crm_party_roles
+            ADD CONSTRAINT phoenix_kit_crm_party_roles_role_check
+            CHECK (role IN ('supplier', 'customer', 'partner', 'manufacturer'));
+        END IF;
+      END $$;
+      """,
+      # The OLD index is (roleable_type, roleable_uuid, role), so one uuid
+      # holding the same active role as BOTH a company and a contact was
+      # legal — and `get_party_with_role/2`'s `limit(1)` existed precisely to
+      # paper over it. The new index forbids it, so on any install carrying
+      # that state `CREATE UNIQUE INDEX` would abort the whole migration.
+      # Deactivate the losers first, company first (the documented intent),
+      # then oldest, with uuid as a total tiebreak.
+      """
+      DO $$
+      BEGIN
+      WITH ranked AS (
+        SELECT uuid,
+               row_number() OVER (
+                 PARTITION BY roleable_uuid, role
+                 ORDER BY (roleable_type = 'company') DESC, inserted_at ASC, uuid ASC
+               ) AS rn
+        FROM #{p}phoenix_kit_crm_party_roles
+        WHERE is_active
+      )
+      UPDATE #{p}phoenix_kit_crm_party_roles AS pr
+      SET is_active = FALSE,
+          valid_to = COALESCE(pr.valid_to, CURRENT_DATE)
+      FROM ranked AS r
+      WHERE pr.uuid = r.uuid AND r.rn > 1;
+      END $$;
+      """,
+      """
+      CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_crm_party_roles_active_uniq
+        ON #{p}phoenix_kit_crm_party_roles (roleable_uuid, role)
+        WHERE is_active
+      """
+    ]
+  end
 
   defp companies_statements(p) do
     [

@@ -2160,3 +2160,162 @@ msgstr "Выберите компанию-клиента в панели «Мо�
 #, elixir-autogen, elixir-format
 msgid "Recent interactions"
 msgstr "Недавние взаимодействия"
+
+msgid "Manufacturer"
+msgstr "Производитель"
+
+msgid "Catalogue"
+msgstr "Каталог"
+
+msgid "Logo URL"
+msgstr "URL логотипа"
+
+msgid "Manufacturers"
+msgstr "Производители"
+
+msgid "Partners"
+msgstr "Партнёры"
+
+msgid "Supplied items"
+msgstr "Поставляемые товары"
+
+msgid "Manufactured items"
+msgstr "Производимые товары"
+
+msgid "Nothing in the catalogue yet"
+msgstr "В каталоге пока ничего нет"
+
+msgid "Give this company the supplier or manufacturer role, then pick it when sourcing an item."
+msgstr "Назначьте этой компании роль поставщика или производителя, затем выберите её при закупке товара."
+
+msgid "No items sourced from this company yet"
+msgstr "Пока ни один товар не закупается у этой компании"
+
+msgid "No items name this company as their manufacturer yet"
+msgstr "Пока ни один товар не указывает эту компанию производителем"
+
+msgid "This company no longer has the supplier role, but items still source from it."
+msgstr "У этой компании больше нет роли поставщика, но товары всё ещё закупаются у неё."
+
+msgid "This company no longer has the manufacturer role, but items still name it as their manufacturer."
+msgstr "У этой компании больше нет роли производителя, но товары всё ещё указывают её производителем."
+
+msgid "CRM company"
+msgstr "Компания CRM"
+
+msgid "CRM company created and linked"
+msgstr "Компания CRM создана и связана"
+
+msgid "Could not apply the resolution — please try again"
+msgstr "Не удалось применить решение — попробуйте ещё раз"
+
+msgid "Could not create a company"
+msgstr "Не удалось создать компанию"
+
+msgid "Could not create a mirror account"
+msgstr "Не удалось создать зеркальный аккаунт"
+
+msgid "Could not link this account"
+msgstr "Не удалось связать этот аккаунт"
+
+msgid "Could not link this company"
+msgstr "Не удалось связать эту компанию"
+
+msgid "Could not unlink the mirror account"
+msgstr "Не удалось отвязать зеркальный аккаунт"
+
+msgid "Create CRM company"
+msgstr "Создать компанию CRM"
+
+msgid "Create mirror user"
+msgstr "Создать зеркального пользователя"
+
+msgid "Enable organization accounts in Settings to mirror a company."
+msgstr "Чтобы зеркалировать компанию, включите аккаунты организаций в настройках."
+
+msgid "Link"
+msgstr "Связать"
+
+msgid "Link existing company"
+msgstr "Связать существующую компанию"
+
+msgid "Link existing…"
+msgstr "Связать существующий…"
+
+msgid "Linked"
+msgstr "Связано"
+
+msgid "Linked to CRM company"
+msgstr "Связано с компанией CRM"
+
+msgid "Linked to mirror account"
+msgstr "Связано с зеркальным аккаунтом"
+
+msgid "Mirror"
+msgstr "Зеркало"
+
+msgid "Mirror account"
+msgstr "Зеркальный аккаунт"
+
+msgid "Mirror account created and linked"
+msgstr "Зеркальный аккаунт создан и связан"
+
+msgid "Mirror account linked"
+msgstr "Зеркальный аккаунт связан"
+
+msgid "Mirror account unlinked"
+msgstr "Зеркальный аккаунт отвязан"
+
+msgid "Only organization accounts can mirror a company"
+msgstr "Только аккаунты организаций могут зеркалировать компанию"
+
+msgid "Only person accounts can mirror a contact"
+msgstr "Только персональные аккаунты могут зеркалировать контакт"
+
+msgid "Organization accounts are disabled in Settings"
+msgstr "Аккаунты организаций отключены в настройках"
+
+msgid "Resolve differences"
+msgstr "Устранить расхождения"
+
+msgid "Save the company first to link or create a mirror account."
+msgstr "Сначала сохраните компанию, чтобы связать или создать зеркальный аккаунт."
+
+msgid "Save the contact first to link or create a mirror account."
+msgstr "Сначала сохраните контакт, чтобы связать или создать зеркальный аккаунт."
+
+msgid "That account no longer exists"
+msgstr "Этого аккаунта больше не существует"
+
+msgid "That account or company no longer exists"
+msgstr "Этого аккаунта или компании больше не существует"
+
+msgid "That company is already linked to another account"
+msgstr "Эта компания уже связана с другим аккаунтом"
+
+msgid "These fields differ. Choose which side to keep for each."
+msgstr "Эти поля различаются. Выберите для каждого, какую сторону сохранить."
+
+msgid "This account already has a linked company"
+msgstr "У этого аккаунта уже есть связанная компания"
+
+msgid "This company already has a mirror account"
+msgstr "У этой компании уже есть зеркальный аккаунт"
+
+msgid "This contact already has a mirror account"
+msgstr "У этого контакта уже есть зеркальный аккаунт"
+
+msgid "Unlink"
+msgstr "Отвязать"
+
+msgid "View account"
+msgstr "Открыть аккаунт"
+
+msgid "— choose a company —"
+msgstr "— выберите компанию —"
+
+msgid "— choose an account —"
+msgstr "— выберите аккаунт —"
+
+msgid "These items could not be displayed. The catalogue module may be unavailable."
+msgstr "Не удалось показать эти товары. Модуль каталога может быть недоступен."

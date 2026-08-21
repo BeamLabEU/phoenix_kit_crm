@@ -4,6 +4,64 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.7.1 - 2026-08-21
+
+### Added
+
+- **`manufacturer` party role**, alongside `supplier` / `customer` / `partner`
+  (#23). Granted the same way as the others; a company or contact can hold
+  `supplier` and `manufacturer` at once — the case the shared role table
+  exists for.
+- **Roles now carry a validity window.** `valid_from` / `valid_to` used to be
+  decorative — every query filtered on `is_active` alone, so a role stamped
+  with an expired `valid_to` still resolved as live forever. Every role query
+  now goes through `PartyRoles.in_force/1`, so an out-of-window role stops
+  resolving even while `is_active` stays true, and re-granting a lapsed role
+  starts a fresh tenure instead of silently returning the stale row.
+- **Batch party resolution**: `get_suppliers/1`, `get_manufacturers/1`, and
+  `list_parties_with_role/2` (with `list_suppliers/1`, `list_manufacturers/1`,
+  `list_customers/1` wrappers) resolve many party uuids in one pair of
+  queries instead of one call per row — the N+1 a catalogue page rendering
+  100 items would otherwise hit.
+- **A Catalogue tab on the company page** (#23), shown when the catalogue
+  module is installed *and* enabled. Lists items this company supplies or
+  manufactures, with a column picker and a warning banner when items still
+  reference a role the company no longer holds. Soft-dependency guarded
+  (`Code.ensure_loaded?` + `apply/3`) — the CRM has no compile-time
+  dependency on the catalogue.
+- `Company` gained `description` and `logo_url` — the fields the catalogue's
+  own supplier/manufacturer rows used to carry, now that those parties are
+  managed here.
+- A V04 migration adds a `CHECK` constraint on the role vocabulary and a
+  partial unique index (`roleable_uuid`, `role`) `WHERE is_active`, so a
+  party can hold at most one active row per role — closing a state
+  `get_supplier/1` previously had to defend against with `limit(1)`. Legacy
+  `client` rows (pre-rename) are normalized to `customer` first, since
+  `ADD CONSTRAINT` validates existing rows.
+
+### Fixed
+
+- **`get_manufacturer/1` and its batch/list counterparts now return
+  `logo_url`.** V04's own `description`/`logo_url` addition to `Company` was
+  meant to let the catalogue read a manufacturer's brand mark from CRM, but
+  none of the federation resolvers included the field — it was captured on
+  the company form and reachable by nothing.
+- Removed seven `priv/gettext` catalog entries (`"Item"`, `"Their code"`,
+  `"Unit cost"`, `"Lead time"`, `"primary"`, `"%{n} d"`, `"SKU"`, with real
+  Estonian and Russian translations) that no `gettext/1` call in this repo
+  produces.
+- `phoenix_kit_crm.import_suppliers_from_catalogue`: raw-SQL uuid parameters
+  are now dumped to their 16-byte binary form before use (`Ecto.UUID.dump/1`)
+  and uuid columns read back from raw SQL are loaded to text before display
+  (`Ecto.UUID.load/1`) — both directions previously raised on a row that had
+  actually been linked.
+
+### Changed
+
+- Dependency updates (`mix.lock`): `phoenix_kit` 2.13.4, `phoenix` 1.8.12,
+  `phoenix_live_view` 1.2.10, and routine bumps to `ecto`, `bandit`, `swoosh`,
+  `req`, `tesla`, and others.
+
 ## 0.7.0 - 2026-08-14
 
 ### Added

@@ -19,6 +19,7 @@ defmodule PhoenixKitCRM.Contacts do
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCRM.Lists
   alias PhoenixKitCRM.Mirror
+  alias PhoenixKitCRM.PartyRoles
   alias PhoenixKitCRM.Schemas.{CompanyMembership, Contact, ContactList, ListMember}
   alias PhoenixKitCRM.Search
   alias PhoenixKitCRM.SoftDelete
@@ -230,6 +231,9 @@ defmodule PhoenixKitCRM.Contacts do
       case repo().delete(contact) do
         {:ok, deleted} ->
           Enum.each(affected_list_uuids, &recount_by_uuid/1)
+          # The party-role rows are soft references with no FK, so nothing
+          # else removes them.
+          PartyRoles.delete_roles_for("contact", contact.uuid)
           deleted
 
         {:error, changeset} ->

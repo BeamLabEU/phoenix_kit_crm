@@ -106,6 +106,30 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogueTest do
         assert output =~ "Total: 3"
         assert output =~ "errors: 2"
       end
+
+      # Regression: supplier rows are read with raw SQL, and Postgrex returns a
+      # `uuid` column as a 16-byte binary rather than the canonical text form.
+      # Printing it raised ArgumentError — which only ever happened on a row
+      # that already carried a `crm_company_uuid`, and until suppliers were
+      # actually being linked, no row anywhere did.
+      test "an already-linked row prints its uuid instead of the raw bytes" do
+        raw = Ecto.UUID.dump!("01a01fe3-ec5e-7ba4-bddf-cd421127a3f2")
+
+        output =
+          capture_io(fn ->
+            Task.print_report([
+              %{
+                name: "HAFELE Direct",
+                status: "active",
+                action: :already_linked,
+                company_uuid: raw
+              }
+            ])
+          end)
+
+        assert output =~ "01a01fe3-ec5e-7ba4-bddf-cd421127a3f2"
+        assert output =~ "already-linked"
+      end
     end
   end
 
