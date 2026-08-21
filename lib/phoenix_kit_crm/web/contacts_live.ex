@@ -8,7 +8,7 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
   alias PhoenixKitCRM.{Activity, Contacts, PartyRoles, Paths}
   alias PhoenixKitCRM.Schemas.Contact
 
-  @role_filters ~w(supplier customer)
+  @role_filters ~w(supplier customer manufacturer partner)
   @page_size 25
 
   @impl true
@@ -130,6 +130,20 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
             class={["tab", @filter == "customer" && "tab-active"]}
           >
             {gettext("Customers")}
+          </.link>
+          <.link
+            patch={contacts_path(assigns, filter: "manufacturer", page: 1)}
+            role="tab"
+            class={["tab", @filter == "manufacturer" && "tab-active"]}
+          >
+            {gettext("Manufacturers")}
+          </.link>
+          <.link
+            patch={contacts_path(assigns, filter: "partner", page: 1)}
+            role="tab"
+            class={["tab", @filter == "partner" && "tab-active"]}
+          >
+            {gettext("Partners")}
           </.link>
           <.link
             :if={@trashed_count > 0 or @filter == "trashed"}

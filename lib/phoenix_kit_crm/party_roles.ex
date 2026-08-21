@@ -20,13 +20,37 @@ defmodule PhoenixKitCRM.PartyRoles do
 
   defp repo, do: RepoHelper.repo()
 
+  # A role is in force when it is active AND today falls inside its validity
+  # window. The dates used to be decorative — every query filtered on
+  # `is_active` alone, so a role stamped with an expired `valid_to` still
+  # resolved as a live supplier forever. Applied here so every caller agrees.
+  defp in_force(query) do
+    today = Date.utc_today()
+
+    where(
+      query,
+      [pr],
+      pr.is_active == true and
+        (is_nil(pr.valid_from) or pr.valid_from <= ^today) and
+        (is_nil(pr.valid_to) or pr.valid_to >= ^today)
+    )
+  end
+
   # ── Grant / revoke ──────────────────────────────────────────────────
 
   @doc """
-  Grants `role` to a company or contact. Idempotent: granting an already-active
-  role is a no-op (returns the existing row); granting a previously-revoked
-  role reactivates it (clears `valid_to`). `attrs` may set `:valid_from` /
-  `:valid_to` — never pass caller-supplied `metadata` here from a UI path.
+  Grants `role` to a company or contact. Idempotent: granting a role that is
+  currently IN FORCE is a no-op that returns the existing row unchanged —
+  including any `attrs`, which are ignored on that path, so this is not a way
+  to edit a live grant's window. Granting a previously-revoked role, or one
+  whose `valid_to` has passed, starts a fresh tenure (`valid_from` today,
+  `valid_to` cleared).
+
+  `attrs` may set `:valid_from` / `:valid_to` and they win over those defaults
+  on every path that writes, so a caller can still time-box a re-grant. A
+  `valid_from` in the future is honoured as a scheduled grant: the row exists
+  but no resolver reports the role until that date. Never pass caller-supplied
+  `metadata` here from a UI path.
 
   Pass `:actor_uuid` in `opts` so the activity log entry records who granted
   the role (mirrors every other logged CRM mutation).
@@ -42,29 +66,105 @@ defmodule PhoenixKitCRM.PartyRoles do
       nil ->
         %PartyRole{}
         |> PartyRole.changeset(
-          Map.merge(attrs, %{
+          attrs
+          |> Map.merge(%{
             "roleable_type" => type,
             "roleable_uuid" => uuid,
             "role" => role
           })
+          # `is_active` is this function's to decide, not the caller's: casting
+          # a caller-supplied `is_active: false` would insert a dormant row and
+          # then log it as granted. `valid_from`/`valid_to` stay caller-settable
+          # as documented — an expired window is no longer dangerous now that
+          # `in_force/1` makes every query respect it.
+          |> Map.merge(%{"is_active" => true})
         )
         |> repo().insert()
+        |> reconcile_grant_conflict(type, uuid, role)
         |> log_on_ok("crm.party_role_granted", type, uuid, opts)
 
       %PartyRole{is_active: true} = existing ->
-        {:ok, existing}
+        # `is_active` alone is not "holds the role": `in_force/1` also requires
+        # today to fall inside the validity window. An active row whose
+        # `valid_to` has passed resolves nowhere, so returning it unchanged
+        # would report a grant that never took effect. Reopen it instead.
+        if window_lapsed?(existing) do
+          reopen(existing, attrs, type, uuid, opts)
+        else
+          {:ok, existing}
+        end
 
       %PartyRole{is_active: false} = existing ->
-        existing
-        |> PartyRole.changeset(Map.merge(attrs, %{"is_active" => true, "valid_to" => nil}))
-        |> repo().update()
-        |> log_on_ok("crm.party_role_granted", type, uuid, opts)
+        reopen(existing, attrs, type, uuid, opts)
     end
   end
 
+  # Fresh tenure: keeping the ORIGINAL `valid_from` while clearing `valid_to`
+  # would make the row assert an unbroken run from the first grant, erasing the
+  # gap that actually happened. The per-period history lives in the activity
+  # log, not in this row — the unique index means there can only ever be one.
+  defp reopen(%PartyRole{} = existing, attrs, type, uuid, opts) do
+    existing
+    |> PartyRole.changeset(
+      # The window is a DEFAULT here, not an override: merging the other way
+      # round honoured `attrs` on the insert path and silently discarded it on
+      # this one, so the same call time-boxed a fresh grant but produced an
+      # open-ended one whenever a dormant row happened to exist. `is_active`
+      # stays this function's to decide — see the insert branch.
+      %{"valid_from" => Date.utc_today(), "valid_to" => nil}
+      |> Map.merge(attrs)
+      |> Map.put("is_active", true)
+    )
+    |> repo().update()
+    |> log_on_ok("crm.party_role_granted", type, uuid, opts)
+  end
+
+  # Only a LAPSED window counts. A `valid_from` in the future is a scheduled
+  # grant doing exactly what it was asked to do; dragging it forward to today
+  # would silently cancel the schedule.
+  defp window_lapsed?(%PartyRole{valid_to: nil}), do: false
+
+  defp window_lapsed?(%PartyRole{valid_to: valid_to}),
+    do: Date.compare(valid_to, Date.utc_today()) == :lt
+
+  # Two concurrent grants both see `nil` and both insert; the unique index lets
+  # one through and hands the other a changeset error. Since granting is
+  # documented as idempotent, the loser should see the winner's row rather than
+  # an error it did nothing to deserve.
+  defp reconcile_grant_conflict(
+         {:error, %Ecto.Changeset{errors: errors}} = error,
+         type,
+         uuid,
+         role
+       ) do
+    # Ecto attaches a unique-constraint error to the FIRST field of the
+    # `unique_constraint/3` declaration, so the two indexes surface on
+    # different keys: the full one on `:roleable_type`, the V04 partial one
+    # (`..._active_uniq`, declared `[:roleable_uuid, :role]`) on
+    # `:roleable_uuid`. Which of the two Postgres reports is not ours to
+    # choose — it follows index order, which a dump/restore can change — so
+    # both keys have to be recognised or the race this exists for surfaces as
+    # a raw changeset error on a restored database.
+    if Enum.any?([:roleable_type, :roleable_uuid, :role], &Keyword.has_key?(errors, &1)) do
+      case repo().get_by(PartyRole, roleable_type: type, roleable_uuid: uuid, role: role) do
+        %PartyRole{} = winner -> {:ok, winner}
+        nil -> error
+      end
+    else
+      error
+    end
+  end
+
+  defp reconcile_grant_conflict(result, _type, _uuid, _role), do: result
+
   @doc """
   Revokes `role` from a company or contact — sets `is_active` false and stamps
-  `valid_to` with today's date. Never deletes the row (role history is kept).
+  `valid_to` with today's date. Never deletes the row.
+
+  Note what "history" means here: the row records the CURRENT tenure, not every
+  tenure. The unique index allows only one row per party and role, so a
+  re-grant reuses it and stamps a fresh `valid_from`. The record of who
+  granted and revoked what, and when, is the activity log.
   A no-op if the role isn't currently held (returns `{:error, :not_found}`) or
   is already inactive.
 
@@ -123,11 +223,8 @@ defmodule PhoenixKitCRM.PartyRoles do
     uuid = roleable.uuid
 
     PartyRole
-    |> where(
-      [pr],
-      pr.roleable_type == ^type and pr.roleable_uuid == ^uuid and pr.role == ^role and
-        pr.is_active == true
-    )
+    |> where([pr], pr.roleable_type == ^type and pr.roleable_uuid == ^uuid and pr.role == ^role)
+    |> in_force()
     |> repo().exists?()
   end
 
@@ -205,6 +302,173 @@ defmodule PhoenixKitCRM.PartyRoles do
   end
 
   @doc """
+  Every party holding an active `role`, companies first then contacts, each
+  normalized to the resolver's map shape (`:uuid`, `:name`, `:email`,
+  `:phone`, `:website`, `:source`).
+
+  `:source` is the specific `:crm_company` / `:crm_contact` tag rather than
+  the generic `:crm` that `get_supplier/1` returns — callers persisting a
+  source tag (the catalogue item form) need to know which side they picked.
+  Takes the same options as `list_companies_with_role/2`.
+  """
+  @spec list_parties_with_role(String.t(), keyword()) :: [map()]
+  def list_parties_with_role(role, opts \\ []) do
+    # `:limit` bounds the COMBINED list. Passing it straight to both sides gave
+    # a caller asking for 10 up to 20 rows.
+    limit = Keyword.get(opts, :limit)
+    side_opts = Keyword.delete(opts, :limit)
+
+    companies =
+      role
+      |> list_companies_with_role(side_opts)
+      |> Enum.map(fn c ->
+        %{
+          uuid: c.uuid,
+          name: Company.display_name(c),
+          email: c.email,
+          phone: c.phone,
+          website: c.website,
+          source: :crm_company
+        }
+      end)
+
+    contacts =
+      role
+      |> list_contacts_with_role(side_opts)
+      |> Enum.map(fn c ->
+        %{
+          uuid: c.uuid,
+          name: Contact.display_name(c),
+          email: c.email,
+          phone: c.phone,
+          # Contacts carry no website column.
+          website: nil,
+          source: :crm_contact
+        }
+      end)
+
+    all = companies ++ contacts
+    if limit, do: Enum.take(all, limit), else: all
+  end
+
+  @doc """
+  Batch counterpart of `get_supplier/1` / `get_manufacturer/1`: resolves many
+  party uuids holding an active `role` in ONE pair of queries, returning
+  `%{uuid => party_map}`. Uuids with no active role for `role` are absent.
+
+  This is the function a catalogue page renders 100 items through — resolving
+  them one at a time across the module boundary is the N+1 this exists to
+  prevent. Malformed uuids are dropped rather than raising, because the caller
+  is feeding in soft cross-module references that nothing constrains.
+  """
+  @spec get_parties_with_role([UUIDv7.t() | String.t()], String.t()) :: %{UUIDv7.t() => map()}
+  def get_parties_with_role([], _role), do: %{}
+
+  def get_parties_with_role(uuids, role) when is_list(uuids) do
+    uuids = valid_uuids(uuids)
+
+    if uuids == [] do
+      %{}
+    else
+      roles = active_role_rows(uuids, role)
+
+      company_uuids = for {uuid, "company"} <- roles, do: uuid
+      contact_uuids = for {uuid, "contact"} <- roles, do: uuid
+
+      Map.merge(hydrate_companies(company_uuids), hydrate_contacts(contact_uuids))
+    end
+  end
+
+  @doc "Batch `supplier` resolution. See `get_parties_with_role/2`."
+  @spec get_suppliers([UUIDv7.t() | String.t()]) :: %{UUIDv7.t() => map()}
+  def get_suppliers(uuids), do: get_parties_with_role(uuids, "supplier")
+
+  @doc "Batch `manufacturer` resolution. See `get_parties_with_role/2`."
+  @spec get_manufacturers([UUIDv7.t() | String.t()]) :: %{UUIDv7.t() => map()}
+  def get_manufacturers(uuids), do: get_parties_with_role(uuids, "manufacturer")
+
+  defp valid_uuids(uuids) do
+    uuids
+    |> Enum.flat_map(fn uuid ->
+      case Ecto.UUID.cast(uuid) do
+        {:ok, _} -> [uuid]
+        :error -> []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  # One row per uuid: the same uuid could in principle carry the role under both
+  # roleable types (soft ref, audited), though since V04 the partial unique
+  # index rules that out for ACTIVE rows. The tie-break below is byte-for-byte
+  # the one in `active_role_row/2` — see the reasoning there — so the batch and
+  # single paths cannot disagree about which side a uuid resolves on.
+  defp active_role_rows(uuids, role) do
+    PartyRole
+    |> where([pr], pr.roleable_uuid in ^uuids and pr.role == ^role)
+    |> in_force()
+    # Same tie-break as `active_role_row/2` — the two must never disagree.
+    |> order_by([pr],
+      desc: fragment("? = 'company'", pr.roleable_type),
+      asc: pr.inserted_at,
+      asc: pr.uuid
+    )
+    |> select([pr], {pr.roleable_uuid, pr.roleable_type})
+    |> repo().all()
+    |> Enum.uniq_by(fn {uuid, _type} -> uuid end)
+  end
+
+  defp hydrate_companies([]), do: %{}
+
+  defp hydrate_companies(uuids) do
+    Company
+    |> where([c], c.uuid in ^uuids and c.status != "trashed")
+    |> repo().all()
+    |> Map.new(fn c ->
+      {c.uuid,
+       %{
+         uuid: c.uuid,
+         name: Company.display_name(c),
+         email: c.email,
+         phone: c.phone,
+         website: c.website,
+         source: :crm
+       }}
+    end)
+  end
+
+  defp hydrate_contacts([]), do: %{}
+
+  defp hydrate_contacts(uuids) do
+    Contact
+    |> where([c], c.uuid in ^uuids and c.status != "trashed")
+    |> repo().all()
+    |> Map.new(fn c ->
+      {c.uuid,
+       %{
+         uuid: c.uuid,
+         name: Contact.display_name(c),
+         email: c.email,
+         phone: c.phone,
+         website: nil,
+         source: :crm
+       }}
+    end)
+  end
+
+  @doc "Parties holding an active `supplier` role. See `list_parties_with_role/2`."
+  @spec list_suppliers(keyword()) :: [map()]
+  def list_suppliers(opts \\ []), do: list_parties_with_role("supplier", opts)
+
+  @doc "Parties holding an active `manufacturer` role. See `list_parties_with_role/2`."
+  @spec list_manufacturers(keyword()) :: [map()]
+  def list_manufacturers(opts \\ []), do: list_parties_with_role("manufacturer", opts)
+
+  @doc "Parties holding an active `customer` role. See `list_parties_with_role/2`."
+  @spec list_customers(keyword()) :: [map()]
+  def list_customers(opts \\ []), do: list_parties_with_role("customer", opts)
+
+  @doc """
   Active roles for a batch of companies/contacts in one query — for role
   badges on list pages. Returns `%{roleable_uuid => [role, ...]}` (uuids
   with no active roles are absent).
@@ -214,10 +478,8 @@ defmodule PhoenixKitCRM.PartyRoles do
 
   def active_roles_map(type, uuids) when is_list(uuids) do
     PartyRole
-    |> where(
-      [pr],
-      pr.roleable_type == ^type and pr.roleable_uuid in ^uuids and pr.is_active == true
-    )
+    |> where([pr], pr.roleable_type == ^type and pr.roleable_uuid in ^uuids)
+    |> in_force()
     |> select([pr], {pr.roleable_uuid, pr.role})
     |> repo().all()
     |> Enum.group_by(fn {uuid, _} -> uuid end, fn {_, role} -> role end)
@@ -234,7 +496,7 @@ defmodule PhoenixKitCRM.PartyRoles do
   defp maybe_active_scope(query, opts) do
     if Keyword.get(opts, :include_inactive, false),
       do: query,
-      else: where(query, [pr], pr.is_active == true)
+      else: in_force(query)
   end
 
   defp maybe_exclude_trashed(query, opts) do
@@ -294,10 +556,33 @@ defmodule PhoenixKitCRM.PartyRoles do
             source: :crm
           }
           | nil
-  def get_supplier(uuid) do
+  def get_supplier(uuid), do: get_party_with_role(uuid, "supplier")
+
+  @doc """
+  The `manufacturer`-role counterpart of `get_supplier/1`, with the identical
+  return shape — the contract
+  `PhoenixKitCatalogue.Catalogue.Manufacturers.resolve/1` calls.
+
+  Note what this does NOT mean: catalogue items still reference the local
+  `phoenix_kit_cat_manufacturers` row through a hard FK. This resolver
+  federates the manufacturer *directory* and pickers, not item references.
+  """
+  @spec get_manufacturer(UUIDv7.t() | String.t() | nil) ::
+          %{
+            uuid: UUIDv7.t(),
+            name: String.t(),
+            email: String.t() | nil,
+            phone: String.t() | nil,
+            website: String.t() | nil,
+            source: :crm
+          }
+          | nil
+  def get_manufacturer(uuid), do: get_party_with_role(uuid, "manufacturer")
+
+  defp get_party_with_role(uuid, role) do
     case Ecto.UUID.cast(uuid) do
       {:ok, _} ->
-        case active_supplier_role(uuid) do
+        case active_role_row(uuid, role) do
           %PartyRole{roleable_type: "company"} -> hydrate_company_supplier(uuid)
           %PartyRole{roleable_type: "contact"} -> hydrate_contact_supplier(uuid)
           nil -> nil
@@ -308,21 +593,41 @@ defmodule PhoenixKitCRM.PartyRoles do
     end
   end
 
-  defp active_supplier_role(uuid) do
+  defp active_role_row(uuid, role) do
     # limit(1): a boundary resolver federating two modules must not raise on a
     # dirty soft-ref. The unique index is per (roleable_type, roleable_uuid,
-    # role), so the same uuid could in principle hold an active supplier row
-    # under both types (audited soft-ref risk); take one deterministically
+    # role), so the same uuid could in principle hold an active row for this
+    # role under both types (audited soft-ref risk); take one deterministically
     # rather than let repo().one() raise Ecto.MultipleResultsError.
     PartyRole
-    |> where([pr], pr.roleable_uuid == ^uuid and pr.role == "supplier" and pr.is_active == true)
-    |> order_by([pr], asc: pr.inserted_at)
+    |> where([pr], pr.roleable_uuid == ^uuid and pr.role == ^role)
+    |> in_force()
+    # Company first, then oldest, then `uuid`. Since V04 the partial unique
+    # index makes a second ACTIVE row for the same (uuid, role) impossible, so
+    # the company key cannot actually fire today — it is here because it is the
+    # side V04's dedupe keeps, and a resolver that preferred the other one
+    # would contradict the migration the moment that index is ever relaxed.
+    # `uuid` is the last key because timestamps are second-precision: two rows
+    # inserted in the same second would otherwise let this and
+    # `get_parties_with_role/2` disagree about which side a uuid resolves on.
+    |> order_by([pr],
+      desc: fragment("? = 'company'", pr.roleable_type),
+      asc: pr.inserted_at,
+      asc: pr.uuid
+    )
     |> limit(1)
     |> repo().one()
   end
 
+  # Trashed parties resolve to nothing, the same as they are excluded from
+  # `list_companies_with_role/2`. Without this the two disagreed: trashing a
+  # supplier removed it from the picker while item pages went on resolving it
+  # as a live CRM supplier.
   defp hydrate_company_supplier(uuid) do
     case repo().get(Company, uuid) do
+      %Company{status: "trashed"} ->
+        nil
+
       %Company{} = c ->
         %{
           uuid: c.uuid,
@@ -340,6 +645,9 @@ defmodule PhoenixKitCRM.PartyRoles do
 
   defp hydrate_contact_supplier(uuid) do
     case repo().get(Contact, uuid) do
+      %Contact{status: "trashed"} ->
+        nil
+
       %Contact{} = c ->
         %{
           uuid: c.uuid,
@@ -353,6 +661,25 @@ defmodule PhoenixKitCRM.PartyRoles do
       nil ->
         nil
     end
+  end
+
+  @doc """
+  Deletes every role row belonging to a party that is being permanently
+  removed. Returns the number deleted.
+
+  `roleable_uuid` is a soft reference with no foreign key, so nothing removes
+  these rows on its own: a deleted company left its roles behind forever.
+  They were invisible — the resolvers hydrate the party and get `nil` — but
+  they accumulated, and counts and `list_roles/1` could still see them.
+  """
+  @spec delete_roles_for(String.t(), UUIDv7.t()) :: non_neg_integer()
+  def delete_roles_for(type, uuid) when type in ~w(company contact) do
+    {deleted, _} =
+      PartyRole
+      |> where([pr], pr.roleable_type == ^type and pr.roleable_uuid == ^uuid)
+      |> repo().delete_all()
+
+    deleted
   end
 
   # ── Legacy data ─────────────────────────────────────────────────────

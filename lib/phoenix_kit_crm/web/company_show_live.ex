@@ -12,9 +12,20 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
   require Logger
 
+  # Guarded soft-dependency on the catalogue for the Catalogue tab — same idiom
+  # as the contact page's Andi.CRMBridge Orders tab and `StaffLink`. CRM has no
+  # compile-time dependency on the catalogue, so a plain qualified call would
+  # warn under --warnings-as-errors; `catalogue_available?/0` gates every call.
+  @compile {:no_warn_undefined,
+            [
+              PhoenixKitCatalogue,
+              PhoenixKitCatalogue.Catalogue,
+              PhoenixKitCatalogue.Web.Components
+            ]}
+
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Users.Auth
-  alias PhoenixKitCRM.{Activity, Attachments, Companies, Paths}
+  alias PhoenixKitCRM.{Activity, Attachments, Companies, PartyRoles, Paths}
   alias PhoenixKitCRM.Schemas.{Company, Contact}
   alias PhoenixKitCRM.Web.{CompanyInteractionsComponent, EventsComponent, MediaComponent}
   alias PhoenixKitCRM.Web.Components.MirrorPanel
@@ -36,9 +47,10 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
       company ->
         storage_enabled = storage_enabled?()
         comments_enabled = comments_available?()
+        catalogue_enabled = catalogue_available?()
 
         tab =
-          if params["tab"] in valid_tabs(storage_enabled, comments_enabled),
+          if params["tab"] in valid_tabs(storage_enabled, comments_enabled, catalogue_enabled),
             do: params["tab"],
             else: "overview"
 
@@ -48,6 +60,10 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
          |> assign(:tab, tab)
          |> assign(:storage_enabled, storage_enabled)
          |> assign(:comments_enabled, comments_enabled)
+         |> assign(:catalogue_enabled, catalogue_enabled)
+         |> assign_new(:show_catalogue_columns, fn -> false end)
+         |> assign_new(:catalogue_columns, fn -> catalogue_default_columns() end)
+         |> assign_catalogue(catalogue_enabled, company)
          |> assign(:avatar_url, Attachments.avatar_url(company))
          |> assign(:tz_offset, tz_offset(socket.assigns[:phoenix_kit_current_user]))
          |> assign(:page_title, Company.display_name(company))
@@ -134,7 +150,70 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     end
   end
 
+  # Core's column_settings_modal event contract. It is pure presentation — the
+  # consumer owns the catalog, the selection and persistence — so these four
+  # plus the close are all it asks for.
+  def handle_event("show_column_modal", _params, socket),
+    do: {:noreply, assign(socket, :show_catalogue_columns, true)}
+
+  def handle_event("hide_column_modal", _params, socket),
+    do: {:noreply, assign(socket, :show_catalogue_columns, false)}
+
+  def handle_event("add_column", %{"column_id" => id}, socket) do
+    {:noreply, put_catalogue_columns(socket, socket.assigns.catalogue_columns ++ [id])}
+  end
+
+  def handle_event("remove_column", %{"column_id" => id}, socket) do
+    {:noreply, put_catalogue_columns(socket, socket.assigns.catalogue_columns -- [id])}
+  end
+
+  def handle_event("reorder_columns", %{"ordered_ids" => ids}, socket) when is_list(ids) do
+    {:noreply, put_catalogue_columns(socket, ids)}
+  end
+
+  def handle_event("reset_columns", _params, socket),
+    do: {:noreply, put_catalogue_columns(socket, catalogue_default_columns())}
+
   def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  # Only ids the catalogue actually offers, so a forged payload cannot inject
+  # a column name into the table.
+  defp put_catalogue_columns(socket, ids) do
+    catalog = catalogue_column_catalog()
+    # `&1[:id]` rather than `&1.id`: the catalog crosses a module boundary, and
+    # a shape change there should narrow the picker, not raise in mount.
+    known = catalog |> Enum.map(&(is_map(&1) && &1[:id])) |> Enum.reject(&(!&1)) |> MapSet.new()
+
+    socket
+    # Rendered per row; resolving it once per mount instead of once per render
+    # keeps the apply/3 off the hot path.
+    |> assign(:catalogue_column_catalog, catalog)
+    |> assign(:column_picker_available, column_picker_available?())
+    |> assign(:catalogue_columns, ids |> Enum.filter(&MapSet.member?(known, &1)) |> Enum.uniq())
+  end
+
+  defp column_picker_available? do
+    Code.ensure_loaded?(PhoenixKitWeb.Components.Core.ColumnSettings) and
+      function_exported?(PhoenixKitWeb.Components.Core.ColumnSettings, :column_settings_modal, 1)
+  end
+
+  defp catalogue_column_catalog do
+    # credo:disable-for-next-line Credo.Check.Refactor.Apply
+    apply(PhoenixKitCatalogue.Web.Components, :party_items_columns, [])
+  rescue
+    _ -> []
+  catch
+    :exit, _ -> []
+  end
+
+  defp catalogue_default_columns do
+    # credo:disable-for-next-line Credo.Check.Refactor.Apply
+    apply(PhoenixKitCatalogue.Web.Components, :party_items_default_columns, [])
+  rescue
+    _ -> []
+  catch
+    :exit, _ -> []
+  end
 
   defp actor_uuid(socket) do
     case socket.assigns[:phoenix_kit_current_user] do
@@ -152,13 +231,16 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     )
   end
 
-  defp tab_defs(storage_enabled?, comments_enabled?) do
+  defp tab_defs(storage_enabled?, comments_enabled?, catalogue_enabled?) do
     [
       {"overview", gettext("Overview"), "hero-identification"},
       {"members", gettext("Members"), "hero-users"},
       {"interactions", gettext("Interactions"), "hero-chat-bubble-left-right"},
       {"events", gettext("Events"), "hero-clock"}
     ]
+    |> maybe_concat(catalogue_enabled?, [
+      {"catalogue", gettext("Catalogue"), "hero-rectangle-stack"}
+    ])
     |> maybe_concat(storage_enabled?, [
       {"files", gettext("Files"), "hero-document"},
       {"images", gettext("Images"), "hero-photo"}
@@ -171,9 +253,11 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   defp maybe_concat(list, true, extra), do: list ++ extra
   defp maybe_concat(list, false, _extra), do: list
 
-  defp valid_tabs(storage_enabled?, comments_enabled?),
+  defp valid_tabs(storage_enabled?, comments_enabled?, catalogue_enabled?),
     do:
-      Enum.map(tab_defs(storage_enabled?, comments_enabled?), fn {value, _label, _icon} ->
+      Enum.map(tab_defs(storage_enabled?, comments_enabled?, catalogue_enabled?), fn {value,
+                                                                                      _label,
+                                                                                      _icon} ->
         value
       end)
 
@@ -184,6 +268,132 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     Storage.enabled?()
   rescue
     _ -> false
+  end
+
+  # ── Catalogue tab ───────────────────────────────────────────────────
+  # Suppliers and manufacturers are CRM companies now, so this page is the
+  # only place they exist — which makes "what do they actually supply?" a
+  # question it has to be able to answer. The catalogue keeps the per-item
+  # sourcing facts; this reads them, never writes them.
+
+  # Installed AND switched on, matching how the Comments tab gates itself.
+  # Checking only that the module is loaded would leave this tab showing after
+  # an admin disabled the catalogue — its own admin tabs would vanish from the
+  # nav while this one went on querying it.
+  # The tab follows the company's roles, not a fixed layout: a company that
+  # only supplies has no business being shown an empty "Manufactured items"
+  # list. The exception is leftover data — a role revoked while items still
+  # reference it — which is surfaced rather than hidden, because that is the
+  # inconsistency someone needs to see.
+  defp assign_catalogue(socket, false, _company) do
+    assign(socket, %{
+      supplied_items: [],
+      manufactured_items: [],
+      show_supplied: false,
+      show_manufactured: false,
+      orphan_supplied: false,
+      orphan_manufactured: false
+    })
+  end
+
+  defp assign_catalogue(socket, true, company) do
+    supplied = supplied_items(company)
+    manufactured = manufactured_items(company)
+    supplier? = holds_role?(company, "supplier")
+    manufacturer? = holds_role?(company, "manufacturer")
+
+    assign(socket, %{
+      supplied_items: supplied,
+      manufactured_items: manufactured,
+      show_supplied: supplier? or supplied != [],
+      show_manufactured: manufacturer? or manufactured != [],
+      # Items still pointing here after the role was taken away.
+      orphan_supplied: not supplier? and supplied != [],
+      orphan_manufactured: not manufacturer? and manufactured != []
+    })
+  end
+
+  # The catalogue renders its own items — image column, card/table toggle,
+  # price and status formatting — so an embedded list matches the catalogue's
+  # own instead of drifting from it. Called through `apply/3` because CRM has
+  # no compile-time dependency on the catalogue; `party_items_table/1` exists
+  # on that side precisely so this stays a two-key contract.
+  defp catalogue_items_table([], _id, _columns), do: nil
+
+  defp catalogue_items_table(items, id, columns) do
+    # credo:disable-for-next-line Credo.Check.Refactor.Apply
+    apply(PhoenixKitCatalogue.Web.Components, :party_items_table, [
+      %{items: items, id: id, columns: Enum.map(columns, &String.to_existing_atom/1)}
+    ])
+  rescue
+    error ->
+      Logger.warning(
+        "CRM: could not render the catalogue item table: #{Exception.message(error)}"
+      )
+
+      # NOT nil: the heading above carries a count badge, so rendering nothing
+      # left "3" sitting over blank space with no hint that anything failed.
+      table_unavailable()
+  catch
+    :exit, _ -> nil
+  end
+
+  defp table_unavailable do
+    assigns = %{}
+
+    ~H"""
+    <p class="text-sm text-base-content/50 italic">
+      {gettext("These items could not be displayed. The catalogue module may be unavailable.")}
+    </p>
+    """
+  end
+
+  defp holds_role?(company, role) do
+    PartyRoles.has_role?(company, role)
+  rescue
+    _ -> false
+  end
+
+  defp catalogue_available? do
+    # Every hop is probed before it is taken: `enabled?/0` goes through
+    # `apply/3` for the same reason the calls below it do — a static remote
+    # call into an optional dependency is an `unknown_function` to dialyzer
+    # and an `UndefinedFunctionError` at runtime on an install without the
+    # catalogue, which the rescue would then silently turn into "no tab".
+    Code.ensure_loaded?(PhoenixKitCatalogue) and
+      function_exported?(PhoenixKitCatalogue, :enabled?, 0) and
+      catalogue_enabled?() and
+      Code.ensure_loaded?(PhoenixKitCatalogue.Catalogue) and
+      function_exported?(PhoenixKitCatalogue.Catalogue, :items_supplied_by, 1)
+  rescue
+    _ -> false
+  end
+
+  # Its own function so the credo exemption can sit on the apply itself — inside
+  # the `and` chain above the formatter pushes the comment away from the line.
+  # credo:disable-for-next-line Credo.Check.Refactor.Apply
+  defp catalogue_enabled?, do: apply(PhoenixKitCatalogue, :enabled?, [])
+
+  defp supplied_items(company) do
+    # credo:disable-for-next-line Credo.Check.Refactor.Apply
+    apply(PhoenixKitCatalogue.Catalogue, :items_supplied_by, [company.uuid])
+  rescue
+    error ->
+      Logger.warning("CRM: could not load supplied items: #{Exception.message(error)}")
+      []
+  catch
+    :exit, _ -> []
+  end
+
+  defp manufactured_items(company) do
+    # credo:disable-for-next-line Credo.Check.Refactor.Apply
+    apply(PhoenixKitCatalogue.Catalogue, :items_manufactured_by, [company.uuid])
+  rescue
+    error ->
+      Logger.warning("CRM: could not load manufactured items: #{Exception.message(error)}")
+      []
+  catch
+    :exit, _ -> []
   end
 
   defp comments_available? do
@@ -215,7 +425,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
       <div role="tablist" class="tabs tabs-border">
         <.link
-          :for={{value, label, icon} <- tab_defs(@storage_enabled, @comments_enabled)}
+          :for={{value, label, icon} <- tab_defs(@storage_enabled, @comments_enabled, @catalogue_enabled)}
           patch={tab_path(@company.uuid, value)}
           role="tab"
           class={["tab gap-1.5", @tab == value && "tab-active"]}
@@ -300,6 +510,97 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
           company={@company}
           tz_offset={@tz_offset}
         />
+      </div>
+
+      <div :if={@tab == "catalogue"} class="flex flex-col gap-6">
+        <div :if={@show_supplied or @show_manufactured} class="flex justify-end -mb-2">
+          <button
+            :if={@column_picker_available}
+            type="button"
+            class="btn btn-ghost btn-sm"
+            phx-click="show_column_modal"
+          >
+            <.icon name="hero-view-columns" class="h-4 w-4" />
+            {gettext("Columns")}
+          </button>
+        </div>
+
+        <%!-- Core 2.6 added this component and mix.exs pins `~> 2.0` by policy
+             (narrowing it breaks deps.get for hosts on an older core), so the
+             picker is guarded rather than required. Without it the table still
+             renders, on its default columns. --%>
+        <PhoenixKitWeb.Components.Core.ColumnSettings.column_settings_modal
+          :if={@column_picker_available}
+          id="crm-company-catalogue-columns"
+          show={@show_catalogue_columns}
+          columns={@catalogue_column_catalog}
+          selected={@catalogue_columns}
+        />
+
+        <.empty_state
+          :if={not @show_supplied and not @show_manufactured}
+          icon="hero-rectangle-stack"
+          title={gettext("Nothing in the catalogue yet")}
+          variant="card"
+        >
+          <p class="text-sm text-base-content/60">
+            {gettext(
+              "Give this company the supplier or manufacturer role, then pick it when sourcing an item."
+            )}
+          </p>
+        </.empty_state>
+
+        <div :if={@show_supplied} class="flex flex-col gap-2">
+          <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+            <.icon name="hero-truck" class="h-4 w-4" />
+            {gettext("Supplied items")}
+            <span class="badge badge-ghost badge-sm">{length(@supplied_items)}</span>
+          </h2>
+
+          <div :if={@orphan_supplied} class="alert alert-warning py-2">
+            <.icon name="hero-exclamation-triangle" class="h-4 w-4 shrink-0" />
+            <span class="text-sm">
+              {gettext(
+                "This company no longer has the supplier role, but items still source from it."
+              )}
+            </span>
+          </div>
+
+          <.empty_state
+            :if={@supplied_items == []}
+            icon="hero-truck"
+            title={gettext("No items sourced from this company yet")}
+            variant="card"
+          />
+
+          {catalogue_items_table(@supplied_items, "crm-company-supplied-#{@company.uuid}", @catalogue_columns)}
+        </div>
+
+        <div :if={@show_manufactured} class="flex flex-col gap-2">
+          <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+            <.icon name="hero-wrench-screwdriver" class="h-4 w-4" />
+            {gettext("Manufactured items")}
+            <span class="badge badge-ghost badge-sm">{length(@manufactured_items)}</span>
+          </h2>
+
+          <div :if={@orphan_manufactured} class="alert alert-warning py-2">
+            <.icon name="hero-exclamation-triangle" class="h-4 w-4 shrink-0" />
+            <span class="text-sm">
+              {gettext(
+                "This company no longer has the manufacturer role, but items still name it as their manufacturer."
+              )}
+            </span>
+          </div>
+
+          <.empty_state
+            :if={@manufactured_items == []}
+            icon="hero-wrench-screwdriver"
+            title={gettext("No items name this company as their manufacturer yet")}
+            variant="card"
+          />
+
+          {catalogue_items_table(@manufactured_items, "crm-company-manufactured-#{@company.uuid}", @catalogue_columns)}
+        </div>
       </div>
 
       <div :if={@tab == "events"}>

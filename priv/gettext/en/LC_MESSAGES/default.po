@@ -2140,3 +2140,187 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgid "Recent interactions"
 msgstr ""
+
+msgid "Manufacturer"
+msgstr ""
+
+msgid "Catalogue"
+msgstr ""
+
+
+
+msgid "Item"
+msgstr ""
+
+msgid "Their code"
+msgstr ""
+
+msgid "Unit cost"
+msgstr ""
+
+msgid "Lead time"
+msgstr ""
+
+msgid "primary"
+msgstr ""
+
+msgid "%{n} d"
+msgstr ""
+
+
+
+msgid "Logo URL"
+msgstr ""
+
+msgid "Manufacturers"
+msgstr ""
+
+msgid "Partners"
+msgstr ""
+
+msgid "Supplied items"
+msgstr ""
+
+msgid "Manufactured items"
+msgstr ""
+
+msgid "SKU"
+msgstr ""
+
+msgid "Nothing in the catalogue yet"
+msgstr ""
+
+msgid "Give this company the supplier or manufacturer role, then pick it when sourcing an item."
+msgstr ""
+
+msgid "No items sourced from this company yet"
+msgstr ""
+
+msgid "No items name this company as their manufacturer yet"
+msgstr ""
+
+msgid "This company no longer has the supplier role, but items still source from it."
+msgstr ""
+
+msgid "This company no longer has the manufacturer role, but items still name it as their manufacturer."
+msgstr ""
+
+msgid "CRM company"
+msgstr ""
+
+msgid "CRM company created and linked"
+msgstr ""
+
+msgid "Could not apply the resolution — please try again"
+msgstr ""
+
+msgid "Could not create a company"
+msgstr ""
+
+msgid "Could not create a mirror account"
+msgstr ""
+
+msgid "Could not link this account"
+msgstr ""
+
+msgid "Could not link this company"
+msgstr ""
+
+msgid "Could not unlink the mirror account"
+msgstr ""
+
+msgid "Create CRM company"
+msgstr ""
+
+msgid "Create mirror user"
+msgstr ""
+
+msgid "Enable organization accounts in Settings to mirror a company."
+msgstr ""
+
+msgid "Link"
+msgstr ""
+
+msgid "Link existing company"
+msgstr ""
+
+msgid "Link existing…"
+msgstr ""
+
+msgid "Linked"
+msgstr ""
+
+msgid "Linked to CRM company"
+msgstr ""
+
+msgid "Linked to mirror account"
+msgstr ""
+
+msgid "Mirror"
+msgstr ""
+
+msgid "Mirror account"
+msgstr ""
+
+msgid "Mirror account created and linked"
+msgstr ""
+
+msgid "Mirror account linked"
+msgstr ""
+
+msgid "Mirror account unlinked"
+msgstr ""
+
+msgid "Only organization accounts can mirror a company"
+msgstr ""
+
+msgid "Only person accounts can mirror a contact"
+msgstr ""
+
+msgid "Organization accounts are disabled in Settings"
+msgstr ""
+
+msgid "Resolve differences"
+msgstr ""
+
+msgid "Save the company first to link or create a mirror account."
+msgstr ""
+
+msgid "Save the contact first to link or create a mirror account."
+msgstr ""
+
+msgid "That account no longer exists"
+msgstr ""
+
+msgid "That account or company no longer exists"
+msgstr ""
+
+msgid "That company is already linked to another account"
+msgstr ""
+
+msgid "These fields differ. Choose which side to keep for each."
+msgstr ""
+
+msgid "This account already has a linked company"
+msgstr ""
+
+msgid "This company already has a mirror account"
+msgstr ""
+
+msgid "This contact already has a mirror account"
+msgstr ""
+
+msgid "Unlink"
+msgstr ""
+
+msgid "View account"
+msgstr ""
+
+msgid "— choose a company —"
+msgstr ""
+
+msgid "— choose an account —"
+msgstr ""
+
+msgid "These items could not be displayed. The catalogue module may be unavailable."
+msgstr ""

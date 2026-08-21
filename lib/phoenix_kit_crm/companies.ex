@@ -11,6 +11,7 @@ defmodule PhoenixKitCRM.Companies do
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCRM.Mirror
+  alias PhoenixKitCRM.PartyRoles
   alias PhoenixKitCRM.Schemas.{Company, CompanyMembership, Contact}
   alias PhoenixKitCRM.Search
   alias PhoenixKitCRM.SoftDelete
@@ -152,7 +153,19 @@ defmodule PhoenixKitCRM.Companies do
 
   @doc "Permanently deletes a company (cascades its memberships)."
   @spec delete_company(Company.t()) :: {:ok, Company.t()} | {:error, Ecto.Changeset.t()}
-  def delete_company(%Company{} = company), do: repo().delete(company)
+  def delete_company(%Company{} = company) do
+    repo().transaction(fn ->
+      case repo().delete(company) do
+        # Soft reference, no FK: nothing else clears these.
+        {:ok, deleted} ->
+          PartyRoles.delete_roles_for("company", company.uuid)
+          deleted
+
+        {:error, changeset} ->
+          repo().rollback(changeset)
+      end
+    end)
+  end
 
   @doc "Searches companies by name (case-insensitive) for the picker. Excludes trashed."
   @spec search_companies(String.t(), pos_integer()) :: [Company.t()]

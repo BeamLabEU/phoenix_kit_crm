@@ -2140,3 +2140,187 @@ msgstr "Vali kliendiettevõte projekti paneelil „Moodulid ja funktsioonid“."
 #, elixir-autogen, elixir-format
 msgid "Recent interactions"
 msgstr "Hiljutised suhtlused"
+
+msgid "Manufacturer"
+msgstr "Tootja"
+
+msgid "Catalogue"
+msgstr "Kataloog"
+
+
+
+msgid "Item"
+msgstr "Toode"
+
+msgid "Their code"
+msgstr "Nende kood"
+
+msgid "Unit cost"
+msgstr "Ühiku hind"
+
+msgid "Lead time"
+msgstr "Tarneaeg"
+
+msgid "primary"
+msgstr "peamine"
+
+msgid "%{n} d"
+msgstr "%{n} p"
+
+
+
+msgid "Logo URL"
+msgstr "Logo URL"
+
+msgid "Manufacturers"
+msgstr "Tootjad"
+
+msgid "Partners"
+msgstr "Partnerid"
+
+msgid "Supplied items"
+msgstr "Tarnitavad tooted"
+
+msgid "Manufactured items"
+msgstr "Toodetavad tooted"
+
+msgid "SKU"
+msgstr "SKU"
+
+msgid "Nothing in the catalogue yet"
+msgstr "Kataloogis pole veel midagi"
+
+msgid "Give this company the supplier or manufacturer role, then pick it when sourcing an item."
+msgstr "Anna sellele ettevõttele tarnija või tootja roll ja vali ta siis toote hankimisel."
+
+msgid "No items sourced from this company yet"
+msgstr "Ükski toode ei hangi veel sellelt ettevõttelt"
+
+msgid "No items name this company as their manufacturer yet"
+msgstr "Ükski toode ei märgi veel seda ettevõtet tootjaks"
+
+msgid "This company no longer has the supplier role, but items still source from it."
+msgstr "Sellel ettevõttel ei ole enam tarnija rolli, kuid tooteid hangitakse endiselt temalt."
+
+msgid "This company no longer has the manufacturer role, but items still name it as their manufacturer."
+msgstr "Sellel ettevõttel ei ole enam tootja rolli, kuid tooted märgivad teda endiselt tootjaks."
+
+msgid "CRM company"
+msgstr "CRM ettevõte"
+
+msgid "CRM company created and linked"
+msgstr "CRM ettevõte loodud ja seotud"
+
+msgid "Could not apply the resolution — please try again"
+msgstr "Lahendust ei õnnestunud rakendada — proovi uuesti"
+
+msgid "Could not create a company"
+msgstr "Ettevõtet ei õnnestunud luua"
+
+msgid "Could not create a mirror account"
+msgstr "Peegelkontot ei õnnestunud luua"
+
+msgid "Could not link this account"
+msgstr "Seda kontot ei õnnestunud siduda"
+
+msgid "Could not link this company"
+msgstr "Seda ettevõtet ei õnnestunud siduda"
+
+msgid "Could not unlink the mirror account"
+msgstr "Peegelkonto sidet ei õnnestunud eemaldada"
+
+msgid "Create CRM company"
+msgstr "Loo CRM ettevõte"
+
+msgid "Create mirror user"
+msgstr "Loo peegelkasutaja"
+
+msgid "Enable organization accounts in Settings to mirror a company."
+msgstr "Ettevõtte peegeldamiseks luba seadetes organisatsioonikontod."
+
+msgid "Link"
+msgstr "Seo"
+
+msgid "Link existing company"
+msgstr "Seo olemasolev ettevõte"
+
+msgid "Link existing…"
+msgstr "Seo olemasolev…"
+
+msgid "Linked"
+msgstr "Seotud"
+
+msgid "Linked to CRM company"
+msgstr "Seotud CRM ettevõttega"
+
+msgid "Linked to mirror account"
+msgstr "Seotud peegelkontoga"
+
+msgid "Mirror"
+msgstr "Peegel"
+
+msgid "Mirror account"
+msgstr "Peegelkonto"
+
+msgid "Mirror account created and linked"
+msgstr "Peegelkonto loodud ja seotud"
+
+msgid "Mirror account linked"
+msgstr "Peegelkonto seotud"
+
+msgid "Mirror account unlinked"
+msgstr "Peegelkonto side eemaldatud"
+
+msgid "Only organization accounts can mirror a company"
+msgstr "Ainult organisatsioonikontod saavad ettevõtet peegeldada"
+
+msgid "Only person accounts can mirror a contact"
+msgstr "Ainult isikukontod saavad kontakti peegeldada"
+
+msgid "Organization accounts are disabled in Settings"
+msgstr "Organisatsioonikontod on seadetes välja lülitatud"
+
+msgid "Resolve differences"
+msgstr "Lahenda erinevused"
+
+msgid "Save the company first to link or create a mirror account."
+msgstr "Peegelkonto sidumiseks või loomiseks salvesta esmalt ettevõte."
+
+msgid "Save the contact first to link or create a mirror account."
+msgstr "Peegelkonto sidumiseks või loomiseks salvesta esmalt kontakt."
+
+msgid "That account no longer exists"
+msgstr "Seda kontot enam ei ole"
+
+msgid "That account or company no longer exists"
+msgstr "Seda kontot või ettevõtet enam ei ole"
+
+msgid "That company is already linked to another account"
+msgstr "See ettevõte on juba teise kontoga seotud"
+
+msgid "These fields differ. Choose which side to keep for each."
+msgstr "Need väljad erinevad. Vali iga jaoks, kumb pool säilitada."
+
+msgid "This account already has a linked company"
+msgstr "Sellel kontol on juba seotud ettevõte"
+
+msgid "This company already has a mirror account"
+msgstr "Sellel ettevõttel on juba peegelkonto"
+
+msgid "This contact already has a mirror account"
+msgstr "Sellel kontaktil on juba peegelkonto"
+
+msgid "Unlink"
+msgstr "Eemalda side"
+
+msgid "View account"
+msgstr "Vaata kontot"
+
+msgid "— choose a company —"
+msgstr "— vali ettevõte —"
+
+msgid "— choose an account —"
+msgstr "— vali konto —"
+
+msgid "These items could not be displayed. The catalogue module may be unavailable."
+msgstr "Neid tooteid ei õnnestunud kuvada. Kataloogimoodul võib olla kättesaamatu."

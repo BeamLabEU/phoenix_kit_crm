@@ -57,9 +57,9 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogue do
 
     unless crm_company_uuid_column?(repo, prefix) do
       Mix.shell().error(
-        "phoenix_kit_cat_suppliers.crm_company_uuid is missing — this task requires " <>
-          "phoenix_kit >= 1.7.197 (core migration V151). Upgrade the core dependency " <>
-          "and run mix phoenix_kit.update first."
+        "phoenix_kit_cat_suppliers.crm_company_uuid is missing — the column is added " <>
+          "by core migration V149. Upgrade the phoenix_kit dependency and run " <>
+          "mix phoenix_kit.update first."
       )
 
       exit({:shutdown, 1})
@@ -290,8 +290,22 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogue do
 
     repo.query!(
       "UPDATE #{table} SET crm_company_uuid = $1 WHERE uuid = $2",
-      [company_uuid, supplier_uuid]
+      [dump_uuid(company_uuid), dump_uuid(supplier_uuid)]
     )
+  end
+
+  # Raw SQL means no Ecto type casting: a `uuid` parameter has to be the
+  # 16-byte binary, and a text uuid raises "expected a binary of 16 bytes".
+  # The companion of `display_uuid/1` on the read side — this task moves uuids
+  # in both directions across that boundary, and had it wrong both ways.
+  defp dump_uuid(nil), do: nil
+  defp dump_uuid(<<_::128>> = raw), do: raw
+
+  defp dump_uuid(text) when is_binary(text) do
+    case Ecto.UUID.dump(text) do
+      {:ok, raw} -> raw
+      :error -> text
+    end
   end
 
   # ── Normalization helpers (public — tested independently) ────────────
@@ -355,7 +369,7 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogue do
         "#{pad(trunc_str(r.name, name_w - 1), name_w)} " <>
           "#{pad((r.status || "") <> inactive_flag, status_w)} " <>
           "#{pad(action_label, action_w)} " <>
-          "#{r.company_uuid || "(dry-run)"}"
+          "#{display_uuid(r.company_uuid) || "(dry-run)"}"
       )
     end
 
@@ -396,6 +410,22 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogue do
   defp action_label(:error_creating), do: "ERROR"
   defp action_label(:error), do: "ERROR"
   defp action_label(other), do: to_string(other)
+
+  # The supplier rows are read with raw SQL, and Postgrex hands back a `uuid`
+  # column as its 16-byte binary rather than the canonical text form. Printing
+  # that straight to IO raises ArgumentError — which nothing noticed until the
+  # first supplier was actually linked, because the crash only happens on rows
+  # that HAVE a `crm_company_uuid` and there were none anywhere.
+  defp display_uuid(nil), do: nil
+
+  defp display_uuid(<<_::128>> = raw) do
+    case Ecto.UUID.load(raw) do
+      {:ok, text} -> text
+      :error -> Base.encode16(raw, case: :lower)
+    end
+  end
+
+  defp display_uuid(text) when is_binary(text), do: text
 
   defp pad(str, width) do
     str = str || ""
