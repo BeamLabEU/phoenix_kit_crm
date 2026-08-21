@@ -74,6 +74,13 @@ defmodule PhoenixKitCRM.Schemas.PartyRole do
       name: :phoenix_kit_crm_party_roles_uniq,
       message: "already has this role"
     )
+    # V04's partial index. Without naming it, a concurrent grant raises
+    # Ecto.ConstraintError instead of returning a changeset, and which of the
+    # two indexes fires is plan-dependent.
+    |> unique_constraint([:roleable_uuid, :role],
+      name: :phoenix_kit_crm_party_roles_active_uniq,
+      message: "this party already holds that role"
+    )
   end
 
   defp validate_date_range(changeset) do

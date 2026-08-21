@@ -315,6 +315,11 @@ defmodule PhoenixKitCRM.Migrations do
       """
       DO $$
       BEGIN
+        -- Drop the legacy row only when it is genuinely redundant: the party
+        -- already holds a LIVE `customer`, or the legacy row is itself
+        -- dormant. Testing merely that SOME `customer` exists would delete an
+        -- ACTIVE `client` because of a long-revoked `customer`, silently
+        -- stripping a live role.
         DELETE FROM #{p}phoenix_kit_crm_party_roles legacy
         WHERE legacy.role = 'client'
           AND EXISTS (
@@ -322,6 +327,21 @@ defmodule PhoenixKitCRM.Migrations do
             WHERE current.roleable_type = legacy.roleable_type
               AND current.roleable_uuid = legacy.roleable_uuid
               AND current.role = 'customer'
+              AND (current.is_active OR NOT legacy.is_active)
+          );
+
+        -- The mirror case: a dormant `customer` sitting beside a live
+        -- `client`. Drop the dormant one so the rename below does not collide
+        -- with the pre-existing (roleable_type, roleable_uuid, role) index.
+        DELETE FROM #{p}phoenix_kit_crm_party_roles dormant
+        WHERE dormant.role = 'customer'
+          AND NOT dormant.is_active
+          AND EXISTS (
+            SELECT 1 FROM #{p}phoenix_kit_crm_party_roles live
+            WHERE live.roleable_type = dormant.roleable_type
+              AND live.roleable_uuid = dormant.roleable_uuid
+              AND live.role = 'client'
+              AND live.is_active
           );
 
         UPDATE #{p}phoenix_kit_crm_party_roles SET role = 'customer' WHERE role = 'client';
@@ -342,6 +362,32 @@ defmodule PhoenixKitCRM.Migrations do
             ADD CONSTRAINT phoenix_kit_crm_party_roles_role_check
             CHECK (role IN ('supplier', 'customer', 'partner', 'manufacturer'));
         END IF;
+      END $$;
+      """,
+      # The OLD index is (roleable_type, roleable_uuid, role), so one uuid
+      # holding the same active role as BOTH a company and a contact was
+      # legal — and `get_party_with_role/2`'s `limit(1)` existed precisely to
+      # paper over it. The new index forbids it, so on any install carrying
+      # that state `CREATE UNIQUE INDEX` would abort the whole migration.
+      # Deactivate the losers first, company first (the documented intent),
+      # then oldest, with uuid as a total tiebreak.
+      """
+      DO $$
+      BEGIN
+      WITH ranked AS (
+        SELECT uuid,
+               row_number() OVER (
+                 PARTITION BY roleable_uuid, role
+                 ORDER BY (roleable_type = 'company') DESC, inserted_at ASC, uuid ASC
+               ) AS rn
+        FROM #{p}phoenix_kit_crm_party_roles
+        WHERE is_active
+      )
+      UPDATE #{p}phoenix_kit_crm_party_roles AS pr
+      SET is_active = FALSE,
+          valid_to = COALESCE(pr.valid_to, CURRENT_DATE)
+      FROM ranked AS r
+      WHERE pr.uuid = r.uuid AND r.rn > 1;
       END $$;
       """,
       """

@@ -267,4 +267,42 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
              end)
     end
   end
+
+  # From the 2026-08-21 external review. V04 rewrites live role data, so its
+  # SQL is pinned by shape here — the suite has no pre-V04 fixture database to
+  # run it against, and a statement-level assertion still catches the two ways
+  # the original could destroy or abort.
+  describe "V04 legacy normalisation — data-safety fixes" do
+    test "the legacy DELETE never drops a live role for a merely dormant customer" do
+      sql = Enum.join(Migrations.up_statements(), "\n")
+
+      # The redundancy test must consider is_active. Without it, an ACTIVE
+      # `client` is deleted because a long-revoked `customer` exists.
+      assert sql =~ "current.is_active OR NOT legacy.is_active",
+             "the client/customer DELETE must not ignore is_active"
+
+      # And the mirror case: a dormant customer beside a live client has to go,
+      # or the rename collides with the older unique index.
+      assert sql =~ "dormant.role = 'customer'"
+      assert sql =~ "NOT dormant.is_active"
+    end
+
+    test "active duplicates are deactivated before the partial unique index" do
+      statements = Migrations.up_statements()
+
+      dedupe = Enum.find_index(statements, &(&1 =~ "PARTITION BY roleable_uuid, role"))
+      index = Enum.find_index(statements, &(&1 =~ "phoenix_kit_crm_party_roles_active_uniq"))
+
+      assert dedupe, "V04 must deactivate cross-type active duplicates"
+      assert index, "V04 must create the partial unique index"
+
+      assert dedupe < index,
+             "the dedupe has to run BEFORE the index, or CREATE UNIQUE INDEX aborts the migration"
+    end
+
+    test "the dedupe keeps the company side, matching the documented tiebreak" do
+      sql = Enum.join(Migrations.up_statements(), "\n")
+      assert sql =~ "(roleable_type = 'company') DESC"
+    end
+  end
 end

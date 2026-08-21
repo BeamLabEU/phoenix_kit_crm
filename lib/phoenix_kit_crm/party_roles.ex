@@ -39,10 +39,18 @@ defmodule PhoenixKitCRM.PartyRoles do
   # ── Grant / revoke ──────────────────────────────────────────────────
 
   @doc """
-  Grants `role` to a company or contact. Idempotent: granting an already-active
-  role is a no-op (returns the existing row); granting a previously-revoked
-  role reactivates it (clears `valid_to`). `attrs` may set `:valid_from` /
-  `:valid_to` — never pass caller-supplied `metadata` here from a UI path.
+  Grants `role` to a company or contact. Idempotent: granting a role that is
+  currently IN FORCE is a no-op that returns the existing row unchanged —
+  including any `attrs`, which are ignored on that path, so this is not a way
+  to edit a live grant's window. Granting a previously-revoked role, or one
+  whose `valid_to` has passed, starts a fresh tenure (`valid_from` today,
+  `valid_to` cleared).
+
+  `attrs` may set `:valid_from` / `:valid_to` and they win over those defaults
+  on every path that writes, so a caller can still time-box a re-grant. A
+  `valid_from` in the future is honoured as a scheduled grant: the row exists
+  but no resolver reports the role until that date. Never pass caller-supplied
+  `metadata` here from a UI path.
 
   Pass `:actor_uuid` in `opts` so the activity log entry records who granted
   the role (mirrors every other logged CRM mutation).
@@ -76,26 +84,48 @@ defmodule PhoenixKitCRM.PartyRoles do
         |> log_on_ok("crm.party_role_granted", type, uuid, opts)
 
       %PartyRole{is_active: true} = existing ->
-        {:ok, existing}
+        # `is_active` alone is not "holds the role": `in_force/1` also requires
+        # today to fall inside the validity window. An active row whose
+        # `valid_to` has passed resolves nowhere, so returning it unchanged
+        # would report a grant that never took effect. Reopen it instead.
+        if window_lapsed?(existing) do
+          reopen(existing, attrs, type, uuid, opts)
+        else
+          {:ok, existing}
+        end
 
       %PartyRole{is_active: false} = existing ->
-        # Fresh tenure: keeping the ORIGINAL `valid_from` while clearing
-        # `valid_to` would make the row assert an unbroken run from the first
-        # grant, erasing the revocation gap that actually happened. The
-        # per-period history lives in the activity log, not in this row — the
-        # unique index means there can only ever be one.
-        existing
-        |> PartyRole.changeset(
-          Map.merge(attrs, %{
-            "is_active" => true,
-            "valid_from" => Date.utc_today(),
-            "valid_to" => nil
-          })
-        )
-        |> repo().update()
-        |> log_on_ok("crm.party_role_granted", type, uuid, opts)
+        reopen(existing, attrs, type, uuid, opts)
     end
   end
+
+  # Fresh tenure: keeping the ORIGINAL `valid_from` while clearing `valid_to`
+  # would make the row assert an unbroken run from the first grant, erasing the
+  # gap that actually happened. The per-period history lives in the activity
+  # log, not in this row — the unique index means there can only ever be one.
+  defp reopen(%PartyRole{} = existing, attrs, type, uuid, opts) do
+    existing
+    |> PartyRole.changeset(
+      # The window is a DEFAULT here, not an override: merging the other way
+      # round honoured `attrs` on the insert path and silently discarded it on
+      # this one, so the same call time-boxed a fresh grant but produced an
+      # open-ended one whenever a dormant row happened to exist. `is_active`
+      # stays this function's to decide — see the insert branch.
+      %{"valid_from" => Date.utc_today(), "valid_to" => nil}
+      |> Map.merge(attrs)
+      |> Map.put("is_active", true)
+    )
+    |> repo().update()
+    |> log_on_ok("crm.party_role_granted", type, uuid, opts)
+  end
+
+  # Only a LAPSED window counts. A `valid_from` in the future is a scheduled
+  # grant doing exactly what it was asked to do; dragging it forward to today
+  # would silently cancel the schedule.
+  defp window_lapsed?(%PartyRole{valid_to: nil}), do: false
+
+  defp window_lapsed?(%PartyRole{valid_to: valid_to}),
+    do: Date.compare(valid_to, Date.utc_today()) == :lt
 
   # Two concurrent grants both see `nil` and both insert; the unique index lets
   # one through and hands the other a changeset error. Since granting is
@@ -107,7 +137,15 @@ defmodule PhoenixKitCRM.PartyRoles do
          uuid,
          role
        ) do
-    if Keyword.has_key?(errors, :roleable_type) or Keyword.has_key?(errors, :role) do
+    # Ecto attaches a unique-constraint error to the FIRST field of the
+    # `unique_constraint/3` declaration, so the two indexes surface on
+    # different keys: the full one on `:roleable_type`, the V04 partial one
+    # (`..._active_uniq`, declared `[:roleable_uuid, :role]`) on
+    # `:roleable_uuid`. Which of the two Postgres reports is not ours to
+    # choose — it follows index order, which a dump/restore can change — so
+    # both keys have to be recognised or the race this exists for surfaces as
+    # a raw changeset error on a restored database.
+    if Enum.any?([:roleable_type, :roleable_uuid, :role], &Keyword.has_key?(errors, &1)) do
       case repo().get_by(PartyRole, roleable_type: type, roleable_uuid: uuid, role: role) do
         %PartyRole{} = winner -> {:ok, winner}
         nil -> error
@@ -361,15 +399,20 @@ defmodule PhoenixKitCRM.PartyRoles do
   end
 
   # One row per uuid: the same uuid could in principle carry the role under both
-  # roleable types (soft ref, audited). Company wins deterministically, matching
-  # `get_party_with_role/2`'s oldest-first single pick closely enough that the
-  # batch and single paths cannot disagree about which side a uuid resolves on.
+  # roleable types (soft ref, audited), though since V04 the partial unique
+  # index rules that out for ACTIVE rows. The tie-break below is byte-for-byte
+  # the one in `active_role_row/2` — see the reasoning there — so the batch and
+  # single paths cannot disagree about which side a uuid resolves on.
   defp active_role_rows(uuids, role) do
     PartyRole
     |> where([pr], pr.roleable_uuid in ^uuids and pr.role == ^role)
     |> in_force()
     # Same tie-break as `active_role_row/2` — the two must never disagree.
-    |> order_by([pr], asc: pr.inserted_at, asc: pr.uuid)
+    |> order_by([pr],
+      desc: fragment("? = 'company'", pr.roleable_type),
+      asc: pr.inserted_at,
+      asc: pr.uuid
+    )
     |> select([pr], {pr.roleable_uuid, pr.roleable_type})
     |> repo().all()
     |> Enum.uniq_by(fn {uuid, _type} -> uuid end)
@@ -559,10 +602,19 @@ defmodule PhoenixKitCRM.PartyRoles do
     PartyRole
     |> where([pr], pr.roleable_uuid == ^uuid and pr.role == ^role)
     |> in_force()
-    # `uuid` breaks ties: timestamps are second-precision, so two rows inserted
-    # in the same second would otherwise let this and `get_parties_with_role/2`
-    # disagree about which side a uuid resolves on, non-deterministically.
-    |> order_by([pr], asc: pr.inserted_at, asc: pr.uuid)
+    # Company first, then oldest, then `uuid`. Since V04 the partial unique
+    # index makes a second ACTIVE row for the same (uuid, role) impossible, so
+    # the company key cannot actually fire today — it is here because it is the
+    # side V04's dedupe keeps, and a resolver that preferred the other one
+    # would contradict the migration the moment that index is ever relaxed.
+    # `uuid` is the last key because timestamps are second-precision: two rows
+    # inserted in the same second would otherwise let this and
+    # `get_parties_with_role/2` disagree about which side a uuid resolves on.
+    |> order_by([pr],
+      desc: fragment("? = 'company'", pr.roleable_type),
+      asc: pr.inserted_at,
+      asc: pr.uuid
+    )
     |> limit(1)
     |> repo().one()
   end
