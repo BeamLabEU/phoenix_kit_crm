@@ -179,13 +179,22 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   # Only ids the catalogue actually offers, so a forged payload cannot inject
   # a column name into the table.
   defp put_catalogue_columns(socket, ids) do
-    known = MapSet.new(catalogue_column_catalog(), & &1.id)
+    catalog = catalogue_column_catalog()
+    # `&1[:id]` rather than `&1.id`: the catalog crosses a module boundary, and
+    # a shape change there should narrow the picker, not raise in mount.
+    known = catalog |> Enum.map(&(is_map(&1) && &1[:id])) |> Enum.reject(&(!&1)) |> MapSet.new()
 
-    assign(
-      socket,
-      :catalogue_columns,
-      ids |> Enum.filter(&MapSet.member?(known, &1)) |> Enum.uniq()
-    )
+    socket
+    # Rendered per row; resolving it once per mount instead of once per render
+    # keeps the apply/3 off the hot path.
+    |> assign(:catalogue_column_catalog, catalog)
+    |> assign(:column_picker_available, column_picker_available?())
+    |> assign(:catalogue_columns, ids |> Enum.filter(&MapSet.member?(known, &1)) |> Enum.uniq())
+  end
+
+  defp column_picker_available? do
+    Code.ensure_loaded?(PhoenixKitWeb.Components.Core.ColumnSettings) and
+      function_exported?(PhoenixKitWeb.Components.Core.ColumnSettings, :column_settings_modal, 1)
   end
 
   defp catalogue_column_catalog do
@@ -322,9 +331,21 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
         "CRM: could not render the catalogue item table: #{Exception.message(error)}"
       )
 
-      nil
+      # NOT nil: the heading above carries a count badge, so rendering nothing
+      # left "3" sitting over blank space with no hint that anything failed.
+      table_unavailable()
   catch
     :exit, _ -> nil
+  end
+
+  defp table_unavailable do
+    assigns = %{}
+
+    ~H"""
+    <p class="text-sm text-base-content/50 italic">
+      {gettext("These items could not be displayed. The catalogue module may be unavailable.")}
+    </p>
+    """
   end
 
   defp holds_role?(company, role) do
@@ -334,12 +355,24 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   end
 
   defp catalogue_available? do
-    Code.ensure_loaded?(PhoenixKitCatalogue) and PhoenixKitCatalogue.enabled?() and
+    # Every hop is probed before it is taken: `enabled?/0` goes through
+    # `apply/3` for the same reason the calls below it do — a static remote
+    # call into an optional dependency is an `unknown_function` to dialyzer
+    # and an `UndefinedFunctionError` at runtime on an install without the
+    # catalogue, which the rescue would then silently turn into "no tab".
+    Code.ensure_loaded?(PhoenixKitCatalogue) and
+      function_exported?(PhoenixKitCatalogue, :enabled?, 0) and
+      catalogue_enabled?() and
       Code.ensure_loaded?(PhoenixKitCatalogue.Catalogue) and
       function_exported?(PhoenixKitCatalogue.Catalogue, :items_supplied_by, 1)
   rescue
     _ -> false
   end
+
+  # Its own function so the credo exemption can sit on the apply itself — inside
+  # the `and` chain above the formatter pushes the comment away from the line.
+  # credo:disable-for-next-line Credo.Check.Refactor.Apply
+  defp catalogue_enabled?, do: apply(PhoenixKitCatalogue, :enabled?, [])
 
   defp supplied_items(company) do
     # credo:disable-for-next-line Credo.Check.Refactor.Apply
@@ -481,16 +514,26 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
       <div :if={@tab == "catalogue"} class="flex flex-col gap-6">
         <div :if={@show_supplied or @show_manufactured} class="flex justify-end -mb-2">
-          <button type="button" class="btn btn-ghost btn-sm" phx-click="show_column_modal">
+          <button
+            :if={@column_picker_available}
+            type="button"
+            class="btn btn-ghost btn-sm"
+            phx-click="show_column_modal"
+          >
             <.icon name="hero-view-columns" class="h-4 w-4" />
             {gettext("Columns")}
           </button>
         </div>
 
+        <%!-- Core 2.6 added this component and mix.exs pins `~> 2.0` by policy
+             (narrowing it breaks deps.get for hosts on an older core), so the
+             picker is guarded rather than required. Without it the table still
+             renders, on its default columns. --%>
         <PhoenixKitWeb.Components.Core.ColumnSettings.column_settings_modal
+          :if={@column_picker_available}
           id="crm-company-catalogue-columns"
           show={@show_catalogue_columns}
-          columns={catalogue_column_catalog()}
+          columns={@catalogue_column_catalog}
           selected={@catalogue_columns}
         />
 
@@ -526,7 +569,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
           <.empty_state
             :if={@supplied_items == []}
             icon="hero-truck"
-            title={gettext("No items source from this company yet")}
+            title={gettext("No items sourced from this company yet")}
             variant="card"
           />
 
