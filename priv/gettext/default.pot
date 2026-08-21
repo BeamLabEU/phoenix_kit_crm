@@ -2165,28 +2165,6 @@ msgstr ""
 msgid "Catalogue"
 msgstr ""
 
-
-
-msgid "Item"
-msgstr ""
-
-msgid "Their code"
-msgstr ""
-
-msgid "Unit cost"
-msgstr ""
-
-msgid "Lead time"
-msgstr ""
-
-msgid "primary"
-msgstr ""
-
-msgid "%{n} d"
-msgstr ""
-
-
-
 msgid "Logo URL"
 msgstr ""
 
@@ -2200,9 +2178,6 @@ msgid "Supplied items"
 msgstr ""
 
 msgid "Manufactured items"
-msgstr ""
-
-msgid "SKU"
 msgstr ""
 
 msgid "Nothing in the catalogue yet"

@@ -2147,28 +2147,6 @@ msgstr "Tootja"
 msgid "Catalogue"
 msgstr "Kataloog"
 
-
-
-msgid "Item"
-msgstr "Toode"
-
-msgid "Their code"
-msgstr "Nende kood"
-
-msgid "Unit cost"
-msgstr "Ühiku hind"
-
-msgid "Lead time"
-msgstr "Tarneaeg"
-
-msgid "primary"
-msgstr "peamine"
-
-msgid "%{n} d"
-msgstr "%{n} p"
-
-
-
 msgid "Logo URL"
 msgstr "Logo URL"
 
@@ -2183,9 +2161,6 @@ msgstr "Tarnitavad tooted"
 
 msgid "Manufactured items"
 msgstr "Toodetavad tooted"
-
-msgid "SKU"
-msgstr "SKU"
 
 msgid "Nothing in the catalogue yet"
 msgstr "Kataloogis pole veel midagi"

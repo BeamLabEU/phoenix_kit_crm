@@ -2167,28 +2167,6 @@ msgstr "Производитель"
 msgid "Catalogue"
 msgstr "Каталог"
 
-
-
-msgid "Item"
-msgstr "Товар"
-
-msgid "Their code"
-msgstr "Их код"
-
-msgid "Unit cost"
-msgstr "Цена за единицу"
-
-msgid "Lead time"
-msgstr "Срок поставки"
-
-msgid "primary"
-msgstr "основной"
-
-msgid "%{n} d"
-msgstr "%{n} дн."
-
-
-
 msgid "Logo URL"
 msgstr "URL логотипа"
 
@@ -2203,9 +2181,6 @@ msgstr "Поставляемые товары"
 
 msgid "Manufactured items"
 msgstr "Производимые товары"
-
-msgid "SKU"
-msgstr "Артикул"
 
 msgid "Nothing in the catalogue yet"
 msgstr "В каталоге пока ничего нет"

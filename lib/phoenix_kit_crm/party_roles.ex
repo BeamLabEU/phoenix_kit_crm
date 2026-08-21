@@ -304,7 +304,7 @@ defmodule PhoenixKitCRM.PartyRoles do
   @doc """
   Every party holding an active `role`, companies first then contacts, each
   normalized to the resolver's map shape (`:uuid`, `:name`, `:email`,
-  `:phone`, `:website`, `:source`).
+  `:phone`, `:website`, `:logo_url`, `:source`).
 
   `:source` is the specific `:crm_company` / `:crm_contact` tag rather than
   the generic `:crm` that `get_supplier/1` returns — callers persisting a
@@ -328,6 +328,7 @@ defmodule PhoenixKitCRM.PartyRoles do
           email: c.email,
           phone: c.phone,
           website: c.website,
+          logo_url: c.logo_url,
           source: :crm_company
         }
       end)
@@ -341,8 +342,9 @@ defmodule PhoenixKitCRM.PartyRoles do
           name: Contact.display_name(c),
           email: c.email,
           phone: c.phone,
-          # Contacts carry no website column.
+          # Contacts carry no website or logo_url column.
           website: nil,
+          logo_url: nil,
           source: :crm_contact
         }
       end)
@@ -432,6 +434,7 @@ defmodule PhoenixKitCRM.PartyRoles do
          email: c.email,
          phone: c.phone,
          website: c.website,
+         logo_url: c.logo_url,
          source: :crm
        }}
     end)
@@ -451,6 +454,7 @@ defmodule PhoenixKitCRM.PartyRoles do
          email: c.email,
          phone: c.phone,
          website: nil,
+         logo_url: nil,
          source: :crm
        }}
     end)
@@ -539,8 +543,9 @@ defmodule PhoenixKitCRM.PartyRoles do
   @doc """
   Resolver entry point for the (future) Catalogue supplier facade: given a
   company **or** contact uuid, returns `%{uuid, name, email, phone, website,
-  source: :crm}` if that party currently has an *active* `supplier` role, or
-  `nil` otherwise (unknown uuid, inactive role, or no supplier role at all).
+  logo_url, source: :crm}` if that party currently has an *active* `supplier`
+  role, or `nil` otherwise (unknown uuid, inactive role, or no supplier role
+  at all).
 
   This is the contract `PhoenixKitCatalogue.Catalogue.Suppliers.resolve/1`
   will call in Phase 2 (see the CRM v2 parties design doc, §4.3) — keep the
@@ -553,6 +558,7 @@ defmodule PhoenixKitCRM.PartyRoles do
             email: String.t() | nil,
             phone: String.t() | nil,
             website: String.t() | nil,
+            logo_url: String.t() | nil,
             source: :crm
           }
           | nil
@@ -562,6 +568,10 @@ defmodule PhoenixKitCRM.PartyRoles do
   The `manufacturer`-role counterpart of `get_supplier/1`, with the identical
   return shape — the contract
   `PhoenixKitCatalogue.Catalogue.Manufacturers.resolve/1` calls.
+
+  `logo_url` is what a company granted the `manufacturer` role carries as its
+  brand mark now that manufacturers are managed here — see the V03 migration
+  comment. Contacts have no `logo_url` column, so it resolves to `nil` there.
 
   Note what this does NOT mean: catalogue items still reference the local
   `phoenix_kit_cat_manufacturers` row through a hard FK. This resolver
@@ -574,6 +584,7 @@ defmodule PhoenixKitCRM.PartyRoles do
             email: String.t() | nil,
             phone: String.t() | nil,
             website: String.t() | nil,
+            logo_url: String.t() | nil,
             source: :crm
           }
           | nil
@@ -635,6 +646,7 @@ defmodule PhoenixKitCRM.PartyRoles do
           email: c.email,
           phone: c.phone,
           website: c.website,
+          logo_url: c.logo_url,
           source: :crm
         }
 
@@ -655,6 +667,7 @@ defmodule PhoenixKitCRM.PartyRoles do
           email: c.email,
           phone: c.phone,
           website: nil,
+          logo_url: nil,
           source: :crm
         }
 
