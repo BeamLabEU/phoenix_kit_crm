@@ -140,6 +140,7 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogueTest do
 
     import ExUnit.CaptureIO
 
+    alias Ecto.Adapters.SQL.Sandbox
     alias Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogue, as: Task
     alias PhoenixKit.RepoHelper
     alias PhoenixKitCRM.{Companies, PartyRoles}
@@ -159,45 +160,49 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogueTest do
       # no checked-out connection unless we take one ourselves — without this,
       # both queries below always hit the rescue/catch path and report
       # `false` regardless of what the schema actually looks like.
-      owner = Ecto.Adapters.SQL.Sandbox.start_owner!(repo, shared: false)
+      owner = Sandbox.start_owner!(repo, shared: false)
 
       # Sandbox ownership failures arrive as EXITs (DBConnection.Holder), not
       # raises — catch both, or one unowned checkout invalidates the module.
-      table_exists? =
-        try do
-          %{rows: [[result]]} =
-            repo.query!(
-              "SELECT to_regclass($1) IS NOT NULL",
-              ["#{prefix}.phoenix_kit_cat_suppliers"]
-            )
-
-          result
-        rescue
-          _ -> false
-        catch
-          :exit, _ -> false
-        end
-
-      column_exists? =
-        table_exists? and
+      # `after` so a raise/EXIT cannot skip stop_owner (the test_helper
+      # probe used to leak on that path).
+      try do
+        table_exists? =
           try do
-            Task.crm_company_uuid_column?(repo, prefix)
+            %{rows: [[result]]} =
+              repo.query!(
+                "SELECT to_regclass($1) IS NOT NULL",
+                ["#{prefix}.phoenix_kit_cat_suppliers"]
+              )
+
+            result
           rescue
             _ -> false
           catch
             :exit, _ -> false
           end
 
-      Ecto.Adapters.SQL.Sandbox.stop_owner(owner)
+        column_exists? =
+          table_exists? and
+            try do
+              Task.crm_company_uuid_column?(repo, prefix)
+            rescue
+              _ -> false
+            catch
+              :exit, _ -> false
+            end
 
-      unless column_exists? do
-        IO.puts(
-          "\n  cat_suppliers/crm_company_uuid absent (needs core >= 1.7.197) — " <>
-            "ImportSuppliersFromCatalogue integration tests skipped.\n"
-        )
+        unless column_exists? do
+          IO.puts(
+            "\n  cat_suppliers/crm_company_uuid absent (needs core >= 1.7.197) — " <>
+              "ImportSuppliersFromCatalogue integration tests skipped.\n"
+          )
+        end
+
+        {:ok, catalogue_available: column_exists?, prefix: prefix}
+      after
+        Sandbox.stop_owner(owner)
       end
-
-      {:ok, catalogue_available: column_exists?, prefix: prefix}
     end
 
     setup %{catalogue_available: available} = ctx do
@@ -505,6 +510,42 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogueTest do
         assert company.metadata["cat_supplier_uuid"] == supplier_uuid
         assert PartyRoles.has_role?(company, "supplier")
 
+        on_exit(fn -> Companies.delete_company(company) end)
+      end
+    end
+
+    describe "process_supplier_row/4 with a raw Postgrex uuid" do
+      # The write path used to assume a text uuid. fetch_suppliers/2 now
+      # normalizes, but process_supplier_row/4 is public-for-testing and is
+      # what every prior test in this file actually calls — a dumped 16-byte
+      # uuid here must still encode into company.metadata as text, not fail
+      # the JSONB INSERT.
+      test "a 16-byte supplier uuid is stored in metadata as canonical text", %{
+        catalogue_available: true,
+        repo: repo,
+        prefix: prefix
+      } do
+        uniq = Ecto.UUID.generate()
+        name = "Binary Uuid Supplier #{uniq}"
+        text_uuid = insert_supplier(repo, prefix, %{name: name})
+        on_exit(fn -> delete_supplier(repo, prefix, text_uuid) end)
+
+        {:ok, raw_uuid} = Ecto.UUID.dump(text_uuid)
+
+        result =
+          Task.process_supplier_row(
+            supplier_map(%{uuid: raw_uuid, name: name}),
+            repo,
+            prefix,
+            true
+          )
+
+        assert result.action == :created
+        assert result.uuid == text_uuid
+
+        company = Companies.get_company(result.company_uuid)
+        assert company
+        assert company.metadata["cat_supplier_uuid"] == text_uuid
         on_exit(fn -> Companies.delete_company(company) end)
       end
     end

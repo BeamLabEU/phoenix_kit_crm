@@ -38,6 +38,22 @@ defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
   # into `/admin/andi/orders/:uuid/edit`) was verified separately by invoking
   # `ContactShowLive.render/1` directly inside the running Andi app against a
   # real order — see the crm-fix-spec.md Batch G execution notes.
+  test "the show strip is core nav_tabs (border) with prefixed patch hrefs", %{conn: conn} do
+    {:ok, contact} = Contacts.create_contact(%{"name" => "Grace Hopper"})
+
+    {:ok, view, html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}")
+
+    assert html =~ ~s(role="tablist")
+    assert html =~ "tabs-border"
+    assert has_element?(view, "a.tab-active", "Overview")
+
+    assert has_element?(
+             view,
+             ~s{a[href="/en/admin/crm/contacts/#{contact.uuid}?tab=interactions"]},
+             "Interactions"
+           )
+  end
+
   test "has no Orders tab when the host app's order bridge is unavailable", %{conn: conn} do
     {:ok, contact} = Contacts.create_contact(%{"name" => "Grace Hopper"})
 

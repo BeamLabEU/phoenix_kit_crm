@@ -38,6 +38,34 @@ defmodule PhoenixKitCRM.Web.ContactsLiveTest do
     assert has_element?(view, ~s{a[href="/en/admin/crm/contacts/new"]}, "New contact")
   end
 
+  test "the filter strip is core nav_tabs (border) with prefixed patch hrefs", %{conn: conn} do
+    {:ok, view, html} = live(conn, "/en/admin/crm/contacts")
+
+    assert html =~ ~s(role="tablist")
+    assert html =~ "tabs-border"
+    assert has_element?(view, "a.tab-active", "Active")
+    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=supplier"]}, "Suppliers")
+    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=customer"]}, "Customers")
+
+    assert has_element?(
+             view,
+             ~s{a[href="/en/admin/crm/contacts?filter=manufacturer"]},
+             "Manufacturers"
+           )
+
+    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=partner"]}, "Partners")
+    refute has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=trashed"]})
+  end
+
+  test "the Trashed tab appears once a contact is in the trash", %{conn: conn} do
+    {:ok, contact} = Contacts.create_contact(%{"name" => "To Be Trashed"})
+    {:ok, _} = Contacts.trash_contact(contact)
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/contacts")
+
+    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=trashed"]})
+  end
+
   test "trashing a contact moves it to trash and logs crm.contact_trashed",
        %{conn: conn, scope: scope} do
     {:ok, contact} = Contacts.create_contact(%{"name" => "To Be Trashed"})

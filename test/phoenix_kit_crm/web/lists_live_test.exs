@@ -55,6 +55,15 @@ defmodule PhoenixKitCRM.Web.ListsLiveTest do
     assert has_element?(view, ~s{a[href="/en/admin/crm/comparison"]}, "Compare")
   end
 
+  test "the filter strip is core nav_tabs (border) with prefixed patch hrefs", %{conn: conn} do
+    {:ok, view, html} = live(conn, "/en/admin/crm/lists")
+
+    assert html =~ ~s(role="tablist")
+    assert html =~ "tabs-border"
+    assert has_element?(view, "a.tab-active", "Active")
+    assert has_element?(view, ~s{a[href="/en/admin/crm/lists?filter=archived"]}, "Archived")
+  end
+
   test "archived lists only show on the Archived tab", %{conn: conn} do
     list = list_fixture(%{"name" => "Old Campaign"})
     {:ok, _} = Lists.archive_list(list)

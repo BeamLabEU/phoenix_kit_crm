@@ -24,6 +24,25 @@ defmodule PhoenixKitCRM.Web.CompaniesLiveTest do
     refute has_element?(view, "h1")
   end
 
+  test "the filter strip is core nav_tabs (border) with prefixed patch hrefs", %{conn: conn} do
+    {:ok, view, html} = live(conn, "/en/admin/crm/companies")
+
+    assert html =~ ~s(role="tablist")
+    assert html =~ "tabs-border"
+    assert has_element?(view, "a.tab-active", "Active")
+    assert has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=supplier"]}, "Suppliers")
+    refute has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=trashed"]})
+  end
+
+  test "the Trashed tab appears once a company is in the trash", %{conn: conn} do
+    {:ok, company} = Companies.create_company(%{"name" => "To Be Trashed"})
+    {:ok, _} = Companies.trash_company(company)
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/companies")
+
+    assert has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=trashed"]})
+  end
+
   test "New company is reachable in the table's toolbar, not a page-level header",
        %{conn: conn} do
     {:ok, _company} = Companies.create_company(%{"name" => "Globex Corporation"})
