@@ -112,51 +112,9 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
     ~H"""
     <div class="flex flex-col px-4 py-6 gap-6">
       <div class="flex items-center justify-between flex-wrap gap-2">
-        <div role="tablist" class="tabs tabs-border">
-          <.link
-            patch={companies_path(assigns, filter: "active", page: 1)}
-            role="tab"
-            class={["tab", @filter == "active" && "tab-active"]}
-          >
-            {gettext("Active")}
-          </.link>
-          <.link
-            patch={companies_path(assigns, filter: "supplier", page: 1)}
-            role="tab"
-            class={["tab", @filter == "supplier" && "tab-active"]}
-          >
-            {gettext("Suppliers")}
-          </.link>
-          <.link
-            patch={companies_path(assigns, filter: "customer", page: 1)}
-            role="tab"
-            class={["tab", @filter == "customer" && "tab-active"]}
-          >
-            {gettext("Customers")}
-          </.link>
-          <.link
-            patch={companies_path(assigns, filter: "manufacturer", page: 1)}
-            role="tab"
-            class={["tab", @filter == "manufacturer" && "tab-active"]}
-          >
-            {gettext("Manufacturers")}
-          </.link>
-          <.link
-            patch={companies_path(assigns, filter: "partner", page: 1)}
-            role="tab"
-            class={["tab", @filter == "partner" && "tab-active"]}
-          >
-            {gettext("Partners")}
-          </.link>
-          <.link
-            :if={@trashed_count > 0 or @filter == "trashed"}
-            patch={companies_path(assigns, filter: "trashed", page: 1)}
-            role="tab"
-            class={["tab", @filter == "trashed" && "tab-active"]}
-          >
-            {trashed_tab_label(@trashed_count)}
-          </.link>
-        </div>
+        <%!-- Core's <.nav_tabs> border variant. companies_path/2 URLs are
+             already prefixed — nav_tabs passes :patch through verbatim. --%>
+        <.nav_tabs variant={:border} active_tab={@filter} tabs={filter_tabs(assigns)} />
 
         <div class="w-full sm:w-64">
           <.search_toolbar
@@ -325,6 +283,24 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
   # template) — both expose `:filter`/`:search`/`:page` the same way.
   # "active" is the default filter (never shown in the query string, matching
   # the plain `Paths.companies()` href the Active tab has always used).
+  # The filter strip, as nav_tabs data. The Trashed tab appears only while
+  # there is something in the trash (or the user is already looking at it).
+  defp filter_tabs(assigns) do
+    [
+      %{id: "active", label: gettext("Active")},
+      %{id: "supplier", label: gettext("Suppliers")},
+      %{id: "customer", label: gettext("Customers")},
+      %{id: "manufacturer", label: gettext("Manufacturers")},
+      %{id: "partner", label: gettext("Partners")}
+    ]
+    |> Kernel.++(
+      if assigns.trashed_count > 0 or assigns.filter == "trashed",
+        do: [%{id: "trashed", label: trashed_tab_label(assigns.trashed_count)}],
+        else: []
+    )
+    |> Enum.map(&Map.put(&1, :patch, companies_path(assigns, filter: &1.id, page: 1)))
+  end
+
   defp companies_path(assigns, overrides) do
     params =
       %{filter: assigns.filter, search: assigns.search, page: assigns.page}
