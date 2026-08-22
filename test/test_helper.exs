@@ -179,6 +179,12 @@ end
 catalogue_available =
   crm_tables_present and
     try do
+      # The sandbox is already in :manual mode at this point (see above) — a
+      # query here has no checked-out connection unless we take one
+      # ourselves, or this always lands in the rescue/catch below regardless
+      # of what the schema actually looks like.
+      owner = Ecto.Adapters.SQL.Sandbox.start_owner!(TestRepo, shared: false)
+
       %{rows: [[v]]} =
         TestRepo.query!(
           "SELECT EXISTS (SELECT 1 FROM information_schema.columns " <>
@@ -186,6 +192,7 @@ catalogue_available =
             "AND column_name = 'crm_company_uuid')"
         )
 
+      Ecto.Adapters.SQL.Sandbox.stop_owner(owner)
       v
     rescue
       _ -> false
