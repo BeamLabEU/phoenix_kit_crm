@@ -222,33 +222,38 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   # Orders appears only when the host app's `Andi.CRMBridge` is available;
   # Files + Images only when core Storage is enabled; Comments only when the
   # comments module is enabled.
+  # nav_tabs maps rather than tuples: positional tuples cannot grow a
+  # :badge or link key without breaking every consumer at once. Kept
+  # uuid-free so valid_tabs/3 shares the same list; nav_tab_defs/4 adds the
+  # patch URLs for the strip.
   defp tab_defs(storage_enabled?, comments_enabled?, andi_available?) do
     [
-      {"overview", gettext("Overview"), "hero-identification"},
-      {"interactions", gettext("Interactions"), "hero-chat-bubble-left-right"}
+      %{id: "overview", label: gettext("Overview"), icon: "hero-identification"},
+      %{id: "interactions", label: gettext("Interactions"), icon: "hero-chat-bubble-left-right"}
     ]
     |> maybe_concat(andi_available?, [
-      {"orders", gettext("Orders"), "hero-clipboard-document-list"}
+      %{id: "orders", label: gettext("Orders"), icon: "hero-clipboard-document-list"}
     ])
     |> maybe_concat(storage_enabled?, [
-      {"files", gettext("Files"), "hero-document"},
-      {"images", gettext("Images"), "hero-photo"}
+      %{id: "files", label: gettext("Files"), icon: "hero-document"},
+      %{id: "images", label: gettext("Images"), icon: "hero-photo"}
     ])
-    |> Kernel.++([{"events", gettext("Events"), "hero-clock"}])
+    |> Kernel.++([%{id: "events", label: gettext("Events"), icon: "hero-clock"}])
     |> maybe_concat(comments_enabled?, [
-      {"comments", gettext("Comments"), "hero-chat-bubble-bottom-center-text"}
+      %{id: "comments", label: gettext("Comments"), icon: "hero-chat-bubble-bottom-center-text"}
     ])
+  end
+
+  defp nav_tab_defs(uuid, storage_enabled?, comments_enabled?, andi_available?) do
+    tab_defs(storage_enabled?, comments_enabled?, andi_available?)
+    |> Enum.map(&Map.put(&1, :patch, tab_path(uuid, &1.id)))
   end
 
   defp maybe_concat(list, true, extra), do: list ++ extra
   defp maybe_concat(list, false, _extra), do: list
 
   defp valid_tabs(storage_enabled?, comments_enabled?, andi_available?),
-    do:
-      Enum.map(tab_defs(storage_enabled?, comments_enabled?, andi_available?), fn {value, _label,
-                                                                                   _icon} ->
-        value
-      end)
+    do: Enum.map(tab_defs(storage_enabled?, comments_enabled?, andi_available?), & &1.id)
 
   defp tab_path(uuid, "overview"), do: Paths.contact(uuid)
   defp tab_path(uuid, tab), do: Paths.contact(uuid) <> "?tab=#{tab}"
@@ -320,18 +325,13 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
         </.link>
       </div>
 
-      <div role="tablist" class="tabs tabs-border">
-        <.link
-          :for={
-            {value, label, icon} <- tab_defs(@storage_enabled, @comments_enabled, @andi_available)
-          }
-          patch={tab_path(@contact.uuid, value)}
-          role="tab"
-          class={["tab gap-1.5", @tab == value && "tab-active"]}
-        >
-          <.icon name={icon} class="w-4 h-4" /> {label}
-        </.link>
-      </div>
+      <%!-- Core's <.nav_tabs> border variant. patch URLs are built by
+           tab_path/2 (already prefixed) — nav_tabs passes them verbatim. --%>
+      <.nav_tabs
+        variant={:border}
+        active_tab={@tab}
+        tabs={nav_tab_defs(@contact.uuid, @storage_enabled, @comments_enabled, @andi_available)}
+      />
 
       <div :if={@tab == "overview"} class="card bg-base-100 shadow-sm">
         <div class="card-body grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
