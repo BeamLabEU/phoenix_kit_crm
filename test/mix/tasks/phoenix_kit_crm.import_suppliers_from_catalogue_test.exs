@@ -138,6 +138,8 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogueTest do
   defmodule IntegrationTest do
     use PhoenixKitCRM.DataCase, async: false
 
+    import ExUnit.CaptureIO
+
     alias Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogue, as: Task
     alias PhoenixKit.RepoHelper
     alias PhoenixKitCRM.{Companies, PartyRoles}
@@ -152,6 +154,12 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogueTest do
     setup_all do
       repo = RepoHelper.repo()
       prefix = Application.get_env(:phoenix_kit, :prefix, "public")
+
+      # test_helper.exs puts the sandbox in :manual mode, so a query here has
+      # no checked-out connection unless we take one ourselves — without this,
+      # both queries below always hit the rescue/catch path and report
+      # `false` regardless of what the schema actually looks like.
+      owner = Ecto.Adapters.SQL.Sandbox.start_owner!(repo, shared: false)
 
       # Sandbox ownership failures arrive as EXITs (DBConnection.Holder), not
       # raises — catch both, or one unowned checkout invalidates the module.
@@ -180,6 +188,8 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogueTest do
             :exit, _ -> false
           end
 
+      Ecto.Adapters.SQL.Sandbox.stop_owner(owner)
+
       unless column_exists? do
         IO.puts(
           "\n  cat_suppliers/crm_company_uuid absent (needs core >= 1.7.197) — " <>
@@ -200,6 +210,27 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogueTest do
       end
     end
 
+    # Raw SQL against a `uuid` column needs the 16-byte binary, not text —
+    # Postgrex applies no casting for a bare `query!` param/result the way
+    # Ecto's schema-aware query builder does. Local mirrors of the production
+    # module's dump_uuid/1 / display_uuid/1 pair, needed here for exactly the
+    # same reason: every helper below talks to `uuid`/`crm_company_uuid` via
+    # raw SQL, same as fetch_suppliers/2 and stamp_crm_uuid/4 do.
+    defp uuid_to_binary(<<_::128>> = raw), do: raw
+
+    defp uuid_to_binary(text) when is_binary(text) do
+      {:ok, raw} = Ecto.UUID.dump(text)
+      raw
+    end
+
+    defp uuid_to_text(nil), do: nil
+    defp uuid_to_text(text) when is_binary(text) and byte_size(text) != 16, do: text
+
+    defp uuid_to_text(<<_::128>> = raw) do
+      {:ok, text} = Ecto.UUID.load(raw)
+      text
+    end
+
     # Helper: insert a raw supplier row via SQL.
     defp insert_supplier(repo, prefix, attrs) do
       table = "#{prefix}.phoenix_kit_cat_suppliers"
@@ -212,10 +243,10 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogueTest do
 
       repo.query!(
         """
-        INSERT INTO #{table} (uuid, name, status, contact_info, website, notes)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO #{table} (uuid, name, status, contact_info, website, notes, inserted_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
         """,
-        [uuid, name, status, contact_info, website, notes]
+        [uuid_to_binary(uuid), name, status, contact_info, website, notes]
       )
 
       uuid
@@ -224,7 +255,7 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogueTest do
     # Helper: delete a supplier row by uuid (cleanup after test).
     defp delete_supplier(repo, prefix, uuid) do
       table = "#{prefix}.phoenix_kit_cat_suppliers"
-      repo.query!("DELETE FROM #{table} WHERE uuid = $1", [uuid])
+      repo.query!("DELETE FROM #{table} WHERE uuid = $1", [uuid_to_binary(uuid)])
     end
 
     # Helper: fetch crm_company_uuid stamped on a supplier row.
@@ -232,9 +263,11 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogueTest do
       table = "#{prefix}.phoenix_kit_cat_suppliers"
 
       %{rows: [[v]]} =
-        repo.query!("SELECT crm_company_uuid FROM #{table} WHERE uuid = $1", [supplier_uuid])
+        repo.query!("SELECT crm_company_uuid FROM #{table} WHERE uuid = $1", [
+          uuid_to_binary(supplier_uuid)
+        ])
 
-      v
+      uuid_to_text(v)
     end
 
     # Helper: build a minimal supplier map (as fetch_suppliers/2 would return).
@@ -437,6 +470,45 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogueTest do
       end
     end
 
+    describe "run/1 through the real fetch_suppliers/2 read path" do
+      # Every other integration test above builds `sup` by hand via
+      # supplier_map/1, which always uses a text uuid (Ecto.UUID.generate()).
+      # That never exercises fetch_suppliers/2 itself, which reads `uuid` with
+      # a raw `repo.query!` — no Ecto type casting — so Postgrex hands back
+      # the column's raw 16-byte binary, not text. That binary used to flow
+      # straight into create_company_from_supplier/2's `metadata` map, and a
+      # raw binary can't be encoded as JSONB: every row created through the
+      # real `run/1` entry point failed, even though process_supplier_row/4
+      # in isolation (as tested above) works fine.
+      test "a supplier with no CRM match gets a company created, not an error", %{
+        catalogue_available: true,
+        repo: repo,
+        prefix: prefix
+      } do
+        uniq = Ecto.UUID.generate()
+        name = "Real Fetch Path Supplier #{uniq}"
+
+        supplier_uuid = insert_supplier(repo, prefix, %{name: name})
+        on_exit(fn -> delete_supplier(repo, prefix, supplier_uuid) end)
+
+        capture_io(fn -> Task.run(["--apply"]) end)
+
+        crm_uuid = get_crm_uuid(repo, prefix, supplier_uuid)
+
+        assert is_binary(crm_uuid),
+               "expected the supplier to be linked to a CRM company; " <>
+                 "crm_company_uuid is still nil, meaning the row errored"
+
+        company = Companies.get_company(crm_uuid)
+        assert company
+        assert company.name == name
+        assert company.metadata["cat_supplier_uuid"] == supplier_uuid
+        assert PartyRoles.has_role?(company, "supplier")
+
+        on_exit(fn -> Companies.delete_company(company) end)
+      end
+    end
+
     describe "idempotency" do
       test "second run skips rows already stamped with crm_company_uuid", %{
         catalogue_available: true,
@@ -496,7 +568,7 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogueTest do
 
         repo.query!(
           "UPDATE #{table} SET crm_company_uuid = $1 WHERE uuid = $2",
-          [company.uuid, supplier_uuid]
+          [uuid_to_binary(company.uuid), uuid_to_binary(supplier_uuid)]
         )
 
         on_exit(fn ->

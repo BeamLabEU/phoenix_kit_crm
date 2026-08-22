@@ -107,13 +107,13 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogue do
 
     Enum.map(rows, fn row ->
       %{
-        uuid: at(row, col_idx, "uuid"),
+        uuid: display_uuid(at(row, col_idx, "uuid")),
         name: at(row, col_idx, "name"),
         status: at(row, col_idx, "status"),
         contact_info: at(row, col_idx, "contact_info"),
         website: at(row, col_idx, "website"),
         notes: at(row, col_idx, "notes"),
-        crm_company_uuid: at(row, col_idx, "crm_company_uuid")
+        crm_company_uuid: display_uuid(at(row, col_idx, "crm_company_uuid"))
       }
     end)
   end
