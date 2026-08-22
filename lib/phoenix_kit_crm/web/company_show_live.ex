@@ -63,6 +63,8 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
          |> assign(:catalogue_enabled, catalogue_enabled)
          |> assign_new(:show_catalogue_columns, fn -> false end)
          |> assign_new(:catalogue_columns, fn -> catalogue_default_columns() end)
+         |> assign_new(:catalogue_column_catalog, fn -> catalogue_column_catalog() end)
+         |> assign_new(:column_picker_available, fn -> column_picker_available?() end)
          |> assign_catalogue(catalogue_enabled, company)
          |> assign(:avatar_url, Attachments.avatar_url(company))
          |> assign(:tz_offset, tz_offset(socket.assigns[:phoenix_kit_current_user]))

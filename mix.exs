@@ -86,6 +86,12 @@ defmodule PhoenixKitCRM.MixProject do
       # PHOENIX_KIT_PATH pointing at a core checkout.
       pk_dep(:phoenix_kit, "~> 2.0"),
 
+      # mdex_native (pulled in transitively through phoenix_kit's mdex dep)
+      # builds from source when MDEX_NATIVE_BUILD=1 is set in the
+      # environment; that path requires rustler itself, not just
+      # rustler_precompiled. Same declaration as phoenix_kit's own mix.exs.
+      {:rustler, ">= 0.0.0", optional: true},
+
       # Hard, compile-time dep for the contact profile's Comments tab
       # (`use PhoenixKitComments.Embed` + CommentsComponent). Runtime-gated on
       # the module's admin toggle, so the tab hides when comments is disabled.
