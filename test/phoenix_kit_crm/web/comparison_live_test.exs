@@ -65,6 +65,28 @@ defmodule PhoenixKitCRM.Web.ComparisonLiveTest do
     assert expanded =~ c2.name
   end
 
+  # The expanded rows were cached for the life of the page; collapsing and
+  # re-expanding a group has to show the contacts as they are now.
+  test "re-expanding a duplicate group re-queries instead of showing the cached rows",
+       %{conn: conn} do
+    email = unique_email()
+    c1 = contact_fixture(%{"name" => "Alice One", "email" => email})
+    _c2 = contact_fixture(%{"name" => "Alice Two", "email" => String.upcase(email)})
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/comparison")
+
+    toggle = fn -> view |> element("input[phx-value-email='#{email}']") |> render_click() end
+    assert toggle.() =~ "Alice One"
+
+    # Collapse, rename elsewhere, re-expand.
+    refute toggle.() =~ "Alice One"
+    {:ok, _} = Contacts.update_contact(c1, %{"name" => "Alice Renamed"})
+
+    reopened = toggle.()
+    assert reopened =~ "Alice Renamed"
+    refute reopened =~ "Alice One"
+  end
+
   test "list overlap: fewer than 2 selected shows guidance, 2+ shows the intersection",
        %{conn: conn} do
     list_a = list_fixture(%{"name" => "List A"})
