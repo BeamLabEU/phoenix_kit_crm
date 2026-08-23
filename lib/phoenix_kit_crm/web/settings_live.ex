@@ -5,6 +5,7 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitCRM.Gettext
 
+  alias PhoenixKit.Utils.Routes
   alias PhoenixKitCRM.RoleSettings
 
   @impl true
@@ -46,10 +47,17 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
 
     case RoleSettings.set_enabled(uuid, enabled?) do
       {:ok, _} ->
+        # set_enabled/2 re-registers the role tabs in core's dashboard
+        # registry, but the sidebar in this page's layout reads the registry
+        # only when it renders, and none of its assigns change here — so the
+        # new (or removed) subtab would not show until the operator navigated
+        # away. The registry broadcasts badge updates only, never
+        # (un)registrations, so a remount of this same page is the one lever
+        # a module has; the flash survives it.
         {:noreply,
          socket
-         |> assign(:enabled_role_uuids, enabled_role_uuids())
-         |> put_flash(:info, gettext("Role access updated"))}
+         |> put_flash(:info, gettext("Role access updated"))
+         |> push_navigate(to: Routes.path("/admin/settings/crm"))}
 
       _ ->
         {:noreply, put_flash(socket, :error, gettext("Failed to update role access"))}
