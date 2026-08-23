@@ -29,6 +29,15 @@ defmodule PhoenixKitCRM.PubSub do
   @spec topic_lists() :: String.t()
   def topic_lists, do: "crm:lists"
 
+  @doc """
+  Topic for one company's live page: its member roster (a contact joining,
+  leaving, being trashed/restored/deleted, or renamed) — `{:crm, event,
+  %{contact_uuid: uuid}}` with `event` one of `:member_joined |
+  :member_left | :member_changed`.
+  """
+  @spec topic_company(binary()) :: String.t()
+  def topic_company(company_uuid), do: "crm:company:#{company_uuid}"
+
   @doc "Subscribes the calling process to a topic."
   @spec subscribe(String.t()) :: :ok | {:error, term()}
   def subscribe(topic), do: Manager.subscribe(topic)
@@ -64,6 +73,25 @@ defmodule PhoenixKitCRM.PubSub do
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
     |> Enum.each(&Manager.broadcast(topic_contact_interactions(&1), msg))
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  @doc """
+  Fans a contact change out to the companies it is (or was) a member of, so
+  each company's page can refresh its roster. Best-effort (rescued). Call it
+  AFTER the DB commit.
+  """
+  @spec broadcast_company_event(atom(), [binary()], binary()) :: :ok
+  def broadcast_company_event(event, company_uuids, contact_uuid) do
+    msg = {:crm, event, %{contact_uuid: contact_uuid}}
+
+    company_uuids
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.each(&Manager.broadcast(topic_company(&1), msg))
 
     :ok
   rescue

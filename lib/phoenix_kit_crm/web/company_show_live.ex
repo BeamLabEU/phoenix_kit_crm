@@ -26,10 +26,15 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.{Activity, Attachments, Companies, PartyRoles, Paths}
+  alias PhoenixKitCRM.PubSub, as: CRMPubSub
   alias PhoenixKitCRM.Schemas.{Company, Contact}
   alias PhoenixKitCRM.Web.{CompanyInteractionsComponent, EventsComponent, MediaComponent}
   alias PhoenixKitCRM.Web.Components.MirrorPanel
   alias PhoenixKitWeb.Live.Components.MediaSelectorModal
+
+  # `PhoenixKitCatalogue.Catalogue.PubSub`'s topic — a string contract, so no
+  # compile-time dependency on the (optional) catalogue package is needed.
+  @catalogue_topic "phoenix_kit_catalogue"
 
   @impl true
   def mount(_params, _session, socket),
@@ -72,8 +77,80 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
          |> assign(:page_section, gettext("Companies"))
          |> assign(:page_section_path, Paths.companies())
          |> assign(:memberships, Companies.list_memberships(company.uuid))
-         |> assign(:mirror_user, mirror_user(company))}
+         |> assign(:mirror_user, mirror_user(company))
+         |> subscribe_live(company, catalogue_enabled)}
     end
+  end
+
+  # ── Live refresh ─────────────────────────────────────────────────
+  #
+  # Everything this page shows is derived from records other pages and
+  # sessions change: the member roster (contact edit page, contact trash /
+  # restore / delete), the interactions rollup and Events tab (a member's
+  # interactions, on the contact page), and the Catalogue tab (the catalogue
+  # module's supplier rows). Each has a topic; subscribe once per company,
+  # and once per member contact for the interaction feeds — re-synced when
+  # the roster changes, so a new member's feed is followed too.
+  defp subscribe_live(socket, company, catalogue_enabled?) do
+    if connected?(socket) and socket.assigns[:subscribed_company] != company.uuid do
+      CRMPubSub.subscribe(CRMPubSub.topic_company(company.uuid))
+      if catalogue_enabled?, do: CRMPubSub.subscribe(@catalogue_topic)
+
+      socket
+      |> assign(:subscribed_company, company.uuid)
+      |> assign(:subscribed_contacts, MapSet.new())
+      |> sync_member_subscriptions()
+    else
+      socket
+    end
+  end
+
+  defp sync_member_subscriptions(socket) do
+    already = socket.assigns[:subscribed_contacts] || MapSet.new()
+    wanted = MapSet.new(socket.assigns.memberships, & &1.contact_uuid)
+
+    wanted
+    |> MapSet.difference(already)
+    |> Enum.each(&CRMPubSub.subscribe(CRMPubSub.topic_contact_interactions(&1)))
+
+    already
+    |> MapSet.difference(wanted)
+    |> Enum.each(&CRMPubSub.unsubscribe(CRMPubSub.topic_contact_interactions(&1)))
+
+    assign(socket, :subscribed_contacts, wanted)
+  end
+
+  # The roster changed (a contact joined, left, was trashed/restored/deleted
+  # or renamed): reload it, follow the new set of member feeds, and refresh
+  # the tab that is open.
+  defp refresh_roster(socket) do
+    company = socket.assigns.company
+
+    socket
+    |> assign(:memberships, Companies.list_memberships(company.uuid))
+    |> assign(:mirror_user, mirror_user(company))
+    |> sync_member_subscriptions()
+    |> refresh_open_tab()
+  end
+
+  defp refresh_open_tab(socket) do
+    uuid = socket.assigns.company.uuid
+
+    case socket.assigns.tab do
+      "interactions" ->
+        send_update(CompanyInteractionsComponent,
+          id: "crm-company-interactions-#{uuid}",
+          refresh_token: System.unique_integer([:monotonic])
+        )
+
+      "events" ->
+        send_update(EventsComponent, id: "crm-company-events-#{uuid}")
+
+      _ ->
+        :ok
+    end
+
+    socket
   end
 
   @impl true
@@ -107,6 +184,28 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
   def handle_info({:media_selector_closed}, socket),
     do: {:noreply, assign(socket, :show_avatar_picker, false)}
+
+  # Roster events on this company's topic.
+  def handle_info({:crm, event, %{contact_uuid: _}}, socket)
+      when event in [:member_joined, :member_left, :member_changed] do
+    {:noreply, refresh_roster(socket)}
+  end
+
+  # A member's interaction changed (per-contact feed topics): the rollup and
+  # the Events tab move; the roster does not.
+  def handle_info({:crm, _event, %{interaction_uuid: _}}, socket) do
+    {:noreply, refresh_open_tab(socket)}
+  end
+
+  # The catalogue module's own topic: a supplier row or item changed
+  # somewhere. The Catalogue tab's counts and tables are re-derived; other
+  # kinds (folders, PDFs, …) carry nothing this page shows.
+  def handle_info({:catalogue_data_changed, kind, _uuid, _}, socket)
+      when kind in [:item_supplier_info, :item, :catalogue] do
+    if socket.assigns.catalogue_enabled,
+      do: {:noreply, assign_catalogue(socket, true, socket.assigns.company)},
+      else: {:noreply, socket}
+  end
 
   def handle_info(msg, socket) do
     Logger.debug("[CRM] CompanyShowLive ignoring message: #{inspect(msg)}")

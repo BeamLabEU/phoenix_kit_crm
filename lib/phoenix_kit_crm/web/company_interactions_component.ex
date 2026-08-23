@@ -21,10 +21,14 @@ defmodule PhoenixKitCRM.Web.CompanyInteractionsComponent do
     socket = assign_new(assign(socket, assigns), :tz_offset, fn -> 0 end)
     company_uuid = socket.assigns.company.uuid
 
-    # Read-only rollup with no live refresh — only re-query when the company
-    # changes, so an unrelated host re-render (tab switch, flash) doesn't replay
-    # the ~5-7 queries.
-    if socket.assigns[:loaded_company_uuid] == company_uuid do
+    # Read-only rollup: re-query only when the company changes or the host
+    # hands in a new `:refresh_token` (its PubSub-driven send_update after a
+    # member's interaction changed), so an unrelated host re-render (tab
+    # switch, flash) doesn't replay the ~5-7 queries.
+    token = socket.assigns[:refresh_token]
+
+    if socket.assigns[:loaded_company_uuid] == company_uuid and
+         socket.assigns[:loaded_token] == token do
       {:ok, socket}
     else
       interactions = Interactions.list_for_contacts(member_contact_uuids(company_uuid))
@@ -38,7 +42,8 @@ defmodule PhoenixKitCRM.Web.CompanyInteractionsComponent do
        socket
        |> assign(:interactions, interactions)
        |> assign(:interaction_files, interaction_files)
-       |> assign(:loaded_company_uuid, company_uuid)}
+       |> assign(:loaded_company_uuid, company_uuid)
+       |> assign(:loaded_token, token)}
     end
   end
 

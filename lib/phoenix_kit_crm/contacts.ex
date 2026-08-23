@@ -20,6 +20,7 @@ defmodule PhoenixKitCRM.Contacts do
   alias PhoenixKitCRM.Lists
   alias PhoenixKitCRM.Mirror
   alias PhoenixKitCRM.PartyRoles
+  alias PhoenixKitCRM.PubSub
   alias PhoenixKitCRM.Schemas.{CompanyMembership, Contact, ContactList, ListMember}
   alias PhoenixKitCRM.Search
   alias PhoenixKitCRM.SoftDelete
@@ -171,6 +172,7 @@ defmodule PhoenixKitCRM.Contacts do
     contact
     |> Contact.changeset(attrs)
     |> repo().update()
+    |> announce_to_companies(:member_changed)
   end
 
   @doc "Soft-deletes a contact (status → trashed, stashing the prior status)."
@@ -181,6 +183,7 @@ defmodule PhoenixKitCRM.Contacts do
     contact
     |> SoftDelete.trash_changeset(Contact.soft_delete_status())
     |> repo().update()
+    |> announce_to_companies(:member_left)
   end
 
   @spec restore_contact(Contact.t()) :: {:ok, Contact.t()} | {:error, atom() | Ecto.Changeset.t()}
@@ -188,6 +191,7 @@ defmodule PhoenixKitCRM.Contacts do
     contact
     |> SoftDelete.restore_changeset(Contact.statuses())
     |> repo().update()
+    |> announce_to_companies(:member_joined)
   end
 
   def restore_contact(%Contact{}), do: {:error, :not_trashed}
@@ -220,6 +224,16 @@ defmodule PhoenixKitCRM.Contacts do
   """
   @spec delete_contact(Contact.t()) :: {:ok, Contact.t()} | {:error, Ecto.Changeset.t()}
   def delete_contact(%Contact{} = contact) do
+    # The cascade removes the memberships, so the companies to notify have
+    # to be read before the delete — and told after the commit.
+    companies = company_uuids_for(contact)
+
+    contact
+    |> do_delete_contact()
+    |> announce_to_companies(:member_left, companies)
+  end
+
+  defp do_delete_contact(%Contact{} = contact) do
     repo().transaction(fn ->
       affected_list_uuids =
         ListMember
@@ -312,11 +326,28 @@ defmodule PhoenixKitCRM.Contacts do
           {:ok, CompanyMembership.t() | nil} | {:error, Ecto.Changeset.t()}
   def set_primary_company(%Contact{} = contact, company_uuid, _role, _department)
       when company_uuid in [nil, ""] do
+    previous = company_uuids_for(contact)
     clear_memberships(contact)
+    PubSub.broadcast_company_event(:member_left, previous, contact.uuid)
     {:ok, nil}
   end
 
   def set_primary_company(%Contact{} = contact, company_uuid, role, department) do
+    previous = company_uuids_for(contact)
+
+    result = do_set_primary_company(contact, company_uuid, role, department)
+
+    # Told after the commit: the company the contact left refreshes its
+    # roster, and so does the one it joined.
+    with {:ok, _} <- result do
+      PubSub.broadcast_company_event(:member_left, previous -- [company_uuid], contact.uuid)
+      PubSub.broadcast_company_event(:member_joined, [company_uuid], contact.uuid)
+    end
+
+    result
+  end
+
+  defp do_set_primary_company(%Contact{} = contact, company_uuid, role, department) do
     repo().transaction(fn ->
       clear_memberships(contact)
 
@@ -342,6 +373,26 @@ defmodule PhoenixKitCRM.Contacts do
   defp clear_memberships(%Contact{uuid: uuid}) do
     from(m in CompanyMembership, where: m.contact_uuid == ^uuid) |> repo().delete_all()
   end
+
+  # The companies a contact is a member of — the pages that show it.
+  defp company_uuids_for(%Contact{uuid: uuid}) do
+    from(m in CompanyMembership, where: m.contact_uuid == ^uuid, select: m.company_uuid)
+    |> repo().all()
+  end
+
+  # Tell every company page showing this contact that its roster changed.
+  # A contact's name, status or existence is rendered on its companies'
+  # Members tab (and counted in the heading), which otherwise only reloaded
+  # with the page. Pass-through on error; the companies are read from the
+  # current memberships unless the caller captured them first (delete).
+  defp announce_to_companies(result, event, companies \\ nil)
+
+  defp announce_to_companies({:ok, %Contact{} = contact} = result, event, companies) do
+    PubSub.broadcast_company_event(event, companies || company_uuids_for(contact), contact.uuid)
+    result
+  end
+
+  defp announce_to_companies(result, _event, _companies), do: result
 
   # ── Optional login-user connection (staff-style find-or-create) ─────
 
