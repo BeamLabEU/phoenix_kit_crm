@@ -74,18 +74,14 @@ defmodule PhoenixKitCRM.Web.ListsLive do
   def render(assigns) do
     ~H"""
     <div class="flex flex-col px-4 py-6 gap-6">
-      <div role="tablist" class="tabs tabs-border">
-        <.link patch={Paths.lists()} role="tab" class={["tab", @filter == "active" && "tab-active"]}>
-          {gettext("Active")}
-        </.link>
-        <.link
-          patch={Paths.lists() <> "?filter=archived"}
-          role="tab"
-          class={["tab", @filter == "archived" && "tab-active"]}
-        >
-          {gettext("Archived")}
-        </.link>
-      </div>
+      <.nav_tabs
+        variant={:border}
+        active_tab={@filter}
+        tabs={[
+          %{id: "active", label: gettext("Active"), patch: Paths.lists()},
+          %{id: "archived", label: gettext("Archived"), patch: Paths.lists() <> "?filter=archived"}
+        ]}
+      />
 
       <.empty_state
         :if={@lists == []}

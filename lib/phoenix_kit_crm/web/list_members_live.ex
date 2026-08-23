@@ -436,29 +436,25 @@ defmodule PhoenixKitCRM.Web.ListMembersLive do
 
       <div class="flex flex-col gap-3">
         <div class="flex items-center justify-between flex-wrap gap-2">
-          <div role="tablist" class="tabs tabs-border">
-            <.link
-              patch={members_path(assigns, status: nil, page: 1)}
-              role="tab"
-              class={["tab", is_nil(@filter) && "tab-active"]}
-            >
-              {gettext("All")}
-            </.link>
-            <.link
-              patch={members_path(assigns, status: "subscribed", page: 1)}
-              role="tab"
-              class={["tab", @filter == "subscribed" && "tab-active"]}
-            >
-              {gettext("Subscribed")}
-            </.link>
-            <.link
-              patch={members_path(assigns, status: "removed", page: 1)}
-              role="tab"
-              class={["tab", @filter == "removed" && "tab-active"]}
-            >
-              {gettext("Removed")}
-            </.link>
-          </div>
+          <%!-- "All" is @filter == nil; nav_tabs compares string ids, so the
+               assign maps nil to "all". --%>
+          <.nav_tabs
+            variant={:border}
+            active_tab={@filter || "all"}
+            tabs={[
+              %{id: "all", label: gettext("All"), patch: members_path(assigns, status: nil, page: 1)},
+              %{
+                id: "subscribed",
+                label: gettext("Subscribed"),
+                patch: members_path(assigns, status: "subscribed", page: 1)
+              },
+              %{
+                id: "removed",
+                label: gettext("Removed"),
+                patch: members_path(assigns, status: "removed", page: 1)
+              }
+            ]}
+          />
 
           <div class="flex items-center gap-2">
             <button

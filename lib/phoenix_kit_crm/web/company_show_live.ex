@@ -233,35 +233,37 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     )
   end
 
+  # nav_tabs maps rather than tuples — see contact_show_live's tab_defs.
+  # uuid-free so valid_tabs/3 shares it; nav_tab_defs/4 adds patch URLs.
   defp tab_defs(storage_enabled?, comments_enabled?, catalogue_enabled?) do
     [
-      {"overview", gettext("Overview"), "hero-identification"},
-      {"members", gettext("Members"), "hero-users"},
-      {"interactions", gettext("Interactions"), "hero-chat-bubble-left-right"},
-      {"events", gettext("Events"), "hero-clock"}
+      %{id: "overview", label: gettext("Overview"), icon: "hero-identification"},
+      %{id: "members", label: gettext("Members"), icon: "hero-users"},
+      %{id: "interactions", label: gettext("Interactions"), icon: "hero-chat-bubble-left-right"},
+      %{id: "events", label: gettext("Events"), icon: "hero-clock"}
     ]
     |> maybe_concat(catalogue_enabled?, [
-      {"catalogue", gettext("Catalogue"), "hero-rectangle-stack"}
+      %{id: "catalogue", label: gettext("Catalogue"), icon: "hero-rectangle-stack"}
     ])
     |> maybe_concat(storage_enabled?, [
-      {"files", gettext("Files"), "hero-document"},
-      {"images", gettext("Images"), "hero-photo"}
+      %{id: "files", label: gettext("Files"), icon: "hero-document"},
+      %{id: "images", label: gettext("Images"), icon: "hero-photo"}
     ])
     |> maybe_concat(comments_enabled?, [
-      {"comments", gettext("Comments"), "hero-chat-bubble-bottom-center-text"}
+      %{id: "comments", label: gettext("Comments"), icon: "hero-chat-bubble-bottom-center-text"}
     ])
+  end
+
+  defp nav_tab_defs(uuid, storage_enabled?, comments_enabled?, catalogue_enabled?) do
+    tab_defs(storage_enabled?, comments_enabled?, catalogue_enabled?)
+    |> Enum.map(&Map.put(&1, :patch, tab_path(uuid, &1.id)))
   end
 
   defp maybe_concat(list, true, extra), do: list ++ extra
   defp maybe_concat(list, false, _extra), do: list
 
   defp valid_tabs(storage_enabled?, comments_enabled?, catalogue_enabled?),
-    do:
-      Enum.map(tab_defs(storage_enabled?, comments_enabled?, catalogue_enabled?), fn {value,
-                                                                                      _label,
-                                                                                      _icon} ->
-        value
-      end)
+    do: Enum.map(tab_defs(storage_enabled?, comments_enabled?, catalogue_enabled?), & &1.id)
 
   defp tab_path(uuid, "overview"), do: Paths.company(uuid)
   defp tab_path(uuid, tab), do: Paths.company(uuid) <> "?tab=#{tab}"
@@ -425,16 +427,13 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
         </.link>
       </div>
 
-      <div role="tablist" class="tabs tabs-border">
-        <.link
-          :for={{value, label, icon} <- tab_defs(@storage_enabled, @comments_enabled, @catalogue_enabled)}
-          patch={tab_path(@company.uuid, value)}
-          role="tab"
-          class={["tab gap-1.5", @tab == value && "tab-active"]}
-        >
-          <.icon name={icon} class="w-4 h-4" /> {label}
-        </.link>
-      </div>
+      <%!-- Core's <.nav_tabs> border variant. patch URLs are built by
+           tab_path/2 (already prefixed) — nav_tabs passes them verbatim. --%>
+      <.nav_tabs
+        variant={:border}
+        active_tab={@tab}
+        tabs={nav_tab_defs(@company.uuid, @storage_enabled, @comments_enabled, @catalogue_enabled)}
+      />
 
       <div :if={@tab == "overview"} class="card bg-base-100 shadow-sm">
         <div class="card-body grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">

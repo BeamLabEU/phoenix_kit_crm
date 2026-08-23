@@ -127,6 +127,15 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportSuppliersFromCatalogue do
   # logic and optionally writes changes. Returns a result map describing the
   # action taken.
   def process_supplier_row(sup, repo, prefix, apply?) do
+    # fetch_suppliers/2 already runs uuids through display_uuid/1, but this
+    # function is also the public-for-testing write path. A raw Postgrex
+    # uuid in metadata cannot encode as JSONB — normalize here so every
+    # caller is safe, not just the mix-task read path.
+    sup =
+      sup
+      |> Map.replace(:uuid, display_uuid(Map.get(sup, :uuid)))
+      |> Map.replace(:crm_company_uuid, display_uuid(Map.get(sup, :crm_company_uuid)))
+
     if already_linked?(sup) do
       %{
         name: sup.name,

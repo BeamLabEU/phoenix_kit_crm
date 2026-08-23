@@ -54,6 +54,28 @@ defmodule PhoenixKitCRM.Web.ListMembersLiveTest do
     assert has_element?(view, "#test-page-section[href='/en/admin/crm/lists']", "Lists")
   end
 
+  test "the filter strip maps nil to the All tab and patches the others", %{conn: conn} do
+    list = list_fixture(%{"name" => "Beta Testers"})
+
+    {:ok, view, html} = live(conn, "/en/admin/crm/lists/#{list.uuid}/members")
+
+    assert html =~ ~s(role="tablist")
+    assert html =~ "tabs-border"
+    assert has_element?(view, "a.tab-active", "All")
+
+    assert has_element?(
+             view,
+             ~s{a[href="/en/admin/crm/lists/#{list.uuid}/members?status=subscribed"]},
+             "Subscribed"
+           )
+
+    assert has_element?(
+             view,
+             ~s{a[href="/en/admin/crm/lists/#{list.uuid}/members?status=removed"]},
+             "Removed"
+           )
+  end
+
   test "adding a new contact by email creates a contact + membership and logs the actor",
        %{conn: conn, scope: scope} do
     list = list_fixture()

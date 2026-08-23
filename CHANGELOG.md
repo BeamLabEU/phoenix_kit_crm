@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.7.2 - 2026-08-22
+
+### Changed
+
+- Contact and company show pages, plus the contacts / companies / lists /
+  list-members filter strips, now use core's `<.nav_tabs variant={:border}>`
+  instead of hand-rolled `tabs-border` markup (#24). Companion to
+  phoenix_kit 2.13.6 (`:patch` passes through verbatim so Paths-prefixed URLs
+  are not double-prefixed).
+- `mix.lock`: phoenix_kit 2.13.6.
+
+### Fixed
+
+- **Catalogue tab 500 on first load** (#25). `column_picker_available?` and
+  `catalogue_column_catalog()` were only computed from the column-picker
+  event handlers, never from `handle_params`, so the first render of
+  `?tab=catalogue` raised `KeyError` on every company.
+- **Raw-binary uuid leaking into company metadata on supplier import** (#26).
+  `fetch_suppliers/2` reads catalogue rows with raw SQL, so Postgrex returns
+  a `uuid` column as a 16-byte binary; that binary could not encode as JSONB
+  and every row that needed a new CRM company failed on INSERT.
+  `process_supplier_row/4` now also normalizes uuids, so callers other than
+  the mix-task read path cannot reintroduce the same failure.
+- The catalogue-presence probe in `test_helper.exs` now releases its sandbox
+  owner in `after`, so a failed probe cannot leak a checked-out connection.
+
+### Added
+
+- `{:rustler, ">= 0.0.0", optional: true}` so `MDEX_NATIVE_BUILD=1` can
+  compile `mdex_native` from source (same declaration phoenix_kit carries)
+  (#25).
+
 ## 0.7.1 - 2026-08-21
 
 ### Added

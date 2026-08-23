@@ -201,15 +201,18 @@ catalogue_available =
       # of what the schema actually looks like.
       owner = Ecto.Adapters.SQL.Sandbox.start_owner!(TestRepo, shared: false)
 
-      %{rows: [[v]]} =
-        TestRepo.query!(
-          "SELECT EXISTS (SELECT 1 FROM information_schema.columns " <>
-            "WHERE table_name = 'phoenix_kit_cat_suppliers' " <>
-            "AND column_name = 'crm_company_uuid')"
-        )
+      try do
+        %{rows: [[v]]} =
+          TestRepo.query!(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.columns " <>
+              "WHERE table_name = 'phoenix_kit_cat_suppliers' " <>
+              "AND column_name = 'crm_company_uuid')"
+          )
 
-      Ecto.Adapters.SQL.Sandbox.stop_owner(owner)
-      v
+        v
+      after
+        Ecto.Adapters.SQL.Sandbox.stop_owner(owner)
+      end
     rescue
       _ -> false
     catch
