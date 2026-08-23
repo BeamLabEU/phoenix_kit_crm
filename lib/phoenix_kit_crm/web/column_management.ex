@@ -92,6 +92,14 @@ defmodule PhoenixKitCRM.Web.ColumnManagement do
         save_columns(socket, ordered)
       end
 
+      # Runs after a column set is saved, with `:selected_columns` already
+      # updated. A host whose rows need data that is only loaded for SOME
+      # columns (RoleView's CRM-contact map is loaded only while that column
+      # is on screen) overrides this to re-derive it — `handle_params/3`
+      # does not re-run on a save, so nothing else would.
+      defp columns_saved(socket), do: socket
+      defoverridable columns_saved: 1
+
       defp save_columns(socket, columns) do
         case ColumnConfig.update_columns(
                socket.assigns.current_user_uuid,
@@ -106,6 +114,7 @@ defmodule PhoenixKitCRM.Web.ColumnManagement do
              |> Phoenix.Component.assign(:selected_columns, valid)
              |> Phoenix.Component.assign(:show_column_modal, false)
              |> Phoenix.Component.assign(:temp_selected_columns, nil)
+             |> columns_saved()
              |> Phoenix.LiveView.put_flash(:info, gettext("Columns updated"))}
 
           {:error, _} ->
