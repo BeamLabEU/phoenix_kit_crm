@@ -235,6 +235,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
             {:noreply,
              socket
              |> assign(:company, linked_company)
+             |> assign_form_after_resolution(linked_company, deltas.crm)
              |> assign(:linked_user, linked_user)
              |> assign(:linked_account_path, Paths.user_view(linked_user.uuid))
              |> close_conflict()
@@ -267,6 +268,10 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   def handle_event("mirror_cancel_conflict", _params, socket) do
     {:noreply, close_conflict(socket)}
   end
+
+  # See ContactFormLive.assign_form_after_resolution/3: the inputs must show
+  # what the resolution wrote, or the next Save writes the old values back.
+  # Fields the resolution did not touch keep the operator's unsaved draft.
 
   def handle_event("mirror_unlink", _params, socket) do
     case Companies.disconnect_user(socket.assigns.company) do
@@ -331,6 +336,12 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
           user
       end
     end
+  end
+
+  defp assign_form_after_resolution(socket, company, crm_deltas) do
+    resolved = crm_deltas |> Map.keys() |> Enum.map(&to_string/1)
+    draft = Map.drop(socket.assigns.form.params || %{}, resolved)
+    assign(socket, :form, to_form(Companies.change_company(company, draft)))
   end
 
   defp close_conflict(socket) do

@@ -244,10 +244,14 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
 
   defp apply_pending_resolution(socket, company, user, deltas, user_uuid, company_uuid) do
     case Companies.apply_mirror_resolution(company, user, deltas) do
-      {:ok, {linked_company, _linked_user}} ->
+      {:ok, {linked_company, linked_user}} ->
+        # "Keep CRM" rewrites the USER's organization fields — the row renders
+        # those straight off @users, so swap the updated struct in or the row
+        # keeps showing the pre-resolution name until a reload.
         {:noreply,
          socket
          |> update(:companies_by_user, &Map.put(&1, user_uuid, linked_company))
+         |> update(:users, &replace_user(&1, linked_user))
          |> close_conflict()
          |> put_flash(:info, gettext("Mirror account linked"))}
 
@@ -308,6 +312,9 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
       end
     end
   end
+
+  defp replace_user(users, %User{uuid: uuid} = updated),
+    do: Enum.map(users, &if(&1.uuid == uuid, do: updated, else: &1))
 
   defp close_conflict(socket) do
     socket

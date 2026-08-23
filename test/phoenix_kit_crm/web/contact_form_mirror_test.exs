@@ -191,6 +191,44 @@ defmodule PhoenixKitCRM.Web.ContactFormMirrorTest do
       assert Contacts.get_contact(contact.uuid).user_uuid == user.uuid
     end
 
+    # The resolution writes the contact, but the inputs on screen used to
+    # keep the pre-resolution values — and Save, the next click, wrote them
+    # straight back, undoing the resolution with no warning.
+    test "after keep_user the Name input shows the resolved value and Save keeps it",
+         %{conn: conn} do
+      shared_email = "shared-#{unique()}@example.test"
+      contact = contact_fixture(%{"name" => "Anna Kask", "email" => shared_email})
+
+      user =
+        person_user_fixture(%{
+          "email" => shared_email,
+          "first_name" => "Annie",
+          "last_name" => "K."
+        })
+
+      {:ok, view, _html} = edit(conn, contact)
+      # An unsaved edit in an unrelated field, typed before the modal opens.
+      render_change(view, "validate", %{
+        "contact" => %{"name" => "Anna Kask", "notes" => "draft note"}
+      })
+
+      render_submit(view, "mirror_link", %{"user_uuid" => user.uuid})
+
+      html = render_submit(view, "mirror_resolve", %{"choices" => %{"name" => "keep_user"}})
+
+      assert html =~ ~s(value="Annie K.")
+      refute html =~ ~s(value="Anna Kask")
+      # The draft outside the resolved field is still there.
+      assert html =~ "draft note"
+
+      # Saving what is on screen must not revert the resolution.
+      view
+      |> form("form[phx-submit=save]")
+      |> render_submit()
+
+      assert Contacts.get_contact(contact.uuid).name == "Annie K."
+    end
+
     test "cancel writes nothing to either side", %{conn: conn} do
       shared_email = "shared-#{unique()}@example.test"
       contact = contact_fixture(%{"name" => "Anna Kask", "email" => shared_email})

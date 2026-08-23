@@ -266,6 +266,7 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
             {:noreply,
              socket
              |> assign(:contact, linked_contact)
+             |> assign_form_after_resolution(linked_contact, deltas.crm)
              |> assign(:linked_user, linked_user)
              |> assign(:linked_account_path, Paths.user_view(linked_user.uuid))
              |> close_conflict()
@@ -298,6 +299,13 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
   def handle_event("mirror_cancel_conflict", _params, socket) do
     {:noreply, close_conflict(socket)}
   end
+
+  # The resolution just wrote the contact, but the inputs on screen still
+  # carry the values from before it — and Save is the next click, which
+  # would write those stale values straight back and silently undo the
+  # resolution. Rebuild the form from the resolved record for the fields
+  # the resolution wrote; keep the operator's unsaved draft for every other
+  # field, so an edit typed before the modal opened is not thrown away.
 
   def handle_event("mirror_unlink", _params, socket) do
     case Contacts.disconnect_user(socket.assigns.contact) do
@@ -362,6 +370,12 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
           user
       end
     end
+  end
+
+  defp assign_form_after_resolution(socket, contact, crm_deltas) do
+    resolved = crm_deltas |> Map.keys() |> Enum.map(&to_string/1)
+    draft = Map.drop(socket.assigns.form.params || %{}, resolved)
+    assign(socket, :form, to_form(Contacts.change_contact(contact, draft)))
   end
 
   defp close_conflict(socket) do
