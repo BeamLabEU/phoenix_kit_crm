@@ -1,10 +1,64 @@
 defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
   use PhoenixKitCRM.LiveCase
 
-  alias PhoenixKitCRM.Contacts
+  alias PhoenixKit.Modules.Storage
+  alias PhoenixKit.Users.Auth
+  alias PhoenixKitCRM.{Attachments, Contacts, Interactions}
 
   setup %{conn: conn} do
     {:ok, conn: put_test_scope(conn, fake_scope())}
+  end
+
+  # The Files tab rolls up files attached to the contact's interactions and
+  # was loaded once; an interaction added or deleted elsewhere changed the
+  # list and its count without the tab noticing.
+  test "the Files tab's interaction roll-up follows interactions changed elsewhere",
+       %{conn: conn} do
+    {:ok, contact} = Contacts.create_contact(%{"name" => "Anna Files"})
+
+    {:ok, view, html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=files")
+    refute html =~ "Attached to interactions"
+
+    # An interaction with an attachment, created from the contact's other
+    # session: the folder + file rows core's Storage would write.
+    {:ok, interaction} =
+      Interactions.create_interaction(%{
+        "contact_uuid" => contact.uuid,
+        "interaction_type" => "note",
+        "subject" => "Sent the quote",
+        "occurred_at" => DateTime.utc_now() |> DateTime.truncate(:second)
+      })
+
+    {:ok, uploader} =
+      Auth.register_user(%{
+        "email" => "uploader-#{System.unique_integer([:positive])}@example.test",
+        "password" => "Sup3rSecret!24"
+      })
+
+    {:ok, folder} =
+      Storage.create_folder(%{"name" => Attachments.interaction_folder_name(interaction.uuid)})
+
+    {:ok, _file} =
+      Storage.create_file(%{
+        "original_file_name" => "quote.pdf",
+        "file_name" => "quote.pdf",
+        "mime_type" => "application/pdf",
+        "file_type" => "document",
+        "ext" => "pdf",
+        "file_checksum" => "abc",
+        "user_file_checksum" => "abc",
+        "size" => 12,
+        "status" => "active",
+        "user_uuid" => uploader.uuid,
+        "folder_uuid" => folder.uuid
+      })
+
+    # The interaction broadcast (create fires it) is what reaches the page.
+    PhoenixKitCRM.PubSub.broadcast_interaction(:interaction_created, interaction)
+
+    html = render(view)
+    assert html =~ "Attached to interactions"
+    assert html =~ "quote.pdf"
   end
 
   test "renders the contact's name", %{conn: conn} do

@@ -124,6 +124,15 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
         "events" ->
           send_update(EventsComponent, id: "crm-events-#{socket.assigns.contact.uuid}")
 
+        # The Files tab rolls up the files attached to this contact's
+        # interactions; an interaction created with attachments or deleted
+        # (which purges its folder) changes that list and its count.
+        "files" ->
+          send_update(MediaComponent,
+            id: "crm-files-#{socket.assigns.contact.uuid}",
+            refresh_token: System.unique_integer([:monotonic])
+          )
+
         _ ->
           :ok
       end
