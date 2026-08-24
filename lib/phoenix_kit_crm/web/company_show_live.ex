@@ -38,7 +38,15 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
   @impl true
   def mount(_params, _session, socket),
-    do: {:ok, assign(socket, show_avatar_picker: false, avatar_folder_uuid: nil)}
+    do:
+      {:ok,
+       assign(socket,
+         show_avatar_picker: false,
+         avatar_folder_uuid: nil,
+         subscribed_company: nil,
+         subscribed_contacts: MapSet.new(),
+         subscribed_catalogue: false
+       )}
 
   @impl true
   def handle_params(params, _uri, socket) do
@@ -92,13 +100,23 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   # and once per member contact for the interaction feeds — re-synced when
   # the roster changes, so a new member's feed is followed too.
   defp subscribe_live(socket, company, catalogue_enabled?) do
-    if connected?(socket) and socket.assigns[:subscribed_company] != company.uuid do
+    previous = socket.assigns.subscribed_company
+
+    if connected?(socket) and previous != company.uuid do
+      # Switching company inside one process (a patch to another uuid) must
+      # drop the old company's topic and member feeds, or they keep
+      # refreshing this page for the life of the socket.
+      if previous, do: CRMPubSub.unsubscribe(CRMPubSub.topic_company(previous))
       CRMPubSub.subscribe(CRMPubSub.topic_company(company.uuid))
-      if catalogue_enabled?, do: CRMPubSub.subscribe(@catalogue_topic)
+
+      # The catalogue topic is process-wide, not per company: once.
+      if catalogue_enabled? and not socket.assigns.subscribed_catalogue do
+        CRMPubSub.subscribe(@catalogue_topic)
+      end
 
       socket
       |> assign(:subscribed_company, company.uuid)
-      |> assign(:subscribed_contacts, MapSet.new())
+      |> assign(:subscribed_catalogue, catalogue_enabled? or socket.assigns.subscribed_catalogue)
       |> sync_member_subscriptions()
     else
       socket
@@ -106,7 +124,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   end
 
   defp sync_member_subscriptions(socket) do
-    already = socket.assigns[:subscribed_contacts] || MapSet.new()
+    already = socket.assigns.subscribed_contacts
     wanted = MapSet.new(socket.assigns.memberships, & &1.contact_uuid)
 
     wanted
