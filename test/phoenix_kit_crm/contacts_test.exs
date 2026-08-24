@@ -229,7 +229,8 @@ defmodule PhoenixKitCRM.ContactsTest do
       _unique = contact_fixture(%{"name" => "Alone", "email" => "alone@example.com"})
 
       groups = Contacts.list_duplicate_email_groups()
-      assert group = Enum.find(groups, &(String.downcase(&1.email) == email))
+      assert group = Enum.find(groups, &(&1.email == email))
+      assert group.email == email
       assert group.count == 2
 
       drilldown = Contacts.list_by_email(group.email)

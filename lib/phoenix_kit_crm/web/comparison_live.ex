@@ -43,25 +43,32 @@ defmodule PhoenixKitCRM.Web.ComparisonLive do
   end
 
   @impl true
-  def handle_event("toggle_duplicate", %{"email" => email}, socket) do
-    if MapSet.member?(socket.assigns.expanded_duplicates, email) do
-      # Drop the cached rows with the expansion: the page is read-only but
-      # other sessions are not, and re-expanding must show the contacts as
-      # they are now, not as they were the first time the group was opened.
-      {:noreply,
-       socket
-       |> assign(:expanded_duplicates, MapSet.delete(socket.assigns.expanded_duplicates, email))
-       |> assign(:duplicate_contacts, Map.delete(socket.assigns.duplicate_contacts, email))}
-    else
-      contacts =
-        Map.get_lazy(socket.assigns.duplicate_contacts, email, fn ->
-          Contacts.list_by_email(email)
-        end)
+  def handle_event("toggle_duplicate", %{"email" => email}, socket) when is_binary(email) do
+    # Re-query the group list on every toggle: collapsing drops the cached
+    # rows (so a re-expand is fresh) but used to leave the count badge and
+    # the group itself in place after an email changed elsewhere.
+    # Groups are keyed on lowercased citext (see list_duplicate_email_groups/0).
+    email = String.downcase(email)
+    groups = Contacts.list_duplicate_email_groups()
+    socket = assign(socket, :duplicate_groups, groups)
 
-      {:noreply,
-       socket
-       |> assign(:expanded_duplicates, MapSet.put(socket.assigns.expanded_duplicates, email))
-       |> assign(:duplicate_contacts, Map.put(socket.assigns.duplicate_contacts, email, contacts))}
+    cond do
+      MapSet.member?(socket.assigns.expanded_duplicates, email) ->
+        {:noreply, collapse_duplicate(socket, email)}
+
+      Enum.any?(groups, &(&1.email == email)) ->
+        {:noreply,
+         socket
+         |> assign(:expanded_duplicates, MapSet.put(socket.assigns.expanded_duplicates, email))
+         |> assign(
+           :duplicate_contacts,
+           Map.put(socket.assigns.duplicate_contacts, email, Contacts.list_by_email(email))
+         )}
+
+      true ->
+        # No longer a duplicate — drop it from the expanded set the same way
+        # a collapse does, rather than showing a one-row "group".
+        {:noreply, collapse_duplicate(socket, email)}
     end
   end
 
@@ -80,6 +87,12 @@ defmodule PhoenixKitCRM.Web.ComparisonLive do
      socket
      |> assign(:selected_list_uuids, selected)
      |> assign(:overlap_contacts, overlap_contacts)}
+  end
+
+  defp collapse_duplicate(socket, email) do
+    socket
+    |> assign(:expanded_duplicates, MapSet.delete(socket.assigns.expanded_duplicates, email))
+    |> assign(:duplicate_contacts, Map.delete(socket.assigns.duplicate_contacts, email))
   end
 
   @impl true
@@ -106,6 +119,7 @@ defmodule PhoenixKitCRM.Web.ComparisonLive do
           <div :if={@duplicate_groups != []} class="flex flex-col gap-2">
             <div
               :for={group <- @duplicate_groups}
+              id={"crm-dup-#{group.email}"}
               class="collapse collapse-arrow bg-base-200/50 border border-base-200"
             >
               <input

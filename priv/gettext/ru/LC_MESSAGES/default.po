@@ -2476,7 +2476,7 @@ msgid "New contact for this company"
 msgstr "Новый контакт для этой компании"
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:602
-#, elixir-autogen, elixir-format, fuzzy
+#, elixir-autogen, elixir-format
 msgid "No contacts linked to this company yet."
 msgstr "К этой компании пока не привязан ни один контакт."
 
@@ -2512,6 +2512,6 @@ msgid "What happened to this record — edits, links, role changes — as record
 msgstr "Что происходило с этой записью — правки, связи, смена ролей — записывается автоматически. Вручную сюда ничего не добавляется."
 
 #: lib/phoenix_kit_crm/web/company_interactions_component.ex:86
-#, elixir-autogen, elixir-format, fuzzy
+#, elixir-autogen, elixir-format
 msgid "Everything logged on this company's contacts, newest first. An interaction is logged on the contact's own page."
 msgstr "Всё, что записано у контактов этой компании, сначала новые. Взаимодействие записывается на странице самого контакта."

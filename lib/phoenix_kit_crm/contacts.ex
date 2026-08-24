@@ -89,6 +89,10 @@ defmodule PhoenixKitCRM.Contacts do
     |> select([c], %{email: c.email, count: count(c.uuid)})
     |> order_by([c], desc: count(c.uuid))
     |> repo().all()
+    # citext GROUP BY merges case variants; the representative `email`
+    # Postgres returns is any stored spelling. Lowercase so the comparison
+    # page can key expansions and LiveView ids stably across re-queries.
+    |> Enum.map(fn %{email: email} = group -> %{group | email: String.downcase(email)} end)
   end
 
   @doc "Non-trashed contacts holding exactly this email — the drill-down for a `list_duplicate_email_groups/0` row."

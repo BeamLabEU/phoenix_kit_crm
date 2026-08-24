@@ -72,13 +72,17 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
         {:noreply,
          socket
          # Subscribe BEFORE the reads below: a write committed between the
-         # read and the subscription would otherwise be missed.
+         # read and the subscription would otherwise be missed. Member
+         # interaction feeds need the roster, so that list is the first
+         # read — then those topics, then the rest of the page.
          |> subscribe_live(company, catalogue_enabled)
          |> assign(:company, company)
          |> assign(:tab, tab)
          |> assign(:storage_enabled, storage_enabled)
          |> assign(:comments_enabled, comments_enabled)
          |> assign(:catalogue_enabled, catalogue_enabled)
+         |> assign(:memberships, Companies.list_memberships(company.uuid))
+         |> sync_member_subscriptions()
          |> assign_new(:show_catalogue_columns, fn -> false end)
          |> assign_new(:catalogue_columns, fn -> catalogue_default_columns() end)
          |> assign_new(:catalogue_column_catalog, fn -> catalogue_column_catalog() end)
@@ -89,9 +93,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
          |> assign(:page_title, Company.display_name(company))
          |> assign(:page_section, gettext("Companies"))
          |> assign(:page_section_path, Paths.companies())
-         |> assign(:memberships, Companies.list_memberships(company.uuid))
-         |> assign(:mirror_user, mirror_user(company))
-         |> sync_member_subscriptions()}
+         |> assign(:mirror_user, mirror_user(company))}
     end
   end
 
@@ -150,18 +152,22 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   end
 
   defp sync_member_subscriptions(socket) do
-    already = socket.assigns.subscribed_contacts
-    wanted = MapSet.new(socket.assigns.memberships, & &1.contact_uuid)
+    if connected?(socket) do
+      already = socket.assigns.subscribed_contacts
+      wanted = MapSet.new(socket.assigns.memberships, & &1.contact_uuid)
 
-    wanted
-    |> MapSet.difference(already)
-    |> Enum.each(&CRMPubSub.subscribe(CRMPubSub.topic_contact_interactions(&1)))
+      wanted
+      |> MapSet.difference(already)
+      |> Enum.each(&CRMPubSub.subscribe(CRMPubSub.topic_contact_interactions(&1)))
 
-    already
-    |> MapSet.difference(wanted)
-    |> Enum.each(&CRMPubSub.unsubscribe(CRMPubSub.topic_contact_interactions(&1)))
+      already
+      |> MapSet.difference(wanted)
+      |> Enum.each(&CRMPubSub.unsubscribe(CRMPubSub.topic_contact_interactions(&1)))
 
-    assign(socket, :subscribed_contacts, wanted)
+      assign(socket, :subscribed_contacts, wanted)
+    else
+      socket
+    end
   end
 
   # The roster changed (a contact joined, left, was trashed/restored/deleted
@@ -246,9 +252,18 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   # kinds (folders, PDFs, …) carry nothing this page shows.
   # `:supplier` / `:manufacturer` / `:links` are the party rows and their
   # CRM-company links — what decides which items count as "supplied by"
-  # this company at all.
+  # this company at all. `:category` is a default column of
+  # `party_items_table/1` (`items_supplied_by/1` preloads it).
   def handle_info({:catalogue_data_changed, kind, _uuid, _}, socket)
-      when kind in [:item_supplier_info, :item, :catalogue, :supplier, :manufacturer, :links] do
+      when kind in [
+             :item_supplier_info,
+             :item,
+             :catalogue,
+             :category,
+             :supplier,
+             :manufacturer,
+             :links
+           ] do
     if socket.assigns.catalogue_enabled,
       do: {:noreply, assign_catalogue(socket, true, socket.assigns.company)},
       else: {:noreply, socket}

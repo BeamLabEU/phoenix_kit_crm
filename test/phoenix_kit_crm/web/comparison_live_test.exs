@@ -87,6 +87,29 @@ defmodule PhoenixKitCRM.Web.ComparisonLiveTest do
     refute reopened =~ "Alice One"
   end
 
+  test "re-expanding drops a group that is no longer duplicated and refreshes the count",
+       %{conn: conn} do
+    email = unique_email()
+    c1 = contact_fixture(%{"name" => "Alice One", "email" => email})
+    c2 = contact_fixture(%{"name" => "Alice Two", "email" => email})
+
+    {:ok, view, html} = live(conn, "/en/admin/crm/comparison")
+    assert html =~ "2 contacts"
+
+    toggle = fn -> view |> element("input[phx-value-email='#{email}']") |> render_click() end
+    assert toggle.() =~ "Alice One"
+
+    # Collapse, change one email so the pair is unique, re-expand: the group
+    # and its count must go, not sit at "2 contacts" over a one-row drill-down.
+    refute toggle.() =~ "Alice One"
+    {:ok, _} = Contacts.update_contact(c2, %{"email" => unique_email()})
+
+    html = toggle.()
+    refute html =~ email
+    refute html =~ "2 contacts"
+    refute html =~ c1.name
+  end
+
   test "list overlap: fewer than 2 selected shows guidance, 2+ shows the intersection",
        %{conn: conn} do
     list_a = list_fixture(%{"name" => "List A"})
