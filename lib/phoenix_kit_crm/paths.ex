@@ -26,7 +26,7 @@ defmodule PhoenixKitCRM.Paths do
   def contact_new(company_uuid: company_uuid) when is_binary(company_uuid),
     do: Routes.path("#{@base}/contacts/new?company_uuid=#{company_uuid}")
 
-  @doc "A contact page opened on one of its tabs (`\"interactions\"`, `\"files\"`, …)."
+  @doc "A contact page opened on one of its tabs — `interactions`, `files`, …"
   def contact_tab(uuid, tab) when is_binary(uuid) and is_binary(tab),
     do: Routes.path("#{@base}/contacts/#{uuid}?tab=#{tab}")
 
