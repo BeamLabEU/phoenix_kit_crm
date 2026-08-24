@@ -170,9 +170,18 @@ defmodule PhoenixKitCRM.Contacts do
   @spec update_contact(Contact.t(), map()) :: {:ok, Contact.t()} | {:error, Ecto.Changeset.t()}
   def update_contact(%Contact{} = contact, attrs) do
     contact
+    |> do_update_contact(attrs)
+    |> announce_to_companies(:member_changed)
+  end
+
+  # The write alone — for callers inside their own transaction, which
+  # broadcast after THEIR commit (`apply_mirror_resolution/3`); a broadcast
+  # from inside the transaction would reach subscribers before the commit,
+  # or for a write that is then rolled back.
+  defp do_update_contact(%Contact{} = contact, attrs) do
+    contact
     |> Contact.changeset(attrs)
     |> repo().update()
-    |> announce_to_companies(:member_changed)
   end
 
   @doc "Soft-deletes a contact (status → trashed, stashing the prior status)."
@@ -573,19 +582,30 @@ defmodule PhoenixKitCRM.Contacts do
         crm: crm_deltas,
         user: user_deltas
       }) do
-    repo().transaction(fn ->
-      with {:ok, updated_contact} <- maybe_update_contact(contact, crm_deltas),
-           {:ok, updated_user} <- maybe_update_user_profile(user, user_deltas),
-           {:ok, linked} <- link_user(updated_contact, updated_user.uuid) do
-        {linked, updated_user}
-      else
-        {:error, reason} -> repo().rollback(reason)
-      end
-    end)
+    result =
+      repo().transaction(fn ->
+        with {:ok, updated_contact} <- maybe_update_contact(contact, crm_deltas),
+             {:ok, updated_user} <- maybe_update_user_profile(user, user_deltas),
+             {:ok, linked} <- link_user(updated_contact, updated_user.uuid) do
+          {linked, updated_user}
+        else
+          {:error, reason} -> repo().rollback(reason)
+        end
+      end)
+
+    # The contact's companies hear about a rewritten name/email once the
+    # whole resolution has committed — not from inside it.
+    with {:ok, {linked, _user}} <- result do
+      if map_size(crm_deltas) > 0,
+        do:
+          PubSub.broadcast_company_event(:member_changed, company_uuids_for(linked), linked.uuid)
+    end
+
+    result
   end
 
   defp maybe_update_contact(contact, deltas) when map_size(deltas) == 0, do: {:ok, contact}
-  defp maybe_update_contact(contact, deltas), do: update_contact(contact, deltas)
+  defp maybe_update_contact(contact, deltas), do: do_update_contact(contact, deltas)
 
   defp maybe_update_user_profile(user, deltas) when map_size(deltas) == 0, do: {:ok, user}
   defp maybe_update_user_profile(user, deltas), do: Auth.update_user_profile(user, deltas)

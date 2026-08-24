@@ -339,8 +339,13 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   end
 
   defp assign_form_after_resolution(socket, company, crm_deltas) do
-    resolved = crm_deltas |> Map.keys() |> Enum.map(&to_string/1)
-    draft = Map.drop(socket.assigns.form.params || %{}, resolved)
+    # Browser params are string-keyed; a caller handing in atom keys gets
+    # the same treatment rather than a stale value slipping through.
+    resolved = Map.keys(crm_deltas)
+
+    draft =
+      Map.drop(socket.assigns.form.params || %{}, resolved ++ Enum.map(resolved, &to_string/1))
+
     assign(socket, :form, to_form(Companies.change_company(company, draft)))
   end
 

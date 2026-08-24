@@ -146,6 +146,39 @@ defmodule PhoenixKitCRM.ContactsMirrorTest do
   end
 
   describe "connect_user/2 — retrofitted to be transactional, same external behavior" do
+    # The resolution runs in one transaction; the companies showing this
+    # contact must hear about a rewritten name after the commit, once —
+    # never from inside the transaction, never for a rollback.
+    test "a resolution that rewrites the contact tells its companies once, after the commit" do
+      {:ok, company} = PhoenixKitCRM.Companies.create_company(%{"name" => "Acme"})
+      contact = contact_fixture(%{"name" => "Anna Kask"})
+      {:ok, _} = Contacts.set_primary_company(contact, company.uuid, nil, nil)
+      user = person_user_fixture(%{"first_name" => "Annie", "last_name" => "K."})
+
+      # Subscribed after the fixture, so only the resolution's own message lands.
+      PhoenixKitCRM.PubSub.subscribe(PhoenixKitCRM.PubSub.topic_company(company.uuid))
+
+      deltas = %{crm: %{name: "Annie K."}, user: %{}}
+      assert {:ok, {linked, _user}} = Contacts.apply_mirror_resolution(contact, user, deltas)
+      assert linked.name == "Annie K."
+
+      contact_uuid = contact.uuid
+      assert_receive {:crm, :member_changed, %{contact_uuid: ^contact_uuid}}
+      refute_receive {:crm, :member_changed, _}, 100
+    end
+
+    test "a resolution that leaves the contact untouched broadcasts nothing to its companies" do
+      {:ok, company} = PhoenixKitCRM.Companies.create_company(%{"name" => "Acme"})
+      contact = contact_fixture(%{"name" => "Anna Kask"})
+      {:ok, _} = Contacts.set_primary_company(contact, company.uuid, nil, nil)
+      user = person_user_fixture()
+
+      PhoenixKitCRM.PubSub.subscribe(PhoenixKitCRM.PubSub.topic_company(company.uuid))
+
+      assert {:ok, _} = Contacts.apply_mirror_resolution(contact, user, %{crm: %{}, user: %{}})
+      refute_receive {:crm, :member_changed, _}, 100
+    end
+
     test "finds an existing user by email and links (unchanged)" do
       contact = contact_fixture()
       user = person_user_fixture()
