@@ -58,9 +58,6 @@ defmodule PhoenixKitCRM.Web.CompanyInteractionsComponent do
     company_uuid |> Companies.list_memberships() |> Enum.map(& &1.contact_uuid)
   end
 
-  defp member_name(%{contact: %Contact{} = contact}), do: Contact.display_name(contact)
-  defp member_name(_membership), do: gettext("Unknown")
-
   defp storage_enabled? do
     Storage.enabled?()
   rescue
@@ -83,17 +80,12 @@ defmodule PhoenixKitCRM.Web.CompanyInteractionsComponent do
           {gettext("Interactions")} ({length(@interactions)})
         </h2>
         <%!-- Interactions are logged on a PERSON (the interaction's subject is
-             a contact), so this tab is a rollup and the way in is a member's
-             own page — offered here as links so nobody hunts for a button
-             that lives elsewhere. --%>
+             a contact), so this tab is a rollup; the sentence says where the
+             way in is — the names in the list below are the links. --%>
         <.tab_intro
-          text={gettext("Everything logged on this company's contacts, newest first. An interaction is logged on the contact's own page:")}
+          text={gettext("Everything logged on this company's contacts, newest first. An interaction is logged on the contact's own page.")}
           class="-mt-1"
-        >
-          <:action :for={m <- Enum.take(@members, 5)} navigate={Paths.contact_tab(m.contact_uuid, "interactions")}>
-            <.icon name="hero-plus-small" class="w-4 h-4" /> {member_name(m)}
-          </:action>
-        </.tab_intro>
+        />
         <p :if={@members == []} class="text-sm text-base-content/60 -mt-2">
           {gettext("This company has no contacts yet — add one on the Members tab first.")}
         </p>

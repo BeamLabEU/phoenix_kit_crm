@@ -1109,7 +1109,7 @@ msgstr "Suhtlus registreeritud"
 msgid "Interaction updated"
 msgstr "Suhtlus uuendatud"
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:83
+#: lib/phoenix_kit_crm/web/company_interactions_component.ex:80
 #: lib/phoenix_kit_crm/web/company_show_live.ex:361
 #: lib/phoenix_kit_crm/web/contact_show_live.ex:242
 #: lib/phoenix_kit_crm/web/crm_live.ex:101
@@ -1128,7 +1128,7 @@ msgstr "Vigane e-post"
 msgid "Involved parties"
 msgstr "Osalised"
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:128
+#: lib/phoenix_kit_crm/web/company_interactions_component.ex:120
 #: lib/phoenix_kit_crm/web/interactions_component.ex:786
 #, elixir-autogen, elixir-format
 msgid "Involved:"
@@ -1409,7 +1409,7 @@ msgstr "Faile veel pole."
 msgid "No images yet."
 msgstr "Pilte veel pole."
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:104
+#: lib/phoenix_kit_crm/web/company_interactions_component.ex:96
 #, elixir-autogen, elixir-format
 msgid "No interactions logged for this company's contacts yet."
 msgstr "Selle ettevõtte kontaktide juures pole veel ühtegi suhtlust registreeritud."
@@ -1904,7 +1904,6 @@ msgstr "Taasta arhiivist"
 msgid "Unarchiving…"
 msgstr "Arhiivist taastamine…"
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:62
 #: lib/phoenix_kit_crm/web/company_show_live.ex:617
 #, elixir-autogen, elixir-format
 msgid "Unknown"
@@ -2446,11 +2445,6 @@ msgstr "Selle ettevõtte juures hoitavad dokumendid. Lisa need siin nupuga „Li
 msgid "Documents kept on this contact, added here — plus, below them, the files attached to this contact's interactions."
 msgstr "Selle kontakti juures hoitavad dokumendid, mis lisatakse siin — ja nende all failid, mis on lisatud selle kontakti suhtlustele."
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:90
-#, elixir-autogen, elixir-format
-msgid "Everything logged on this company's contacts, newest first. An interaction is logged on the contact's own page:"
-msgstr "Kõik, mis on kirja pandud selle ettevõtte kontaktide juures, uuemad enne. Suhtlus pannakse kirja kontakti enda lehel:"
-
 #: lib/phoenix_kit_crm/web/company_show_live.ex:652
 #, elixir-autogen, elixir-format
 msgid "Items that name this company as their supplier or manufacturer. That is set on the item itself, in the catalogue, on its Suppliers and Manufacturer tab."
@@ -2486,7 +2480,7 @@ msgstr "Selle ettevõtte juures hoitavad pildid; ühe saab määrata logoks. Lis
 msgid "The contacts whose Company is set to this one. A contact joins from its own form's Company field:"
 msgstr "Kontaktid, kelle ettevõtteks on määratud see. Kontakt liitub oma vormi väljast „Ettevõte“:"
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:98
+#: lib/phoenix_kit_crm/web/company_interactions_component.ex:90
 #, elixir-autogen, elixir-format
 msgid "This company has no contacts yet — add one on the Members tab first."
 msgstr "Sellel ettevõttel pole veel kontakte — lisa esmalt üks vahekaardil „Liikmed“."
@@ -2496,3 +2490,8 @@ msgstr "Sellel ettevõttel pole veel kontakte — lisa esmalt üks vahekaardil �
 #, elixir-autogen, elixir-format
 msgid "What happened to this record — edits, links, role changes — as recorded automatically. Nothing is added here by hand."
 msgstr "Mis selle kirjega on juhtunud — muudatused, sidumised, rollimuutused — automaatselt salvestatuna. Käsitsi siia midagi ei lisata."
+
+#: lib/phoenix_kit_crm/web/company_interactions_component.ex:86
+#, elixir-autogen, elixir-format, fuzzy
+msgid "Everything logged on this company's contacts, newest first. An interaction is logged on the contact's own page."
+msgstr "Kõik, mis on kirja pandud selle ettevõtte kontaktide juures, uuemad enne. Suhtlus pannakse kirja kontakti enda lehel."

@@ -1127,7 +1127,7 @@ msgstr ""
 msgid "Interaction updated"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:83
+#: lib/phoenix_kit_crm/web/company_interactions_component.ex:80
 #: lib/phoenix_kit_crm/web/company_show_live.ex:361
 #: lib/phoenix_kit_crm/web/contact_show_live.ex:242
 #: lib/phoenix_kit_crm/web/crm_live.ex:101
@@ -1146,7 +1146,7 @@ msgstr ""
 msgid "Involved parties"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:128
+#: lib/phoenix_kit_crm/web/company_interactions_component.ex:120
 #: lib/phoenix_kit_crm/web/interactions_component.ex:786
 #, elixir-autogen, elixir-format
 msgid "Involved:"
@@ -1427,7 +1427,7 @@ msgstr ""
 msgid "No images yet."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:104
+#: lib/phoenix_kit_crm/web/company_interactions_component.ex:96
 #, elixir-autogen, elixir-format
 msgid "No interactions logged for this company's contacts yet."
 msgstr ""
@@ -1922,7 +1922,6 @@ msgstr ""
 msgid "Unarchiving…"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:62
 #: lib/phoenix_kit_crm/web/company_show_live.ex:617
 #, elixir-autogen, elixir-format
 msgid "Unknown"
@@ -2464,11 +2463,6 @@ msgstr ""
 msgid "Documents kept on this contact, added here — plus, below them, the files attached to this contact's interactions."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:90
-#, elixir-autogen, elixir-format
-msgid "Everything logged on this company's contacts, newest first. An interaction is logged on the contact's own page:"
-msgstr ""
-
 #: lib/phoenix_kit_crm/web/company_show_live.ex:652
 #, elixir-autogen, elixir-format
 msgid "Items that name this company as their supplier or manufacturer. That is set on the item itself, in the catalogue, on its Suppliers and Manufacturer tab."
@@ -2504,7 +2498,7 @@ msgstr ""
 msgid "The contacts whose Company is set to this one. A contact joins from its own form's Company field:"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:98
+#: lib/phoenix_kit_crm/web/company_interactions_component.ex:90
 #, elixir-autogen, elixir-format
 msgid "This company has no contacts yet — add one on the Members tab first."
 msgstr ""
@@ -2513,4 +2507,9 @@ msgstr ""
 #: lib/phoenix_kit_crm/web/contact_show_live.ex:435
 #, elixir-autogen, elixir-format
 msgid "What happened to this record — edits, links, role changes — as recorded automatically. Nothing is added here by hand."
+msgstr ""
+
+#: lib/phoenix_kit_crm/web/company_interactions_component.ex:86
+#, elixir-autogen, elixir-format
+msgid "Everything logged on this company's contacts, newest first. An interaction is logged on the contact's own page."
 msgstr ""

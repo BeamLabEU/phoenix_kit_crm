@@ -128,7 +128,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     assert html =~ "set the Company field on an existing contact"
   end
 
-  test "the Interactions tab says interactions are logged on the contact and links each member's log",
+  test "the Interactions tab says interactions are logged on the contact — a sentence, no per-member links",
        %{conn: conn} do
     {:ok, company} = Companies.create_company(%{"name" => "Initech"})
     anna = member_fixture(company, "Anna Member")
@@ -137,8 +137,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
       live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
     assert html =~ "logged on the contact&#39;s own page"
-    assert html =~ ~s(href="/en/admin/crm/contacts/#{anna.uuid}?tab=interactions")
-    assert html =~ "Anna Member"
+    refute html =~ ~s(href="/en/admin/crm/contacts/#{anna.uuid}?tab=interactions")
     refute html =~ "no contacts yet"
   end
 

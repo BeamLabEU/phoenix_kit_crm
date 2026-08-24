@@ -1126,7 +1126,7 @@ msgstr "Взаимодействие записано"
 msgid "Interaction updated"
 msgstr "Взаимодействие обновлено"
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:83
+#: lib/phoenix_kit_crm/web/company_interactions_component.ex:80
 #: lib/phoenix_kit_crm/web/company_show_live.ex:361
 #: lib/phoenix_kit_crm/web/contact_show_live.ex:242
 #: lib/phoenix_kit_crm/web/crm_live.ex:101
@@ -1145,7 +1145,7 @@ msgstr "Некорректный email"
 msgid "Involved parties"
 msgstr "Участники"
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:128
+#: lib/phoenix_kit_crm/web/company_interactions_component.ex:120
 #: lib/phoenix_kit_crm/web/interactions_component.ex:786
 #, elixir-autogen, elixir-format
 msgid "Involved:"
@@ -1427,7 +1427,7 @@ msgstr "Файлов пока нет."
 msgid "No images yet."
 msgstr "Изображений пока нет."
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:104
+#: lib/phoenix_kit_crm/web/company_interactions_component.ex:96
 #, elixir-autogen, elixir-format
 msgid "No interactions logged for this company's contacts yet."
 msgstr "По контактам этой компании пока не записано ни одного взаимодействия."
@@ -1923,7 +1923,6 @@ msgstr "Восстановить из архива"
 msgid "Unarchiving…"
 msgstr "Восстановление из архива…"
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:62
 #: lib/phoenix_kit_crm/web/company_show_live.ex:617
 #, elixir-autogen, elixir-format
 msgid "Unknown"
@@ -2466,11 +2465,6 @@ msgstr "Документы, хранящиеся у этой компании. �
 msgid "Documents kept on this contact, added here — plus, below them, the files attached to this contact's interactions."
 msgstr "Документы, хранящиеся у этого контакта и добавляемые здесь, а под ними — файлы, приложенные к взаимодействиям этого контакта."
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:90
-#, elixir-autogen, elixir-format
-msgid "Everything logged on this company's contacts, newest first. An interaction is logged on the contact's own page:"
-msgstr "Всё, что записано у контактов этой компании, сначала новые. Взаимодействие записывается на странице самого контакта:"
-
 #: lib/phoenix_kit_crm/web/company_show_live.ex:652
 #, elixir-autogen, elixir-format
 msgid "Items that name this company as their supplier or manufacturer. That is set on the item itself, in the catalogue, on its Suppliers and Manufacturer tab."
@@ -2506,7 +2500,7 @@ msgstr "Изображения, хранящиеся у этой компани�
 msgid "The contacts whose Company is set to this one. A contact joins from its own form's Company field:"
 msgstr "Контакты, у которых компанией указана эта. Контакт присоединяется через поле «Компания» в своей форме:"
 
-#: lib/phoenix_kit_crm/web/company_interactions_component.ex:98
+#: lib/phoenix_kit_crm/web/company_interactions_component.ex:90
 #, elixir-autogen, elixir-format
 msgid "This company has no contacts yet — add one on the Members tab first."
 msgstr "У этой компании пока нет контактов — сначала добавьте его на вкладке «Участники»."
@@ -2516,3 +2510,8 @@ msgstr "У этой компании пока нет контактов — сн
 #, elixir-autogen, elixir-format
 msgid "What happened to this record — edits, links, role changes — as recorded automatically. Nothing is added here by hand."
 msgstr "Что происходило с этой записью — правки, связи, смена ролей — записывается автоматически. Вручную сюда ничего не добавляется."
+
+#: lib/phoenix_kit_crm/web/company_interactions_component.ex:86
+#, elixir-autogen, elixir-format, fuzzy
+msgid "Everything logged on this company's contacts, newest first. An interaction is logged on the contact's own page."
+msgstr "Всё, что записано у контактов этой компании, сначала новые. Взаимодействие записывается на странице самого контакта."
