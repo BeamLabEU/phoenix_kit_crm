@@ -36,7 +36,7 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
   def handle_params(params, _uri, socket) do
     case socket.assigns.live_action do
       :new ->
-        {:noreply, assign_new_form(socket)}
+        {:noreply, assign_new_form(socket, params)}
 
       :edit ->
         case Contacts.get_contact(params["uuid"]) do
@@ -52,15 +52,26 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
     end
   end
 
-  defp assign_new_form(socket) do
+  # `?company_uuid=` is how a company page adds a member: the form opens
+  # with that company preselected. Only a company from the list is
+  # honoured — a stale or forged uuid leaves the field empty.
+  defp assign_new_form(socket, params) do
+    companies = Companies.list_companies()
+
+    preselected =
+      case params["company_uuid"] do
+        uuid when is_binary(uuid) -> Enum.find_value(companies, &(&1.uuid == uuid and uuid))
+        _ -> nil
+      end
+
     socket
-    |> assign(:companies, Companies.list_companies())
+    |> assign(:companies, companies)
     |> assign(:contact, %Contact{})
     |> assign(:page_title, gettext("New contact"))
     |> assign(:page_section, gettext("Contacts"))
     |> assign(:page_section_path, Paths.contacts())
     |> assign(:form, to_form(Contacts.change_contact(%Contact{})))
-    |> assign(:company_uuid, nil)
+    |> assign(:company_uuid, preselected)
     |> assign(:role_in_company, "")
     |> assign(:department, "")
     |> assign(:roles_selected, [])

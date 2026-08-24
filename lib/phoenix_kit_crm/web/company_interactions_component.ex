@@ -10,6 +10,7 @@ defmodule PhoenixKitCRM.Web.CompanyInteractionsComponent do
   use PhoenixKitWeb, :live_component
   use Gettext, backend: PhoenixKitCRM.Gettext
 
+  import PhoenixKitCRM.Web.Components.TabIntro, only: [tab_intro: 1]
   import PhoenixKitCRM.Web.InteractionHelpers, only: [party_badge: 1]
 
   alias PhoenixKit.Modules.Storage
@@ -18,7 +19,13 @@ defmodule PhoenixKitCRM.Web.CompanyInteractionsComponent do
 
   @impl true
   def update(assigns, socket) do
-    socket = assign_new(assign(socket, assigns), :tz_offset, fn -> 0 end)
+    socket =
+      socket
+      |> assign(assigns)
+      |> assign_new(:tz_offset, fn -> 0 end)
+      # The host's roster — the links to "log one on a member's page".
+      |> assign_new(:members, fn -> [] end)
+
     company_uuid = socket.assigns.company.uuid
 
     # Read-only rollup: re-query only when the company changes or the host
@@ -51,6 +58,9 @@ defmodule PhoenixKitCRM.Web.CompanyInteractionsComponent do
     company_uuid |> Companies.list_memberships() |> Enum.map(& &1.contact_uuid)
   end
 
+  defp member_name(%{contact: %Contact{} = contact}), do: Contact.display_name(contact)
+  defp member_name(_membership), do: gettext("Unknown")
+
   defp storage_enabled? do
     Storage.enabled?()
   rescue
@@ -72,8 +82,20 @@ defmodule PhoenixKitCRM.Web.CompanyInteractionsComponent do
           <.icon name="hero-chat-bubble-left-right" class="w-5 h-5" />
           {gettext("Interactions")} ({length(@interactions)})
         </h2>
-        <p class="text-xs text-base-content/50 -mt-1">
-          {gettext("Logged on this company's contacts. Click a name to open their page.")}
+        <%!-- Interactions are logged on a PERSON (the interaction's subject is
+             a contact), so this tab is a rollup and the way in is a member's
+             own page — offered here as links so nobody hunts for a button
+             that lives elsewhere. --%>
+        <.tab_intro
+          text={gettext("Everything logged on this company's contacts, newest first. An interaction is logged on the contact's own page:")}
+          class="-mt-1"
+        >
+          <:action :for={m <- Enum.take(@members, 5)} navigate={Paths.contact_tab(m.contact_uuid, "interactions")}>
+            <.icon name="hero-plus-small" class="w-4 h-4" /> {member_name(m)}
+          </:action>
+        </.tab_intro>
+        <p :if={@members == []} class="text-sm text-base-content/60 -mt-2">
+          {gettext("This company has no contacts yet — add one on the Members tab first.")}
         </p>
 
         <.empty_state

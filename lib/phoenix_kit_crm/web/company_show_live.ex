@@ -30,6 +30,8 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   alias PhoenixKitCRM.Schemas.{Company, Contact}
   alias PhoenixKitCRM.Web.{CompanyInteractionsComponent, EventsComponent, MediaComponent}
   alias PhoenixKitCRM.Web.Components.MirrorPanel
+
+  import PhoenixKitCRM.Web.Components.TabIntro, only: [tab_intro: 1]
   alias PhoenixKitWeb.Live.Components.MediaSelectorModal
 
   # `PhoenixKitCatalogue.Catalogue.PubSub`'s topic — a string contract, so no
@@ -584,10 +586,21 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
             <.icon name="hero-users" class="w-5 h-5" /> {gettext("Members")} ({length(@memberships)})
           </h2>
 
+          <%!-- Membership lives on the CONTACT (its Company field), so the
+               way in is the contact form — offered here preselected. --%>
+          <.tab_intro text={
+            gettext("The contacts whose Company is set to this one. A contact joins from its own form's Company field:")
+          }>
+            <:action navigate={Paths.contact_new(company_uuid: @company.uuid)}>
+              <.icon name="hero-plus-small" class="w-4 h-4" /> {gettext("New contact for this company")}
+            </:action>
+          </.tab_intro>
+
           <.empty_state
             :if={@memberships == []}
             icon="hero-users"
-            title={gettext("No contacts linked to this company yet — set a contact's company on their edit page.")}
+            title={gettext("No contacts linked to this company yet.")}
+            description={gettext("Add one with the link above, or set the Company field on an existing contact's edit page.")}
           />
 
           <ul :if={@memberships != []} class="flex flex-col divide-y divide-base-200">
@@ -626,11 +639,19 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
           module={CompanyInteractionsComponent}
           id={"crm-company-interactions-#{@company.uuid}"}
           company={@company}
+          members={@memberships}
           tz_offset={@tz_offset}
         />
       </div>
 
       <div :if={@tab == "catalogue"} class="flex flex-col gap-6">
+        <%!-- The rows are the catalogue's: an item names this company as a
+             supplier or manufacturer on its own form. CRM does not build
+             catalogue URLs (module boundary), so this is a pointer, not a link. --%>
+        <.tab_intro text={
+          gettext("Items that name this company as their supplier or manufacturer. That is set on the item itself, in the catalogue, on its Suppliers and Manufacturer tab.")
+        } />
+
         <div :if={@show_supplied or @show_manufactured} class="flex justify-end -mb-2">
           <button
             :if={@column_picker_available}
@@ -721,7 +742,10 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
         </div>
       </div>
 
-      <div :if={@tab == "events"}>
+      <div :if={@tab == "events"} class="flex flex-col gap-3">
+        <.tab_intro text={
+          gettext("What happened to this record — edits, links, role changes — as recorded automatically. Nothing is added here by hand.")
+        } />
         <.live_component
           module={EventsComponent}
           id={"crm-company-events-#{@company.uuid}"}
@@ -731,7 +755,8 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
         />
       </div>
 
-      <div :if={@tab == "files"}>
+      <div :if={@tab == "files"} class="flex flex-col gap-3">
+        <.tab_intro text={gettext("Documents kept on this company. Add them here with the Add files button.")} />
         <.live_component
           module={MediaComponent}
           id={"crm-company-files-#{@company.uuid}"}
@@ -742,7 +767,8 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
         />
       </div>
 
-      <div :if={@tab == "images"}>
+      <div :if={@tab == "images"} class="flex flex-col gap-3">
+        <.tab_intro text={gettext("Pictures kept on this company; one can be set as its logo. Add them here with the Add images button.")} />
         <.live_component
           module={MediaComponent}
           id={"crm-company-images-#{@company.uuid}"}
@@ -753,7 +779,10 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
         />
       </div>
 
-      <div :if={@tab == "comments"}>
+      <div :if={@tab == "comments"} class="flex flex-col gap-3">
+        <.tab_intro text={
+          gettext("Notes about the company as a whole, written here. A note about one product it supplies (a promised discount, say) belongs on that item's Suppliers tab in the catalogue, not here.")
+        } />
         <.live_component
           module={PhoenixKitComments.Web.CommentsComponent}
           id={"crm-company-comments-#{@company.uuid}"}

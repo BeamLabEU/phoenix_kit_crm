@@ -110,6 +110,71 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     assert render(view) =~ "Initech"
   end
 
+  # ── Every tab says what it shows and how something gets into it ────
+  #
+  # Each tab is fed from somewhere else (a contact's form, a member's
+  # interaction log, the catalogue's item form, the activity log); an empty
+  # tab used to read as broken.
+
+  test "the Members tab explains membership and links to a prefilled new-contact form",
+       %{conn: conn} do
+    {:ok, company} = Companies.create_company(%{"name" => "Initech"})
+
+    {:ok, _view, html} = live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=members")
+
+    assert html =~ "A contact joins from its own form"
+    assert html =~ ~s(href="/en/admin/crm/contacts/new?company_uuid=#{company.uuid}")
+    assert html =~ "New contact for this company"
+    assert html =~ "set the Company field on an existing contact"
+  end
+
+  test "the Interactions tab says interactions are logged on the contact and links each member's log",
+       %{conn: conn} do
+    {:ok, company} = Companies.create_company(%{"name" => "Initech"})
+    anna = member_fixture(company, "Anna Member")
+
+    {:ok, _view, html} =
+      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+
+    assert html =~ "logged on the contact&#39;s own page"
+    assert html =~ ~s(href="/en/admin/crm/contacts/#{anna.uuid}?tab=interactions")
+    assert html =~ "Anna Member"
+    refute html =~ "no contacts yet"
+  end
+
+  test "the Interactions tab points to the Members tab when the company has no contacts",
+       %{conn: conn} do
+    {:ok, company} = Companies.create_company(%{"name" => "Initech"})
+
+    {:ok, _view, html} =
+      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+
+    assert html =~ "no contacts yet"
+    assert html =~ "Members tab first"
+  end
+
+  test "Events, Files, Images and Comments tabs each carry their intro", %{conn: conn} do
+    {:ok, company} = Companies.create_company(%{"name" => "Initech"})
+    base = "/en/admin/crm/companies/#{company.uuid}"
+
+    {:ok, _view, html} = live(conn, base <> "?tab=events")
+    assert html =~ "recorded automatically"
+
+    # Files / Images / Comments only render when their modules are on;
+    # the intro rides inside the tab, so assert only when the tab exists.
+    for {tab, phrase} <- [
+          {"files", "Documents kept on this company"},
+          {"images", "one can be set as its logo"},
+          {"comments", "Notes about the company as a whole"}
+        ] do
+      {:ok, view, html} = live(conn, base <> "?tab=#{tab}")
+
+      if :sys.get_state(view.pid).socket.assigns.tab == tab do
+        assert html =~ phrase
+      end
+    end
+  end
+
   test "renders the company's name", %{conn: conn} do
     {:ok, company} = Companies.create_company(%{"name" => "Initech"})
 
