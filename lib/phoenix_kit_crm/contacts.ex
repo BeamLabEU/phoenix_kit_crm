@@ -20,6 +20,7 @@ defmodule PhoenixKitCRM.Contacts do
   alias PhoenixKitCRM.Lists
   alias PhoenixKitCRM.Mirror
   alias PhoenixKitCRM.PartyRoles
+  alias PhoenixKitCRM.PubSub
   alias PhoenixKitCRM.Schemas.{CompanyMembership, Contact, ContactList, ListMember}
   alias PhoenixKitCRM.Search
   alias PhoenixKitCRM.SoftDelete
@@ -169,6 +170,16 @@ defmodule PhoenixKitCRM.Contacts do
   @spec update_contact(Contact.t(), map()) :: {:ok, Contact.t()} | {:error, Ecto.Changeset.t()}
   def update_contact(%Contact{} = contact, attrs) do
     contact
+    |> do_update_contact(attrs)
+    |> announce_to_companies(:member_changed)
+  end
+
+  # The write alone — for callers inside their own transaction, which
+  # broadcast after THEIR commit (`apply_mirror_resolution/3`); a broadcast
+  # from inside the transaction would reach subscribers before the commit,
+  # or for a write that is then rolled back.
+  defp do_update_contact(%Contact{} = contact, attrs) do
+    contact
     |> Contact.changeset(attrs)
     |> repo().update()
   end
@@ -181,6 +192,7 @@ defmodule PhoenixKitCRM.Contacts do
     contact
     |> SoftDelete.trash_changeset(Contact.soft_delete_status())
     |> repo().update()
+    |> announce_to_companies(:member_left)
   end
 
   @spec restore_contact(Contact.t()) :: {:ok, Contact.t()} | {:error, atom() | Ecto.Changeset.t()}
@@ -188,6 +200,7 @@ defmodule PhoenixKitCRM.Contacts do
     contact
     |> SoftDelete.restore_changeset(Contact.statuses())
     |> repo().update()
+    |> announce_to_companies(:member_joined)
   end
 
   def restore_contact(%Contact{}), do: {:error, :not_trashed}
@@ -220,7 +233,22 @@ defmodule PhoenixKitCRM.Contacts do
   """
   @spec delete_contact(Contact.t()) :: {:ok, Contact.t()} | {:error, Ecto.Changeset.t()}
   def delete_contact(%Contact{} = contact) do
+    # The cascade removes the memberships, so the companies to notify are
+    # read inside the transaction, under a row lock on the contact (an FK
+    # insert of a new membership waits on it) — and told after the commit.
+    case do_delete_contact(contact) do
+      {:ok, {deleted, companies}} ->
+        announce_to_companies({:ok, deleted}, :member_left, companies)
+
+      error ->
+        error
+    end
+  end
+
+  defp do_delete_contact(%Contact{} = contact) do
     repo().transaction(fn ->
+      companies = locked_company_uuids_for(contact)
+
       affected_list_uuids =
         ListMember
         |> where([m], m.contact_uuid == ^contact.uuid and m.status == "subscribed")
@@ -234,7 +262,7 @@ defmodule PhoenixKitCRM.Contacts do
           # The party-role rows are soft references with no FK, so nothing
           # else removes them.
           PartyRoles.delete_roles_for("contact", contact.uuid)
-          deleted
+          {deleted, companies}
 
         {:error, changeset} ->
           repo().rollback(changeset)
@@ -312,12 +340,37 @@ defmodule PhoenixKitCRM.Contacts do
           {:ok, CompanyMembership.t() | nil} | {:error, Ecto.Changeset.t()}
   def set_primary_company(%Contact{} = contact, company_uuid, _role, _department)
       when company_uuid in [nil, ""] do
-    clear_memberships(contact)
+    # The companies left are read inside the transaction, under the row
+    # lock, so a membership committed concurrently is neither missed nor
+    # announced for a page that never showed it.
+    {:ok, previous} =
+      repo().transaction(fn ->
+        previous = locked_company_uuids_for(contact)
+        clear_memberships(contact)
+        previous
+      end)
+
+    PubSub.broadcast_company_event(:member_left, previous, contact.uuid)
     {:ok, nil}
   end
 
   def set_primary_company(%Contact{} = contact, company_uuid, role, department) do
+    # Told after the commit: the company the contact left refreshes its
+    # roster, and so does the one it joined.
+    case do_set_primary_company(contact, company_uuid, role, department) do
+      {:ok, {membership, previous}} ->
+        PubSub.broadcast_company_event(:member_left, previous -- [company_uuid], contact.uuid)
+        PubSub.broadcast_company_event(:member_joined, [company_uuid], contact.uuid)
+        {:ok, membership}
+
+      error ->
+        error
+    end
+  end
+
+  defp do_set_primary_company(%Contact{} = contact, company_uuid, role, department) do
     repo().transaction(fn ->
+      previous = locked_company_uuids_for(contact)
       clear_memberships(contact)
 
       result =
@@ -333,7 +386,7 @@ defmodule PhoenixKitCRM.Contacts do
         |> repo().insert()
 
       case result do
-        {:ok, membership} -> membership
+        {:ok, membership} -> {membership, previous}
         {:error, changeset} -> repo().rollback(changeset)
       end
     end)
@@ -342,6 +395,34 @@ defmodule PhoenixKitCRM.Contacts do
   defp clear_memberships(%Contact{uuid: uuid}) do
     from(m in CompanyMembership, where: m.contact_uuid == ^uuid) |> repo().delete_all()
   end
+
+  # The companies a contact is a member of — the pages that show it.
+  # Inside a transaction only: locks the contact row (FOR UPDATE), so a
+  # concurrent membership insert referencing it waits until commit, then
+  # reads the memberships as they are at that moment.
+  defp locked_company_uuids_for(%Contact{uuid: uuid} = contact) do
+    repo().one(from(c in Contact, where: c.uuid == ^uuid, lock: "FOR UPDATE"))
+    company_uuids_for(contact)
+  end
+
+  defp company_uuids_for(%Contact{uuid: uuid}) do
+    from(m in CompanyMembership, where: m.contact_uuid == ^uuid, select: m.company_uuid)
+    |> repo().all()
+  end
+
+  # Tell every company page showing this contact that its roster changed.
+  # A contact's name, status or existence is rendered on its companies'
+  # Members tab (and counted in the heading), which otherwise only reloaded
+  # with the page. Pass-through on error; the companies are read from the
+  # current memberships unless the caller captured them first (delete).
+  defp announce_to_companies(result, event, companies \\ nil)
+
+  defp announce_to_companies({:ok, %Contact{} = contact} = result, event, companies) do
+    PubSub.broadcast_company_event(event, companies || company_uuids_for(contact), contact.uuid)
+    result
+  end
+
+  defp announce_to_companies(result, _event, _companies), do: result
 
   # ── Optional login-user connection (staff-style find-or-create) ─────
 
@@ -522,19 +603,30 @@ defmodule PhoenixKitCRM.Contacts do
         crm: crm_deltas,
         user: user_deltas
       }) do
-    repo().transaction(fn ->
-      with {:ok, updated_contact} <- maybe_update_contact(contact, crm_deltas),
-           {:ok, updated_user} <- maybe_update_user_profile(user, user_deltas),
-           {:ok, linked} <- link_user(updated_contact, updated_user.uuid) do
-        {linked, updated_user}
-      else
-        {:error, reason} -> repo().rollback(reason)
-      end
-    end)
+    result =
+      repo().transaction(fn ->
+        with {:ok, updated_contact} <- maybe_update_contact(contact, crm_deltas),
+             {:ok, updated_user} <- maybe_update_user_profile(user, user_deltas),
+             {:ok, linked} <- link_user(updated_contact, updated_user.uuid) do
+          {linked, updated_user}
+        else
+          {:error, reason} -> repo().rollback(reason)
+        end
+      end)
+
+    # The contact's companies hear about a rewritten name/email once the
+    # whole resolution has committed — not from inside it.
+    with {:ok, {linked, _user}} <- result do
+      if map_size(crm_deltas) > 0,
+        do:
+          PubSub.broadcast_company_event(:member_changed, company_uuids_for(linked), linked.uuid)
+    end
+
+    result
   end
 
   defp maybe_update_contact(contact, deltas) when map_size(deltas) == 0, do: {:ok, contact}
-  defp maybe_update_contact(contact, deltas), do: update_contact(contact, deltas)
+  defp maybe_update_contact(contact, deltas), do: do_update_contact(contact, deltas)
 
   defp maybe_update_user_profile(user, deltas) when map_size(deltas) == 0, do: {:ok, user}
   defp maybe_update_user_profile(user, deltas), do: Auth.update_user_profile(user, deltas)

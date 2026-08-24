@@ -45,12 +45,13 @@ defmodule PhoenixKitCRM.Web.ComparisonLive do
   @impl true
   def handle_event("toggle_duplicate", %{"email" => email}, socket) do
     if MapSet.member?(socket.assigns.expanded_duplicates, email) do
+      # Drop the cached rows with the expansion: the page is read-only but
+      # other sessions are not, and re-expanding must show the contacts as
+      # they are now, not as they were the first time the group was opened.
       {:noreply,
-       assign(
-         socket,
-         :expanded_duplicates,
-         MapSet.delete(socket.assigns.expanded_duplicates, email)
-       )}
+       socket
+       |> assign(:expanded_duplicates, MapSet.delete(socket.assigns.expanded_duplicates, email))
+       |> assign(:duplicate_contacts, Map.delete(socket.assigns.duplicate_contacts, email))}
     else
       contacts =
         Map.get_lazy(socket.assigns.duplicate_contacts, email, fn ->

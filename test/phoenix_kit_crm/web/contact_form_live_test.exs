@@ -57,6 +57,26 @@ defmodule PhoenixKitCRM.Web.ContactFormLiveTest do
     assert Contacts.get_contact(contact.uuid).name == "Renamed"
   end
 
+  describe "new contact — company preselected from the company page" do
+    test "?company_uuid= preselects that company", %{conn: conn} do
+      {:ok, company} = PhoenixKitCRM.Companies.create_company(%{"name" => "Initech"})
+
+      {:ok, view, html} = live(conn, "/en/admin/crm/contacts/new?company_uuid=#{company.uuid}")
+
+      assert html =~
+               ~r{<option[^>]*value="#{company.uuid}"[^>]*selected|<option[^>]*selected[^>]*value="#{company.uuid}"}
+
+      assert :sys.get_state(view.pid).socket.assigns.company_uuid == company.uuid
+    end
+
+    test "an unknown company uuid leaves the field empty", %{conn: conn} do
+      {:ok, view, _html} =
+        live(conn, "/en/admin/crm/contacts/new?company_uuid=#{Ecto.UUID.generate()}")
+
+      assert :sys.get_state(view.pid).socket.assigns.company_uuid == nil
+    end
+  end
+
   describe "locale" do
     test "creating a contact with a locale persists it", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/new")

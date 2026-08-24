@@ -232,6 +232,25 @@ defmodule PhoenixKitCRM.Web.ListMembersLiveTest do
     end
   end
 
+  describe "locale apply modal" do
+    # The preview was a snapshot from when the modal opened; a member added
+    # elsewhere (this arrives over the real crm:lists broadcast) changed the
+    # number the confirm promised.
+    test "the affected count follows members added while the modal is open", %{conn: conn} do
+      list = list_fixture(%{"locale" => "et"})
+      {:ok, _} = Lists.add_contact_to_list(contact_fixture(%{"locale" => nil}), list)
+
+      {:ok, view, _html} = live(conn, "/en/admin/crm/lists/#{list.uuid}/members")
+
+      html = render_click(view, "open_locale_modal", %{})
+      assert html =~ "1 subscribed contact will be affected."
+
+      {:ok, _} = Lists.add_contact_to_list(contact_fixture(%{"locale" => nil}), list)
+
+      assert render(view) =~ "2 subscribed contacts will be affected."
+    end
+  end
+
   describe "locale" do
     test "the members table shows each member's contact locale, dash when blank", %{conn: conn} do
       list = list_fixture()

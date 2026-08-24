@@ -217,7 +217,7 @@ defmodule PhoenixKitCRM.Web.ListMembersLive do
   # ── Private helpers ─────────────────────────────────────────────────
 
   defp load_members(socket) do
-    socket = fetch_members(socket)
+    socket = socket |> fetch_members() |> refresh_locale_preview()
 
     # No real total-pages here (this page's pagination is the "peek at
     # limit+1" has_more? scheme, not a COUNT query) — but an out-of-range
@@ -233,6 +233,15 @@ defmodule PhoenixKitCRM.Web.ListMembersLive do
       socket
     end
   end
+
+  # The "N contacts will be affected" number in the open locale modal is a
+  # snapshot from when it opened; a member added or removed elsewhere (this
+  # reload runs on those broadcasts) changes it, and the confirm would then
+  # promise one number and the flash report another.
+  defp refresh_locale_preview(%{assigns: %{show_locale_modal: true, list: list}} = socket),
+    do: assign(socket, :locale_preview, Lists.locale_apply_preview(list))
+
+  defp refresh_locale_preview(socket), do: socket
 
   defp fetch_members(socket) do
     %{list: list, filter: filter, page: page, search: search} = socket.assigns

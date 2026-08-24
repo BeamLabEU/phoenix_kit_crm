@@ -51,6 +51,12 @@ defmodule PhoenixKitCRM.Test.Router do
       live("/lists/:uuid/members", ListMembersLive, :index)
       live("/lists/:uuid/import", ListImportLive, :index)
       live("/comparison", ComparisonLive, :index)
+
+      # Production reaches both through core's auto-routes (a role subtab
+      # registered at runtime; the settings tab); routed here so their
+      # LiveViews can be driven by tests.
+      live("/roles/:role_uuid", RoleView, :index, as: :crm_role)
+      live("/settings", SettingsLive, :index, as: :crm_settings)
     end
   end
 end
