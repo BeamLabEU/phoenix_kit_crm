@@ -190,6 +190,27 @@ defmodule PhoenixKitCRM.Web.OrganizationsViewMirrorTest do
       assert updated.user_uuid == user.uuid
     end
 
+    # "Keep CRM" rewrites the USER's organization name; the row renders that
+    # straight off @users, which used to keep the old struct until a reload.
+    test "resolving keep_crm updates the user's row on screen", %{conn: conn} do
+      shared_email = "shared-#{unique()}@example.test"
+      user = org_user_fixture(%{"organization_name" => "Acme GmbH", "email" => shared_email})
+      company = company_fixture(%{"name" => "Acme Ltd", "email" => shared_email})
+
+      {:ok, view, _html} = view(conn)
+
+      render_submit(view, "mirror_link_company", %{
+        "user_uuid" => user.uuid,
+        "company_uuid" => company.uuid
+      })
+
+      html = render_submit(view, "mirror_resolve", %{"choices" => %{"name" => "keep_crm"}})
+
+      assert Auth.get_user(user.uuid).organization_name == "Acme Ltd"
+      assert html =~ "Acme Ltd"
+      refute html =~ "Acme GmbH"
+    end
+
     test "resolving keep_crm keeps the company's name", %{conn: conn} do
       shared_email = "shared-#{unique()}@example.test"
       user = org_user_fixture(%{"organization_name" => "Acme GmbH", "email" => shared_email})

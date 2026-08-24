@@ -10,6 +10,7 @@ defmodule PhoenixKitCRM.Web.CompanyInteractionsComponent do
   use PhoenixKitWeb, :live_component
   use Gettext, backend: PhoenixKitCRM.Gettext
 
+  import PhoenixKitCRM.Web.Components.TabIntro, only: [tab_intro: 1]
   import PhoenixKitCRM.Web.InteractionHelpers, only: [party_badge: 1]
 
   alias PhoenixKit.Modules.Storage
@@ -18,13 +19,23 @@ defmodule PhoenixKitCRM.Web.CompanyInteractionsComponent do
 
   @impl true
   def update(assigns, socket) do
-    socket = assign_new(assign(socket, assigns), :tz_offset, fn -> 0 end)
+    socket =
+      socket
+      |> assign(assigns)
+      |> assign_new(:tz_offset, fn -> 0 end)
+      # The host's roster — the links to "log one on a member's page".
+      |> assign_new(:members, fn -> [] end)
+
     company_uuid = socket.assigns.company.uuid
 
-    # Read-only rollup with no live refresh — only re-query when the company
-    # changes, so an unrelated host re-render (tab switch, flash) doesn't replay
-    # the ~5-7 queries.
-    if socket.assigns[:loaded_company_uuid] == company_uuid do
+    # Read-only rollup: re-query only when the company changes or the host
+    # hands in a new `:refresh_token` (its PubSub-driven send_update after a
+    # member's interaction changed), so an unrelated host re-render (tab
+    # switch, flash) doesn't replay the ~5-7 queries.
+    token = socket.assigns[:refresh_token]
+
+    if socket.assigns[:loaded_company_uuid] == company_uuid and
+         socket.assigns[:loaded_token] == token do
       {:ok, socket}
     else
       interactions = Interactions.list_for_contacts(member_contact_uuids(company_uuid))
@@ -38,7 +49,8 @@ defmodule PhoenixKitCRM.Web.CompanyInteractionsComponent do
        socket
        |> assign(:interactions, interactions)
        |> assign(:interaction_files, interaction_files)
-       |> assign(:loaded_company_uuid, company_uuid)}
+       |> assign(:loaded_company_uuid, company_uuid)
+       |> assign(:loaded_token, token)}
     end
   end
 
@@ -67,8 +79,15 @@ defmodule PhoenixKitCRM.Web.CompanyInteractionsComponent do
           <.icon name="hero-chat-bubble-left-right" class="w-5 h-5" />
           {gettext("Interactions")} ({length(@interactions)})
         </h2>
-        <p class="text-xs text-base-content/50 -mt-1">
-          {gettext("Logged on this company's contacts. Click a name to open their page.")}
+        <%!-- Interactions are logged on a PERSON (the interaction's subject is
+             a contact), so this tab is a rollup; the sentence says where the
+             way in is — the names in the list below are the links. --%>
+        <.tab_intro
+          text={gettext("Everything logged on this company's contacts, newest first. An interaction is logged on the contact's own page.")}
+          class="-mt-1"
+        />
+        <p :if={@members == []} class="text-sm text-base-content/60 -mt-2">
+          {gettext("This company has no contacts yet — add one on the Members tab first.")}
         </p>
 
         <.empty_state

@@ -156,6 +156,27 @@ defmodule PhoenixKitCRM.Web.CompanyFormMirrorTest do
       assert Companies.get_company(company.uuid).user_uuid == user.uuid
     end
 
+    test "after keep_user the Name input shows the resolved value and Save keeps it",
+         %{conn: conn} do
+      shared_email = "shared-#{unique()}@example.test"
+      company = company_fixture(%{"name" => "Acme", "email" => shared_email})
+      user = org_user_fixture(%{"organization_name" => "Acme GmbH", "email" => shared_email})
+
+      {:ok, view, _html} = edit(conn, company)
+      render_submit(view, "mirror_link", %{"user_uuid" => user.uuid})
+
+      html = render_submit(view, "mirror_resolve", %{"choices" => %{"name" => "keep_user"}})
+
+      assert html =~ ~s(value="Acme GmbH")
+      refute html =~ ~s(value="Acme")
+
+      view
+      |> form("form[phx-submit=save]")
+      |> render_submit()
+
+      assert Companies.get_company(company.uuid).name == "Acme GmbH"
+    end
+
     test "resolving keep_user writes the user's org name onto the company", %{conn: conn} do
       shared_email = "shared-#{unique()}@example.test"
       company = company_fixture(%{"name" => "Acme", "email" => shared_email})

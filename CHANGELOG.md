@@ -4,6 +4,54 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.8.0 - 2026-08-24
+
+### Added
+
+- **Live company page** (#27). The Members roster, Interactions rollup, Events
+  tab and Catalogue tab follow other sessions without a reload: contacts
+  announce join / leave / rename on a per-company topic after commit; the page
+  keeps a per-member interaction subscription set in sync with the roster and
+  drops the previous company's subscriptions when the uuid changes; the
+  Catalogue tab follows the catalogue module on the host PubSub (core's
+  internal server never hears those broadcasts).
+- **Tab intros** on the contact and company show pages — one line under each
+  heading saying what the tab lists and how something gets into it. The
+  Members tab's "New contact for this company" link opens the contact form
+  with that company preselected.
+
+### Changed
+
+- Mirror resolution rebuilds the contact/company form from the resolved
+  record (keeping the operator's unsaved draft on every other field) so Save
+  cannot silently undo the choice just made. Organizations view swaps the
+  rewritten user into its rows.
+- CRM settings remounts after a role toggle so the sidebar re-reads the
+  dashboard registry (which broadcasts badge updates only, never
+  registrations).
+- Role view reloads the user→contact map from `columns_saved/1` when the
+  "CRM contact" column is ticked on.
+
+### Fixed
+
+- Contact Files tab's interaction attachment roll-up refreshes when an
+  interaction is created or deleted elsewhere.
+- List-members locale-apply preview recomputes while the modal is open, so
+  the confirm number matches the flash.
+- Comparison page: re-expanding a duplicate-email group re-queries both the
+  rows and the group list / count badge. A pair that is no longer duplicated
+  leaves the page instead of sitting at "2 contacts" over a one-row
+  drill-down. Group keys are lowercased so a citext `GROUP BY` cannot flip
+  `alice@x` / `ALICE@X` between queries and drop the expanded rows.
+- Company Catalogue tab also refreshes on `:category` (a default column of
+  the embedded items table). `:supplier` / `:manufacturer` / `:links` were
+  already in the follow-up to #27.
+- `delete_contact/1` and `set_primary_company/4` read the companies to
+  notify inside their transactions under a row lock, so a concurrent
+  membership is neither missed nor announced for a page that never showed it.
+- Mirror resolution broadcasts the contact change once, after its own
+  commit — not from inside the transaction.
+
 ## 0.7.2 - 2026-08-22
 
 ### Changed

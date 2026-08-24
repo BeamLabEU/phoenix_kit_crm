@@ -26,6 +26,7 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   # Not part of `use PhoenixKitWeb, :live_view`'s auto-imports (see
   # `user_details.ex:12-14`) — explicit import needed for the Orders tab's
   # row-link overlay.
+  import PhoenixKitCRM.Web.Components.TabIntro, only: [tab_intro: 1]
   import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
 
   alias PhoenixKit.Modules.Storage
@@ -123,6 +124,15 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
 
         "events" ->
           send_update(EventsComponent, id: "crm-events-#{socket.assigns.contact.uuid}")
+
+        # The Files tab rolls up the files attached to this contact's
+        # interactions; an interaction created with attachments or deleted
+        # (which purges its folder) changes that list and its count.
+        "files" ->
+          send_update(MediaComponent,
+            id: "crm-files-#{socket.assigns.contact.uuid}",
+            refresh_token: System.unique_integer([:monotonic])
+          )
 
         _ ->
           :ok
@@ -420,7 +430,10 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
         </.table_default>
       </div>
 
-      <div :if={@tab == "events"}>
+      <div :if={@tab == "events"} class="flex flex-col gap-3">
+        <.tab_intro text={
+          gettext("What happened to this record — edits, links, role changes — as recorded automatically. Nothing is added here by hand.")
+        } />
         <.live_component
           module={EventsComponent}
           id={"crm-events-#{@contact.uuid}"}
@@ -430,7 +443,10 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
         />
       </div>
 
-      <div :if={@tab == "files"}>
+      <div :if={@tab == "files"} class="flex flex-col gap-3">
+        <.tab_intro text={
+          gettext("Documents kept on this contact, added here — plus, below them, the files attached to this contact's interactions.")
+        } />
         <.live_component
           module={MediaComponent}
           id={"crm-files-#{@contact.uuid}"}
@@ -452,7 +468,8 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
         />
       </div>
 
-      <div :if={@tab == "comments"}>
+      <div :if={@tab == "comments"} class="flex flex-col gap-3">
+        <.tab_intro text={gettext("Notes about this person, written here.")} />
         <.live_component
           module={PhoenixKitComments.Web.CommentsComponent}
           id={"crm-contact-comments-#{@contact.uuid}"}

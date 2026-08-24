@@ -18,6 +18,14 @@ defmodule PhoenixKitCRM.Paths do
   # ── Contacts ────────────────────────────────────────────────────────
   def contacts, do: Routes.path("#{@base}/contacts")
   def contact_new, do: Routes.path("#{@base}/contacts/new")
+
+  @doc """
+  The new-contact form with the Company field preselected — the company
+  page's way of adding a member (membership is set from the contact side).
+  """
+  def contact_new(company_uuid: company_uuid) when is_binary(company_uuid),
+    do: Routes.path("#{@base}/contacts/new?company_uuid=#{company_uuid}")
+
   def contact(uuid) when is_binary(uuid), do: Routes.path("#{@base}/contacts/#{uuid}")
   def contact_edit(uuid) when is_binary(uuid), do: Routes.path("#{@base}/contacts/#{uuid}/edit")
 

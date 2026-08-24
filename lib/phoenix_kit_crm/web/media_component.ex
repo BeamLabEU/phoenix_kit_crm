@@ -53,15 +53,28 @@ defmodule PhoenixKitCRM.Web.MediaComponent do
       |> assign(:avatar_uuid, Attachments.avatar_uuid(record))
       |> assign(:avatar_noun, avatar_noun(rtype))
 
-    if socket.assigns[:loaded_key] == key do
-      {:ok, socket}
-    else
-      {:ok,
-       socket
-       |> assign(:folder_uuid, Attachments.folder_uuid(rtype, record.uuid, kind))
-       |> assign(:rollup_files, rollup_files(rtype, record.uuid, kind))
-       |> assign(:loaded_key, key)
-       |> reload()}
+    cond do
+      socket.assigns[:loaded_key] != key ->
+        {:ok,
+         socket
+         |> assign(:folder_uuid, Attachments.folder_uuid(rtype, record.uuid, kind))
+         |> assign(:rollup_files, rollup_files(rtype, record.uuid, kind))
+         |> assign(:loaded_key, key)
+         |> assign(:loaded_token, socket.assigns[:refresh_token])
+         |> reload()}
+
+      # The host's PubSub-driven send_update: the interaction roll-up (files
+      # attached to this contact's interactions) changed under us. Only that
+      # list is re-queried — the folder's own files are managed here and
+      # reloaded after each add/remove already.
+      socket.assigns[:refresh_token] != socket.assigns[:loaded_token] ->
+        {:ok,
+         socket
+         |> assign(:rollup_files, rollup_files(rtype, record.uuid, kind))
+         |> assign(:loaded_token, socket.assigns[:refresh_token])}
+
+      true ->
+        {:ok, socket}
     end
   end
 

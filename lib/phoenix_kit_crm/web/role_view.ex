@@ -84,6 +84,18 @@ defmodule PhoenixKitCRM.Web.RoleView do
     end
   end
 
+  # Ticking the "CRM contact" column on must load the map that column reads,
+  # or every cell renders "—" until a reload; the map is loaded only while the
+  # column is on screen (see load_crm_contacts/2), and a column save does not
+  # re-run handle_params/3.
+  defp columns_saved(socket) do
+    assign(
+      socket,
+      :crm_contacts,
+      load_crm_contacts(socket.assigns.selected_columns, socket.assigns.users)
+    )
+  end
+
   # One query for the whole page instead of one per row. `render/1` runs on
   # every diff (opening the column modal, a card/table toggle), so a per-row
   # lookup in a render helper is a query storm, not just an N+1 on load.
