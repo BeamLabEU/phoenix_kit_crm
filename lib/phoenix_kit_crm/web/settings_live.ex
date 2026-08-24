@@ -5,7 +5,7 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitCRM.Gettext
 
-  alias PhoenixKit.Utils.Routes
+  alias PhoenixKitCRM.Paths
   alias PhoenixKitCRM.RoleSettings
 
   @impl true
@@ -57,7 +57,7 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
         {:noreply,
          socket
          |> put_flash(:info, gettext("Role access updated"))
-         |> push_navigate(to: Routes.path("/admin/settings/crm"))}
+         |> push_navigate(to: Paths.settings())}
 
       _ ->
         {:noreply, put_flash(socket, :error, gettext("Failed to update role access"))}

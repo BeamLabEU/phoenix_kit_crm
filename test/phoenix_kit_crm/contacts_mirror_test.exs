@@ -14,6 +14,7 @@ defmodule PhoenixKitCRM.ContactsMirrorTest do
   use PhoenixKitCRM.DataCase, async: true
 
   alias PhoenixKit.Users.Auth
+  alias PhoenixKitCRM.Companies
   alias PhoenixKitCRM.Contacts
   alias PhoenixKitCRM.Schemas.Contact
 
@@ -290,6 +291,37 @@ defmodule PhoenixKitCRM.ContactsMirrorTest do
       assert linked_contact.name == "Annie K."
       assert linked_user.email == deltas.user.email
       assert linked_contact.user_uuid == user.uuid
+    end
+  end
+
+  describe "company pages hear every roster change" do
+    setup do
+      {:ok, company} = Companies.create_company(%{"name" => "Roster Co"})
+      {:ok, contact} = Contacts.create_contact(%{"name" => "Ros Ter"})
+      {:ok, _} = Contacts.set_primary_company(contact, company.uuid, nil, nil)
+      PhoenixKitCRM.PubSub.subscribe(PhoenixKitCRM.PubSub.topic_company(company.uuid))
+      %{company: company, contact: Contacts.get_contact(contact.uuid)}
+    end
+
+    test "restore announces a join", %{contact: contact} do
+      {:ok, trashed} = Contacts.trash_contact(contact)
+      uuid = contact.uuid
+      # Trashing reads as leaving the roster; restoring as joining it again.
+      assert_receive {:crm, :member_left, %{contact_uuid: ^uuid}}
+      {:ok, _} = Contacts.restore_contact(trashed)
+      assert_receive {:crm, :member_joined, %{contact_uuid: ^uuid}}
+    end
+
+    test "delete announces a leave for the companies held at commit time", %{contact: contact} do
+      uuid = contact.uuid
+      {:ok, _} = Contacts.delete_contact(contact)
+      assert_receive {:crm, :member_left, %{contact_uuid: ^uuid}}
+    end
+
+    test "clearing the primary company announces a leave", %{contact: contact} do
+      uuid = contact.uuid
+      {:ok, nil} = Contacts.set_primary_company(contact, nil, nil, nil)
+      assert_receive {:crm, :member_left, %{contact_uuid: ^uuid}}
     end
   end
 end

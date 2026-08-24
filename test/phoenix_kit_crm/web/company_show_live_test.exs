@@ -100,6 +100,30 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     assert render(view) =~ "Called about the invoice"
   end
 
+  test "the catalogue topic is followed on the HOST PubSub, where the catalogue broadcasts" do
+    # PhoenixKit.PubSubHelper resolves the host server; the catalogue's
+    # Catalogue.PubSub.broadcast/3 publishes there. A subscription on core's
+    # internal server (CRM's own topics) never hears it.
+    :ok = PhoenixKitCRM.PubSub.subscribe_host("phoenix_kit_catalogue")
+    uuid = Ecto.UUID.generate()
+
+    PhoenixKit.PubSubHelper.broadcast(
+      "phoenix_kit_catalogue",
+      {:catalogue_data_changed, :item_supplier_info, uuid, nil}
+    )
+
+    assert_receive {:catalogue_data_changed, :item_supplier_info, ^uuid, nil}
+
+    :ok = PhoenixKitCRM.PubSub.unsubscribe_host("phoenix_kit_catalogue")
+
+    PhoenixKit.PubSubHelper.broadcast(
+      "phoenix_kit_catalogue",
+      {:catalogue_data_changed, :item, uuid, nil}
+    )
+
+    refute_receive {:catalogue_data_changed, :item, _, _}, 100
+  end
+
   test "a catalogue change message is ignored when the catalogue is not available",
        %{conn: conn} do
     {:ok, company} = Companies.create_company(%{"name" => "Initech"})

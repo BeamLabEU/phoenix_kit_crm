@@ -233,17 +233,22 @@ defmodule PhoenixKitCRM.Contacts do
   """
   @spec delete_contact(Contact.t()) :: {:ok, Contact.t()} | {:error, Ecto.Changeset.t()}
   def delete_contact(%Contact{} = contact) do
-    # The cascade removes the memberships, so the companies to notify have
-    # to be read before the delete — and told after the commit.
-    companies = company_uuids_for(contact)
+    # The cascade removes the memberships, so the companies to notify are
+    # read inside the transaction, under a row lock on the contact (an FK
+    # insert of a new membership waits on it) — and told after the commit.
+    case do_delete_contact(contact) do
+      {:ok, {deleted, companies}} ->
+        announce_to_companies({:ok, deleted}, :member_left, companies)
 
-    contact
-    |> do_delete_contact()
-    |> announce_to_companies(:member_left, companies)
+      error ->
+        error
+    end
   end
 
   defp do_delete_contact(%Contact{} = contact) do
     repo().transaction(fn ->
+      companies = locked_company_uuids_for(contact)
+
       affected_list_uuids =
         ListMember
         |> where([m], m.contact_uuid == ^contact.uuid and m.status == "subscribed")
@@ -257,7 +262,7 @@ defmodule PhoenixKitCRM.Contacts do
           # The party-role rows are soft references with no FK, so nothing
           # else removes them.
           PartyRoles.delete_roles_for("contact", contact.uuid)
-          deleted
+          {deleted, companies}
 
         {:error, changeset} ->
           repo().rollback(changeset)
@@ -335,29 +340,37 @@ defmodule PhoenixKitCRM.Contacts do
           {:ok, CompanyMembership.t() | nil} | {:error, Ecto.Changeset.t()}
   def set_primary_company(%Contact{} = contact, company_uuid, _role, _department)
       when company_uuid in [nil, ""] do
-    previous = company_uuids_for(contact)
-    clear_memberships(contact)
+    # The companies left are read inside the transaction, under the row
+    # lock, so a membership committed concurrently is neither missed nor
+    # announced for a page that never showed it.
+    {:ok, previous} =
+      repo().transaction(fn ->
+        previous = locked_company_uuids_for(contact)
+        clear_memberships(contact)
+        previous
+      end)
+
     PubSub.broadcast_company_event(:member_left, previous, contact.uuid)
     {:ok, nil}
   end
 
   def set_primary_company(%Contact{} = contact, company_uuid, role, department) do
-    previous = company_uuids_for(contact)
-
-    result = do_set_primary_company(contact, company_uuid, role, department)
-
     # Told after the commit: the company the contact left refreshes its
     # roster, and so does the one it joined.
-    with {:ok, _} <- result do
-      PubSub.broadcast_company_event(:member_left, previous -- [company_uuid], contact.uuid)
-      PubSub.broadcast_company_event(:member_joined, [company_uuid], contact.uuid)
-    end
+    case do_set_primary_company(contact, company_uuid, role, department) do
+      {:ok, {membership, previous}} ->
+        PubSub.broadcast_company_event(:member_left, previous -- [company_uuid], contact.uuid)
+        PubSub.broadcast_company_event(:member_joined, [company_uuid], contact.uuid)
+        {:ok, membership}
 
-    result
+      error ->
+        error
+    end
   end
 
   defp do_set_primary_company(%Contact{} = contact, company_uuid, role, department) do
     repo().transaction(fn ->
+      previous = locked_company_uuids_for(contact)
       clear_memberships(contact)
 
       result =
@@ -373,7 +386,7 @@ defmodule PhoenixKitCRM.Contacts do
         |> repo().insert()
 
       case result do
-        {:ok, membership} -> membership
+        {:ok, membership} -> {membership, previous}
         {:error, changeset} -> repo().rollback(changeset)
       end
     end)
@@ -384,6 +397,14 @@ defmodule PhoenixKitCRM.Contacts do
   end
 
   # The companies a contact is a member of — the pages that show it.
+  # Inside a transaction only: locks the contact row (FOR UPDATE), so a
+  # concurrent membership insert referencing it waits until commit, then
+  # reads the memberships as they are at that moment.
+  defp locked_company_uuids_for(%Contact{uuid: uuid} = contact) do
+    repo().one(from(c in Contact, where: c.uuid == ^uuid, lock: "FOR UPDATE"))
+    company_uuids_for(contact)
+  end
+
   defp company_uuids_for(%Contact{uuid: uuid}) do
     from(m in CompanyMembership, where: m.contact_uuid == ^uuid, select: m.company_uuid)
     |> repo().all()

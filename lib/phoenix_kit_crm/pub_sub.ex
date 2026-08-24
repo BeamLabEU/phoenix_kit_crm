@@ -47,6 +47,20 @@ defmodule PhoenixKitCRM.PubSub do
   def unsubscribe(topic), do: Manager.unsubscribe(topic)
 
   @doc """
+  Subscribes to a topic on the HOST app's PubSub — the server other
+  phoenix_kit modules broadcast on through `PhoenixKit.PubSubHelper`
+  (the catalogue's `"phoenix_kit_catalogue"` topic). CRM's own topics live
+  on core's internal server (`subscribe/1`); a cross-module subscription
+  made there never hears anything (review finding, 2026-08-24).
+  """
+  @spec subscribe_host(String.t()) :: :ok | {:error, term()}
+  def subscribe_host(topic), do: PhoenixKit.PubSubHelper.subscribe(topic)
+
+  @spec unsubscribe_host(String.t()) :: :ok
+  def unsubscribe_host(topic),
+    do: Phoenix.PubSub.unsubscribe(PhoenixKit.PubSubHelper.pubsub(), topic)
+
+  @doc """
   Fans an interaction change out to every involved contact's feed topic.
 
   Best-effort: never raises out to the caller — a saved interaction must not be

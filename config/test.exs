@@ -21,6 +21,9 @@ config :phoenix_kit_crm, PhoenixKitCRM.Test.Repo,
   pool_size: System.schedulers_online() * 2
 
 config :phoenix_kit, repo: PhoenixKitCRM.Test.Repo
+# The host PubSub other modules broadcast on (PhoenixKit.PubSubHelper) —
+# the CRM subscribes to the catalogue topic there; see PubSub.subscribe_host/1.
+config :phoenix_kit, pubsub: PhoenixKitCRM.Test.PubSub
 
 # Test Endpoint for the LiveView suite. phoenix_kit_crm has no endpoint of its
 # own in production — the host app provides one — so this exists only for

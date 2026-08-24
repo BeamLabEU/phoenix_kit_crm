@@ -71,6 +71,9 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
         {:noreply,
          socket
+         # Subscribe BEFORE the reads below: a write committed between the
+         # read and the subscription would otherwise be missed.
+         |> subscribe_live(company, catalogue_enabled)
          |> assign(:company, company)
          |> assign(:tab, tab)
          |> assign(:storage_enabled, storage_enabled)
@@ -88,7 +91,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
          |> assign(:page_section_path, Paths.companies())
          |> assign(:memberships, Companies.list_memberships(company.uuid))
          |> assign(:mirror_user, mirror_user(company))
-         |> subscribe_live(company, catalogue_enabled)}
+         |> sync_member_subscriptions()}
     end
   end
 
@@ -102,26 +105,47 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   # and once per member contact for the interaction feeds — re-synced when
   # the roster changes, so a new member's feed is followed too.
   defp subscribe_live(socket, company, catalogue_enabled?) do
-    previous = socket.assigns.subscribed_company
-
-    if connected?(socket) and previous != company.uuid do
-      # Switching company inside one process (a patch to another uuid) must
-      # drop the old company's topic and member feeds, or they keep
-      # refreshing this page for the life of the socket.
-      if previous, do: CRMPubSub.unsubscribe(CRMPubSub.topic_company(previous))
-      CRMPubSub.subscribe(CRMPubSub.topic_company(company.uuid))
-
-      # The catalogue topic is process-wide, not per company: once.
-      if catalogue_enabled? and not socket.assigns.subscribed_catalogue do
-        CRMPubSub.subscribe(@catalogue_topic)
-      end
-
+    if connected?(socket) do
       socket
-      |> assign(:subscribed_company, company.uuid)
-      |> assign(:subscribed_catalogue, catalogue_enabled? or socket.assigns.subscribed_catalogue)
-      |> sync_member_subscriptions()
+      |> subscribe_company(company)
+      |> sync_catalogue_subscription(catalogue_enabled?)
     else
       socket
+    end
+  end
+
+  # Switching company inside one process (a patch to another uuid) must
+  # drop the old company's topic, or it keeps refreshing this page for the
+  # life of the socket. The member feeds are re-synced once the new roster
+  # is loaded (`sync_member_subscriptions/1`).
+  defp subscribe_company(socket, company) do
+    previous = socket.assigns.subscribed_company
+
+    if previous != company.uuid do
+      if previous, do: CRMPubSub.unsubscribe(CRMPubSub.topic_company(previous))
+      CRMPubSub.subscribe(CRMPubSub.topic_company(company.uuid))
+      assign(socket, :subscribed_company, company.uuid)
+    else
+      socket
+    end
+  end
+
+  # The catalogue topic is process-wide, not per company, and lives on the
+  # HOST PubSub (the catalogue broadcasts through PhoenixKit.PubSubHelper).
+  # Reconciled on every request so enabling the module mid-session
+  # subscribes and disabling it unsubscribes.
+  defp sync_catalogue_subscription(socket, enabled?) do
+    case {enabled?, socket.assigns.subscribed_catalogue} do
+      {true, false} ->
+        CRMPubSub.subscribe_host(@catalogue_topic)
+        assign(socket, :subscribed_catalogue, true)
+
+      {false, true} ->
+        CRMPubSub.unsubscribe_host(@catalogue_topic)
+        assign(socket, :subscribed_catalogue, false)
+
+      _ ->
+        socket
     end
   end
 
@@ -220,8 +244,11 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   # The catalogue module's own topic: a supplier row or item changed
   # somewhere. The Catalogue tab's counts and tables are re-derived; other
   # kinds (folders, PDFs, …) carry nothing this page shows.
+  # `:supplier` / `:manufacturer` / `:links` are the party rows and their
+  # CRM-company links — what decides which items count as "supplied by"
+  # this company at all.
   def handle_info({:catalogue_data_changed, kind, _uuid, _}, socket)
-      when kind in [:item_supplier_info, :item, :catalogue] do
+      when kind in [:item_supplier_info, :item, :catalogue, :supplier, :manufacturer, :links] do
     if socket.assigns.catalogue_enabled,
       do: {:noreply, assign_catalogue(socket, true, socket.assigns.company)},
       else: {:noreply, socket}
