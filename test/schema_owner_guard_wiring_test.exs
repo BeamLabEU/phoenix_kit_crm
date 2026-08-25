@@ -16,6 +16,8 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
 
   use ExUnit.Case, async: false
 
+  alias PhoenixKitCRM.Test.SchemaMigration
+
   # Round 6 (Kimi): fixed, literal DB names are the one remaining real risk
   # once the comparison itself is sound — two concurrent `mix test` runs
   # against the same shared Postgres instance (the exact "migration_test_db"
@@ -214,7 +216,7 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
     Postgrex.query!(
       seeder,
       "DELETE FROM schema_migrations WHERE version = $1",
-      [PhoenixKitCRM.Test.SchemaMigration.migrator_version()]
+      [SchemaMigration.migrator_version()]
     )
 
     before_dump = schema_dump(foreign_db, admin_opts)
