@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.8.1 - 2026-08-25
+
+### Added
+
+- **SchemaOwnerGuard** (#28). When `PGDATABASE` points the test suite at a
+  shared Postgres database, `Ecto.Migrator`'s `schema_migrations` bookkeeping
+  is keyed only by version number with no package namespace — another
+  package's already-applied migration can silently mask this package's
+  migration of the same number. The guard stamps an owner marker on
+  `schema_migrations` after a successful boot and refuses (with a clear
+  error) any future boot that finds a marker naming a different package,
+  instead of silently colliding.
+
+### Changed
+
+- Dependency bump: `phoenix_kit` 2.13.7 → 2.13.8, `phoenix_kit_comments`
+  0.4.2 → 0.4.3.
+
 ## 0.8.0 - 2026-08-24
 
 ### Added
