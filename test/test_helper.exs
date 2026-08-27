@@ -9,10 +9,17 @@ if File.dir?(test_support_ebin) do
 end
 
 alias PhoenixKitCRM.Test.Repo, as: TestRepo
+alias PhoenixKitCRM.Test.LiveDatabaseGuard
 alias PhoenixKitCRM.Test.SchemaOwnerGuard
 
 db_config = Application.get_env(:phoenix_kit_crm, TestRepo, [])
 db_name = db_config[:database] || "phoenix_kit_crm_test"
+
+# S014: refuse before anything else touches the database — see
+# PhoenixKitCRM.Test.LiveDatabaseGuard's moduledoc for why this exists
+# alongside (not instead of) SchemaOwnerGuard and the external `pk-test`
+# wrapper.
+LiveDatabaseGuard.check!(db_name)
 
 db_check =
   try do
