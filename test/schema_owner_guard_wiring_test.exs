@@ -41,6 +41,86 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
   # this test's signal is about the guard's wiring, not about that chain.
   @template_db "phoenix_kit_crm_test"
 
+  # I165/crm#29: `CREATE DATABASE ... TEMPLATE` refuses while any other
+  # session is connected to the template, and the running suite's own
+  # TestRepo pool holds exactly such sessions against @template_db for as
+  # long as `mix test` is up — which is the only circumstance under which
+  # this test ever runs. Taking the pool down for the clone (tried first)
+  # is not safe here: this suite runs `async: false` modules *concurrently*
+  # with `async: true` ones, not strictly after them, so stopping the
+  # shared repo mid-suite broke unrelated LiveView tests that happened to
+  # be running at the same time (`could not lookup Ecto repo
+  # PhoenixKitCRM.Test.Repo because it was not started`, confirmed via a
+  # full `mix test` run).
+  #
+  # `pg_dump | psql` sidesteps the exclusivity requirement entirely: a plain
+  # dump takes a normal read-only transaction, the same kind any other
+  # query is allowed to run alongside. Schema AND data both come across
+  # (not `--schema-only`, unlike `schema_dump/2` below) — `schema_migrations`
+  # ROWS have to make the trip too, or `PhoenixKit.Migration.ensure_current/2`
+  # in the cloned boot no longer sees the chain as already applied and runs
+  # it from scratch, the exact slow/flaky cold-boot path the moduledoc above
+  # says to avoid.
+  #
+  # Review finding (PR crm#30): piping directly through `sh -c "pg_dump |
+  # psql"` reports the PIPELINE's exit status as psql's alone (POSIX shells
+  # without `pipefail`, which dash — Alpine's /bin/sh — doesn't have) — a
+  # `pg_dump` that dies mid-stream still lets `psql` exit 0 on whatever
+  # partial input it received, so a broken clone would read as a passing
+  # `:ok` here and a green test on an INCOMPLETE database. Dumping to an
+  # intermediate file with two separate `System.cmd/3` calls, each pattern-
+  # matched on its own exit code, removes the masking: either step failing
+  # now crashes this function (and the test) instead of silently continuing.
+  defp clone_from_template!(admin, admin_opts, target_db) do
+    Postgrex.query!(admin, "CREATE DATABASE #{target_db}", [])
+
+    dump_path = Path.join(System.tmp_dir!(), "i067_wiring_dump_#{unique_suffix()}.sql")
+    on_exit(fn -> File.rm(dump_path) end)
+
+    pg_env = [{"PGPASSWORD", admin_opts[:password]}]
+
+    {_output, 0} =
+      System.cmd(
+        "pg_dump",
+        [
+          "-h",
+          to_string(admin_opts[:hostname]),
+          "-p",
+          to_string(admin_opts[:port]),
+          "-U",
+          admin_opts[:username],
+          "-f",
+          dump_path,
+          @template_db
+        ],
+        env: pg_env,
+        stderr_to_stdout: true
+      )
+
+    {_output, 0} =
+      System.cmd(
+        "psql",
+        [
+          "-h",
+          to_string(admin_opts[:hostname]),
+          "-p",
+          to_string(admin_opts[:port]),
+          "-U",
+          admin_opts[:username],
+          "-v",
+          "ON_ERROR_STOP=1",
+          "-q",
+          "-f",
+          dump_path,
+          target_db
+        ],
+        env: pg_env,
+        stderr_to_stdout: true
+      )
+
+    :ok
+  end
+
   setup do
     admin_opts = [
       hostname: System.get_env("PGHOST", "localhost"),
@@ -55,11 +135,7 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
     {:ok, admin} = Postgrex.start_link(admin_opts)
     Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{scratch_db}", [])
 
-    Postgrex.query!(
-      admin,
-      "CREATE DATABASE #{scratch_db} TEMPLATE #{@template_db}",
-      []
-    )
+    :ok = clone_from_template!(admin, admin_opts, scratch_db)
 
     # Round 5: `#{@template_db}` itself carries the "phoenix_kit_crm" marker
     # (stamped by some earlier, legitimate boot against it directly) — found
@@ -169,7 +245,7 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
 
     {:ok, admin} = Postgrex.start_link(admin_opts)
     Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{foreign_db}", [])
-    Postgrex.query!(admin, "CREATE DATABASE #{foreign_db} TEMPLATE #{@template_db}", [])
+    :ok = clone_from_template!(admin, admin_opts, foreign_db)
 
     {:ok, seeder} = Postgrex.start_link(Keyword.put(admin_opts, :database, foreign_db))
     Postgrex.query!(seeder, "DROP EXTENSION IF EXISTS \"uuid-ossp\"", [])
