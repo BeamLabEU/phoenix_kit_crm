@@ -61,18 +61,60 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
   # in the cloned boot no longer sees the chain as already applied and runs
   # it from scratch, the exact slow/flaky cold-boot path the moduledoc above
   # says to avoid.
+  #
+  # Review finding (PR crm#30): piping directly through `sh -c "pg_dump |
+  # psql"` reports the PIPELINE's exit status as psql's alone (POSIX shells
+  # without `pipefail`, which dash — Alpine's /bin/sh — doesn't have) — a
+  # `pg_dump` that dies mid-stream still lets `psql` exit 0 on whatever
+  # partial input it received, so a broken clone would read as a passing
+  # `:ok` here and a green test on an INCOMPLETE database. Dumping to an
+  # intermediate file with two separate `System.cmd/3` calls, each pattern-
+  # matched on its own exit code, removes the masking: either step failing
+  # now crashes this function (and the test) instead of silently continuing.
   defp clone_from_template!(admin, admin_opts, target_db) do
     Postgrex.query!(admin, "CREATE DATABASE #{target_db}", [])
 
-    dump_and_restore =
-      "pg_dump -h #{admin_opts[:hostname]} -p #{admin_opts[:port]} " <>
-        "-U #{admin_opts[:username]} #{@template_db} | " <>
-        "psql -h #{admin_opts[:hostname]} -p #{admin_opts[:port]} " <>
-        "-U #{admin_opts[:username]} -v ON_ERROR_STOP=1 -q #{target_db}"
+    dump_path = Path.join(System.tmp_dir!(), "i067_wiring_dump_#{unique_suffix()}.sql")
+    on_exit(fn -> File.rm(dump_path) end)
+
+    pg_env = [{"PGPASSWORD", admin_opts[:password]}]
 
     {_output, 0} =
-      System.cmd("sh", ["-c", dump_and_restore],
-        env: [{"PGPASSWORD", admin_opts[:password]}],
+      System.cmd(
+        "pg_dump",
+        [
+          "-h",
+          to_string(admin_opts[:hostname]),
+          "-p",
+          to_string(admin_opts[:port]),
+          "-U",
+          admin_opts[:username],
+          "-f",
+          dump_path,
+          @template_db
+        ],
+        env: pg_env,
+        stderr_to_stdout: true
+      )
+
+    {_output, 0} =
+      System.cmd(
+        "psql",
+        [
+          "-h",
+          to_string(admin_opts[:hostname]),
+          "-p",
+          to_string(admin_opts[:port]),
+          "-U",
+          admin_opts[:username],
+          "-v",
+          "ON_ERROR_STOP=1",
+          "-q",
+          "-f",
+          dump_path,
+          target_db
+        ],
+        env: pg_env,
         stderr_to_stdout: true
       )
 
