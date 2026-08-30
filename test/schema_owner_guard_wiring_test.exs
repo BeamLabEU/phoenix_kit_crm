@@ -41,6 +41,44 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
   # this test's signal is about the guard's wiring, not about that chain.
   @template_db "phoenix_kit_crm_test"
 
+  # I165/crm#29: `CREATE DATABASE ... TEMPLATE` refuses while any other
+  # session is connected to the template, and the running suite's own
+  # TestRepo pool holds exactly such sessions against @template_db for as
+  # long as `mix test` is up — which is the only circumstance under which
+  # this test ever runs. Taking the pool down for the clone (tried first)
+  # is not safe here: this suite runs `async: false` modules *concurrently*
+  # with `async: true` ones, not strictly after them, so stopping the
+  # shared repo mid-suite broke unrelated LiveView tests that happened to
+  # be running at the same time (`could not lookup Ecto repo
+  # PhoenixKitCRM.Test.Repo because it was not started`, confirmed via a
+  # full `mix test` run).
+  #
+  # `pg_dump | psql` sidesteps the exclusivity requirement entirely: a plain
+  # dump takes a normal read-only transaction, the same kind any other
+  # query is allowed to run alongside. Schema AND data both come across
+  # (not `--schema-only`, unlike `schema_dump/2` below) — `schema_migrations`
+  # ROWS have to make the trip too, or `PhoenixKit.Migration.ensure_current/2`
+  # in the cloned boot no longer sees the chain as already applied and runs
+  # it from scratch, the exact slow/flaky cold-boot path the moduledoc above
+  # says to avoid.
+  defp clone_from_template!(admin, admin_opts, target_db) do
+    Postgrex.query!(admin, "CREATE DATABASE #{target_db}", [])
+
+    dump_and_restore =
+      "pg_dump -h #{admin_opts[:hostname]} -p #{admin_opts[:port]} " <>
+        "-U #{admin_opts[:username]} #{@template_db} | " <>
+        "psql -h #{admin_opts[:hostname]} -p #{admin_opts[:port]} " <>
+        "-U #{admin_opts[:username]} -v ON_ERROR_STOP=1 -q #{target_db}"
+
+    {_output, 0} =
+      System.cmd("sh", ["-c", dump_and_restore],
+        env: [{"PGPASSWORD", admin_opts[:password]}],
+        stderr_to_stdout: true
+      )
+
+    :ok
+  end
+
   setup do
     admin_opts = [
       hostname: System.get_env("PGHOST", "localhost"),
@@ -55,11 +93,7 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
     {:ok, admin} = Postgrex.start_link(admin_opts)
     Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{scratch_db}", [])
 
-    Postgrex.query!(
-      admin,
-      "CREATE DATABASE #{scratch_db} TEMPLATE #{@template_db}",
-      []
-    )
+    :ok = clone_from_template!(admin, admin_opts, scratch_db)
 
     # Round 5: `#{@template_db}` itself carries the "phoenix_kit_crm" marker
     # (stamped by some earlier, legitimate boot against it directly) — found
@@ -169,7 +203,7 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
 
     {:ok, admin} = Postgrex.start_link(admin_opts)
     Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{foreign_db}", [])
-    Postgrex.query!(admin, "CREATE DATABASE #{foreign_db} TEMPLATE #{@template_db}", [])
+    :ok = clone_from_template!(admin, admin_opts, foreign_db)
 
     {:ok, seeder} = Postgrex.start_link(Keyword.put(admin_opts, :database, foreign_db))
     Postgrex.query!(seeder, "DROP EXTENSION IF EXISTS \"uuid-ossp\"", [])
