@@ -8,8 +8,8 @@ if File.dir?(test_support_ebin) do
   :code.add_patha(to_charlist(test_support_ebin))
 end
 
-alias PhoenixKitCRM.Test.Repo, as: TestRepo
 alias PhoenixKitCRM.Test.LiveDatabaseGuard
+alias PhoenixKitCRM.Test.Repo, as: TestRepo
 alias PhoenixKitCRM.Test.SchemaOwnerGuard
 
 db_config = Application.get_env(:phoenix_kit_crm, TestRepo, [])
