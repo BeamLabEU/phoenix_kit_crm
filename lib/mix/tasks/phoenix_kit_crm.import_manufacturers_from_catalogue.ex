@@ -12,8 +12,11 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportManufacturersFromCatalogue do
 
   The machinery lives in `PhoenixKitCRM.CatalogueImport`; see its
   moduledoc for the behaviour, matching logic and report format. The
-  manufacturer source rows also carry a `description` — it rides into
-  the created company's metadata (a CRM company has no such column).
+  manufacturer source rows also carry a `description` and a `logo_url` —
+  both land in the company columns of the same name, which CRM migrations
+  V02 and V03 added for exactly these rows (V03's brand mark is what
+  `PhoenixKitCRM.PartyRoles.get_manufacturer/1` returns to the catalogue's
+  pickers, so dropping it would blank every imported manufacturer's logo).
 
   Requires core migration V178 (`crm_company_uuid` on the manufacturers
   table — the transition cross-reference the read-side federation in

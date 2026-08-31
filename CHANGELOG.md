@@ -4,6 +4,52 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.9.0 - 2026-08-31
+
+### Added
+
+- **Manufacturers backfill** (#31). `mix
+  phoenix_kit_crm.import_manufacturers_from_catalogue` — the twin the supplier
+  import shipped without. Dry-run by default, `--apply` writes; idempotent via
+  V178's `crm_company_uuid` stamp; matches an existing CRM company by extracted
+  email, then by normalized website, otherwise creates one and grants the
+  `manufacturer` role. Catalogue manufacturers previously kept feeding the item
+  form's dropdown as the old local list while the CRM Companies page's
+  Manufacturers filter showed nothing.
+- **`PhoenixKitCRM.CatalogueImport`** (#31). The supplier task's machinery
+  extracted into one engine parameterized per flow; both mix tasks are thin
+  wrappers and the supplier task keeps its public-for-testing surface as
+  delegators.
+
+### Fixed
+
+- The backfill wrote a source row's `description` into the company's `metadata`
+  map on the premise that a CRM company has no such column. It has one —
+  migration V02 added it for these very rows — so the text was invisible to the
+  company form and every `Company` consumer. Both flows now write the real
+  column (post-merge review of #31).
+- Manufacturer `logo_url` was dropped entirely. Migration V03 added
+  `phoenix_kit_crm_companies.logo_url` so a company could carry the brand mark
+  the catalogue's manufacturer rows held, and `PartyRoles.get_manufacturer/1`
+  returns it to the catalogue's pickers — once a local row was hidden behind
+  its imported party, every imported manufacturer lost its logo. It is now
+  carried across (post-merge review of #31).
+- Two source rows matching one CRM party (two brands on a shared domain or
+  contact email) granted the role and then raised on the stamp, tripping V178's
+  partial unique index and leaving the party listed alongside the still-visible
+  unstamped local row — the split-brain that index exists to prevent. Such a row
+  is now reported as `claimed-by-other` and left untouched, on the supplier path
+  too (post-merge review of #31).
+
+### Changed
+
+- Dependency bump: `phoenix_kit` 2.13.8 → 2.13.17, `phoenix_kit_comments`
+  0.4.3 → 0.4.5, plus `hammer`, `leaf` and `oban` lockfile updates.
+- `PhoenixKitCRM.Schemas.PartyRole`'s moduledoc no longer states that the
+  `manufacturer` role is never granted in bulk — the opt-in backfill above is
+  now a sanctioned path. What still holds is that it is never granted
+  implicitly or from a form.
+
 ## 0.8.1 - 2026-08-25
 
 ### Added

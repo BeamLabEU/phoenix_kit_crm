@@ -22,7 +22,12 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportManufacturersFromCatalogueTest do
       assert config.role == "manufacturer"
       assert config.metadata_source == "cat_manufacturers"
       assert config.metadata_uuid_key == "cat_manufacturer_uuid"
-      assert "description" in config.extra_columns
+
+      # description → V02's column, logo_url → V03's brand mark (the field
+      # PartyRoles.get_manufacturer/1 hands the catalogue's pickers). The
+      # SELECT list is derived from the map, so the two cannot drift.
+      assert config.column_map == %{description: :description, logo_url: :logo_url}
+      assert config.extra_columns == ["description", "logo_url"]
       # The guard message must point at the migration that actually adds
       # this table's xref column (V178, not the suppliers' V149).
       assert config.column_hint =~ "V178"
@@ -121,8 +126,9 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportManufacturersFromCatalogueTest do
       repo.query!(
         """
         INSERT INTO #{table}
-          (uuid, name, status, contact_info, website, notes, description, inserted_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+          (uuid, name, status, contact_info, website, notes, description, logo_url,
+           inserted_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
         """,
         [
           uuid_to_binary(uuid),
@@ -131,7 +137,8 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportManufacturersFromCatalogueTest do
           attrs[:contact_info],
           attrs[:website],
           attrs[:notes],
-          attrs[:description]
+          attrs[:description],
+          attrs[:logo_url]
         ]
       )
 
@@ -164,6 +171,7 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportManufacturersFromCatalogueTest do
           website: nil,
           notes: nil,
           description: nil,
+          logo_url: nil,
           crm_company_uuid: nil
         },
         attrs
@@ -171,7 +179,7 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportManufacturersFromCatalogueTest do
     end
 
     describe "apply mode" do
-      test "creates company, grants MANUFACTURER role, stamps the xref, carries description",
+      test "creates company, grants MANUFACTURER role, stamps the xref, carries the columns",
            %{catalogue_available: true, repo: repo, prefix: prefix} do
         uniq = Ecto.UUID.generate()
 
@@ -179,7 +187,8 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportManufacturersFromCatalogueTest do
           insert_manufacturer(repo, prefix, %{
             name: "Brand New Maker #{uniq}",
             contact_info: "#{uniq}@maker.example",
-            description: "Premium hinge maker"
+            description: "Premium hinge maker",
+            logo_url: "https://cdn.example/#{uniq}.png"
           })
 
         on_exit(fn -> delete_manufacturer(repo, prefix, manufacturer_uuid) end)
@@ -189,7 +198,8 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportManufacturersFromCatalogueTest do
             uuid: manufacturer_uuid,
             name: "Brand New Maker #{uniq}",
             contact_info: "#{uniq}@maker.example",
-            description: "Premium hinge maker"
+            description: "Premium hinge maker",
+            logo_url: "https://cdn.example/#{uniq}.png"
           })
 
         result = CatalogueImport.process_row(row, repo, prefix, true, @config)
@@ -201,13 +211,80 @@ defmodule Mix.Tasks.PhoenixKitCrm.ImportManufacturersFromCatalogueTest do
         assert company
         assert company.metadata["imported_from"] == "cat_manufacturers"
         assert company.metadata["cat_manufacturer_uuid"] == manufacturer_uuid
-        assert company.metadata["description"] == "Premium hinge maker"
+        # The company's OWN columns (V02/V03) — not a metadata blob the
+        # company form and the catalogue's pickers cannot see.
+        assert company.description == "Premium hinge maker"
+        assert company.logo_url == "https://cdn.example/#{uniq}.png"
         assert PartyRoles.has_role?(company, "manufacturer")
         refute PartyRoles.has_role?(company, "supplier")
 
         assert get_crm_uuid(repo, prefix, manufacturer_uuid) == result.company_uuid
 
         on_exit(fn -> Companies.delete_company(company) end)
+      end
+
+      test "a second row matching an already-projected party is left unstamped", %{
+        catalogue_available: true,
+        repo: repo,
+        prefix: prefix
+      } do
+        # V178 allows one projection per party per directory. Two manufacturer
+        # rows sharing a contact email must not both claim one company: the
+        # second stamp would violate the partial unique index after the role
+        # grant had already run.
+        uniq = Ecto.UUID.generate()
+        shared_email = "#{uniq}@shared.example"
+
+        first_uuid =
+          insert_manufacturer(repo, prefix, %{
+            name: "Shared Domain A #{uniq}",
+            contact_info: shared_email
+          })
+
+        second_uuid =
+          insert_manufacturer(repo, prefix, %{
+            name: "Shared Domain B #{uniq}",
+            contact_info: shared_email
+          })
+
+        on_exit(fn ->
+          delete_manufacturer(repo, prefix, first_uuid)
+          delete_manufacturer(repo, prefix, second_uuid)
+        end)
+
+        first =
+          CatalogueImport.process_row(
+            manufacturer_map(%{
+              uuid: first_uuid,
+              name: "Shared Domain A #{uniq}",
+              contact_info: shared_email
+            }),
+            repo,
+            prefix,
+            true,
+            @config
+          )
+
+        assert first.action == :created
+        on_exit(fn -> Companies.delete_company(Companies.get_company(first.company_uuid)) end)
+
+        second =
+          CatalogueImport.process_row(
+            manufacturer_map(%{
+              uuid: second_uuid,
+              name: "Shared Domain B #{uniq}",
+              contact_info: shared_email
+            }),
+            repo,
+            prefix,
+            true,
+            @config
+          )
+
+        assert second.action == :already_claimed
+        assert second.company_uuid == first.company_uuid
+        assert get_crm_uuid(repo, prefix, second_uuid) == nil
+        assert get_crm_uuid(repo, prefix, first_uuid) == first.company_uuid
       end
 
       test "a second run reports the stamped row as already-linked", %{

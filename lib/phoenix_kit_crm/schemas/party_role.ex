@@ -6,12 +6,14 @@ defmodule PhoenixKitCRM.Schemas.PartyRole do
   rows). One party can hold several roles at once (a company that's both
   supplier and customer has two rows).
 
-  `manufacturer` is deliberately the odd one out: in the catalogue a
-  "manufacturer" is usually a *brand* — a product-master attribute — and the
-  brand owner, the legal manufacturer and the supplier you actually buy from
-  are frequently three different companies. So the role is granted only when
-  a real party is known (the catalogue's link action), never by bulk-promoting
-  every `phoenix_kit_cat_manufacturers` row. Holding both `supplier` and
+  `manufacturer` is the odd one out: in the catalogue a "manufacturer" is
+  usually a *brand* — a product-master attribute — and the brand owner, the
+  legal manufacturer and the supplier you actually buy from are frequently
+  three different companies. The role is therefore granted on two paths only:
+  the catalogue's link action (a human naming the real party) and the opt-in
+  `mix phoenix_kit_crm.import_manufacturers_from_catalogue` backfill, which an
+  operator runs deliberately and which is dry-run by default — never
+  implicitly, and never from a form. Holding both `supplier` and
   `manufacturer` on one party is the case this shared table exists for.
 
   `roleable_type` + `roleable_uuid` point at `phoenix_kit_crm_companies` or

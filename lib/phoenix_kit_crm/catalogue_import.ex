@@ -21,6 +21,10 @@ defmodule PhoenixKitCRM.CatalogueImport do
     clear message rather than crashing.
   - **Inactive rows are still imported** (they may appear on posted
     documents); flagged in the report.
+  - **One projection per party**: a row whose match is already the CRM
+    party of another row in the same directory is reported as
+    `claimed-by-other` and left alone — V178's partial unique index on
+    `crm_company_uuid` allows exactly one projection per party.
 
   ## Matching logic (per row)
 
@@ -29,7 +33,8 @@ defmodule PhoenixKitCRM.CatalogueImport do
   2. Normalize the website: strip scheme (`https?://`) and leading
      `www.`, downcase.
   3. Match an existing CRM company by email first (citext equality),
-     then by normalized website; otherwise create a new company.
+     then by normalized website; otherwise create a new company from the
+     source row's own columns (see `config/1` for the per-flow mapping).
   """
 
   alias PhoenixKit.RepoHelper
@@ -38,37 +43,55 @@ defmodule PhoenixKitCRM.CatalogueImport do
 
   @doc """
   The per-flow configuration. `:suppliers` is the original backfill's
-  shape; `:manufacturers` is its twin (its source table also carries
-  `description` and `logo_url` — `description` rides into the company
-  metadata, since a CRM company has no such column).
+  shape; `:manufacturers` is its twin.
+
+  `column_map` carries the source columns that are neither part of the
+  shared base set nor derived — source column → CRM company field. Both
+  targets are real columns on `phoenix_kit_crm_companies`, added by this
+  module's own migration chain for exactly these rows: `description` by
+  V02 ("the last field the catalogue's own supplier rows carried that a
+  CRM company did not") and `logo_url` by V03 ("so a company can carry
+  the brand mark the catalogue's manufacturer rows used to hold"). Both
+  flows read their source `description`; only manufacturers have a
+  `logo_url` to carry.
   """
   def config(:suppliers) do
-    %{
+    with_derived(%{
       table: "phoenix_kit_cat_suppliers",
       role: "supplier",
       noun: "supplier",
-      extra_columns: [],
+      column_map: %{description: :description},
       metadata_source: "cat_suppliers",
       metadata_uuid_key: "cat_supplier_uuid",
       column_hint:
         "the column is added by core migration V149. Upgrade the phoenix_kit " <>
           "dependency and run mix phoenix_kit.update first."
-    }
+    })
   end
 
   def config(:manufacturers) do
-    %{
+    with_derived(%{
       table: "phoenix_kit_cat_manufacturers",
       role: "manufacturer",
       noun: "manufacturer",
-      extra_columns: ["description"],
+      column_map: %{description: :description, logo_url: :logo_url},
       metadata_source: "cat_manufacturers",
       metadata_uuid_key: "cat_manufacturer_uuid",
       column_hint:
         "the column is added by core migration V178 (the manufacturer half of " <>
           "the party federation). Upgrade the phoenix_kit dependency and run " <>
           "mix phoenix_kit.update first."
-    }
+    })
+  end
+
+  # `extra_columns` is derived, never written by hand: a SELECT list and a
+  # field mapping that must agree are one list, not two that drift.
+  defp with_derived(config) do
+    Map.put(
+      config,
+      :extra_columns,
+      config.column_map |> Map.keys() |> Enum.map(&to_string/1) |> Enum.sort()
+    )
   end
 
   @doc "The mix-task entry point: guards, fetch, process, report."
@@ -223,11 +246,21 @@ defmodule PhoenixKitCRM.CatalogueImport do
     {action, company} =
       match_or_create_company(row, candidate_email, candidate_website, apply?, config)
 
-    if apply? && company do
-      :ok = grant_role(company, config)
-      stamp_crm_uuid(repo, prefix, row.uuid, company.uuid, config)
-    end
+    cond do
+      apply? && company && claimed_elsewhere?(repo, prefix, row.uuid, company.uuid, config) ->
+        result(row, :already_claimed, company)
 
+      apply? && company ->
+        :ok = grant_role(company, config)
+        stamp_crm_uuid(repo, prefix, row.uuid, company.uuid, config)
+        result(row, action, company)
+
+      true ->
+        result(row, action, company)
+    end
+  end
+
+  defp result(row, action, company) do
     %{
       name: row.name,
       status: row.status,
@@ -235,6 +268,29 @@ defmodule PhoenixKitCRM.CatalogueImport do
       action: action,
       company_uuid: if(company, do: company.uuid, else: nil)
     }
+  end
+
+  # V178 put a partial UNIQUE index on the source table's `crm_company_uuid`:
+  # a CRM party has at most one projection per directory. Two source rows can
+  # still match the same company (two brands sharing a domain, or a shared
+  # contact email), and the second stamp would raise a constraint error that
+  # process_row/5's rescue turns into an opaque ERROR row — AFTER grant_role/2
+  # has already run. The party is then listed while the unstamped local row
+  # keeps showing too, which is exactly the split-brain the index exists to
+  # prevent. Report the collision instead, and leave both sides untouched.
+  defp claimed_elsewhere?(repo, prefix, row_uuid, company_uuid, config) do
+    %{rows: [[claimed]]} =
+      repo.query!(
+        """
+        SELECT EXISTS (
+          SELECT 1 FROM #{prefix}.#{config.table}
+          WHERE crm_company_uuid = $1 AND uuid <> $2
+        )
+        """,
+        [dump_uuid(company_uuid), dump_uuid(row_uuid)]
+      )
+
+    claimed
   end
 
   defp match_or_create_company(row, candidate_email, candidate_website, apply?, config) do
@@ -312,25 +368,31 @@ defmodule PhoenixKitCRM.CatalogueImport do
   end
 
   defp create_company_from_row(row, candidate_email, config) do
-    metadata =
-      %{
-        "imported_from" => config.metadata_source,
-        config.metadata_uuid_key => row.uuid
-      }
-      |> maybe_put_metadata("description", Map.get(row, :description))
-
-    Companies.create_company(%{
+    attrs = %{
       "name" => row.name,
       "email" => candidate_email,
       "website" => row.website,
       "notes" => row.notes,
-      "metadata" => metadata
-    })
+      "metadata" => %{
+        "imported_from" => config.metadata_source,
+        config.metadata_uuid_key => row.uuid
+      }
+    }
+
+    # The mapped columns land in the company's own columns. Burying them in
+    # `metadata` instead would hide them from the company form, the pickers
+    # and `PartyRoles.get_manufacturer/1` (whose contract returns `logo_url`
+    # as the brand mark) — the V02/V03 columns exist for these very rows.
+    config.column_map
+    |> Enum.reduce(attrs, fn {source, field}, acc ->
+      maybe_put(acc, to_string(field), Map.get(row, source))
+    end)
+    |> Companies.create_company()
   end
 
-  defp maybe_put_metadata(map, _key, nil), do: map
-  defp maybe_put_metadata(map, _key, ""), do: map
-  defp maybe_put_metadata(map, key, value), do: Map.put(map, key, value)
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, ""), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp grant_role(%Company{} = company, config) do
     case PartyRoles.grant_role(company, config.role) do
@@ -421,7 +483,7 @@ defmodule PhoenixKitCRM.CatalogueImport do
         "#{pad(trunc_str(r.name, name_w - 1), name_w)} " <>
           "#{pad((r.status || "") <> inactive_flag, status_w)} " <>
           "#{pad(action_label, action_w)} " <>
-          "#{display_uuid(r.company_uuid) || "(dry-run)"}"
+          "#{display_uuid(r.company_uuid) || uuid_placeholder(r.action)}"
       )
     end
 
@@ -438,6 +500,7 @@ defmodule PhoenixKitCRM.CatalogueImport do
     matched_email = Map.get(counts, :matched_by_email, 0)
     matched_web = Map.get(counts, :matched_by_website, 0)
     would_create = Map.get(counts, :would_create, 0)
+    claimed = Map.get(counts, :already_claimed, 0)
     # :error_creating comes from a failed create-company changeset;
     # :error is a rescued exception (grant/stamp failure) from
     # process_row/5 — both are failures the operator needs reflected in
@@ -447,7 +510,8 @@ defmodule PhoenixKitCRM.CatalogueImport do
     Mix.shell().info(
       "\nTotal: #{total} | already-linked: #{already} | created: #{created} | " <>
         "matched-email: #{matched_email} | matched-website: #{matched_web} | " <>
-        "would-create (dry-run): #{would_create} | errors: #{errors}"
+        "would-create (dry-run): #{would_create} | " <>
+        "claimed-by-other-row: #{claimed} | errors: #{errors}"
     )
 
     if Enum.any?(results, &(&1.status != "active")) do
@@ -456,6 +520,7 @@ defmodule PhoenixKitCRM.CatalogueImport do
   end
 
   defp action_label(:already_linked), do: "already-linked"
+  defp action_label(:already_claimed), do: "claimed-by-other"
   defp action_label(:matched_by_email), do: "matched-by-email"
   defp action_label(:matched_by_website), do: "matched-by-website"
   defp action_label(:created), do: "created"
@@ -463,6 +528,12 @@ defmodule PhoenixKitCRM.CatalogueImport do
   defp action_label(:error_creating), do: "ERROR"
   defp action_label(:error), do: "ERROR"
   defp action_label(other), do: to_string(other)
+
+  # A blank uuid cell means different things per action: nothing was written
+  # yet (dry-run) versus nothing could be (a failed row). Printing "(dry-run)"
+  # on an ERROR line reads as "would have worked", which it would not.
+  defp uuid_placeholder(:would_create), do: "(dry-run)"
+  defp uuid_placeholder(_action), do: "(none)"
 
   # The source rows are read with raw SQL, and Postgrex hands back a
   # `uuid` column as its 16-byte binary rather than the canonical text
