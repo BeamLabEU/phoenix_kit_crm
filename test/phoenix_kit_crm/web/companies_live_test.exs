@@ -54,6 +54,18 @@ defmodule PhoenixKitCRM.Web.CompaniesLiveTest do
     refute has_element?(view, "a", "No contacts")
   end
 
+  test "an empty filter result says the filter matched nothing, not that no companies exist",
+       %{conn: conn} do
+    {:ok, staffed} = Companies.create_company(%{"name" => "Fully Staffed Co"})
+    {:ok, worker} = PhoenixKitCRM.Contacts.create_contact(%{"name" => "Worker"})
+    {:ok, _} = PhoenixKitCRM.Contacts.set_primary_company(worker, staffed.uuid, "Eng", nil)
+
+    {:ok, _view, html} = live(conn, "/en/admin/crm/companies?filter=no-contacts")
+
+    assert html =~ "No companies match this filter."
+    refute html =~ "No companies yet."
+  end
+
   test "the Trashed tab appears once a company is in the trash", %{conn: conn} do
     {:ok, company} = Companies.create_company(%{"name" => "To Be Trashed"})
     {:ok, _} = Companies.trash_company(company)

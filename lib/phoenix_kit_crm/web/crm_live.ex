@@ -71,13 +71,13 @@ defmodule PhoenixKitCRM.Web.CRMLive do
   # Every count must match what the page it links to actually shows, or the
   # card is a lie the user discovers one click later: companies/contacts
   # exclude trashed rows (their lists' default scope) and lists count only
-  # active ones (the Lists page opens on the Active tab). Interactions have no
-  # status, so the total is the total.
+  # active ones (the Lists page opens on the Active tab). No interactions
+  # total here — the recent feed replaced the count card, so counting them
+  # would be a query nothing renders.
   defp load_counts do
     %{
       companies: Companies.count_companies(),
       contacts: Contacts.count_contacts(),
-      interactions: Interactions.count_interactions(),
       lists: Lists.count_lists(status: "active")
     }
   end
@@ -340,9 +340,11 @@ defmodule PhoenixKitCRM.Web.CRMLive do
 
   # Each count is its own link — a role spans both record types and there is
   # no combined "suppliers" destination, so a whole-tile link would have to
-  # pick one side and lie about the other. Zero counts stay visible but don't
-  # link (a filter with no results is a dead end) and the tile dims: "supported,
-  # unused" — hiding the tile would teach users the vocabulary doesn't exist.
+  # pick one side and lie about the other. A zero company count stays visible
+  # but doesn't link (a filter with no results is a dead end) and the tile
+  # dims: "supported, unused" — hiding the tile would teach users the
+  # vocabulary doesn't exist. The CONTACT line is secondary by design and is
+  # omitted at zero rather than printing "0 contacts" four times.
   defp role_tile(assigns) do
     ~H"""
     <div class={[

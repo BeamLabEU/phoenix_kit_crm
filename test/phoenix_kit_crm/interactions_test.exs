@@ -205,5 +205,17 @@ defmodule PhoenixKitCRM.InteractionsTest do
       all_uuids = Interactions.list_recent() |> Enum.map(& &1.uuid)
       assert oldest.uuid in all_uuids
     end
+
+    test "excludes interactions whose subject contact is trashed — the rows link to that page" do
+      live = contact_fixture("Live Subject")
+      gone = contact_fixture("Gone Subject")
+      {:ok, kept} = Interactions.create_interaction(interaction_attrs(live))
+      {:ok, hidden} = Interactions.create_interaction(interaction_attrs(gone))
+      {:ok, _} = Contacts.trash_contact(gone)
+
+      uuids = Interactions.list_recent() |> Enum.map(& &1.uuid)
+      assert kept.uuid in uuids
+      refute hidden.uuid in uuids
+    end
   end
 end

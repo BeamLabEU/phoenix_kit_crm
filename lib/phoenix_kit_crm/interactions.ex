@@ -88,9 +88,11 @@ defmodule PhoenixKitCRM.Interactions do
   defp maybe_limit(query, _), do: query
 
   @doc """
-  The newest interactions across the whole CRM (any contact), subject contact
-  preloaded. Powers the overview's recent feed, so it stays deliberately
-  narrow: capped rows, no parties preload.
+  The newest interactions across the whole CRM, subject contact preloaded.
+  Powers the overview's recent feed, so it stays deliberately narrow: capped
+  rows, no parties preload. Interactions whose subject contact is trashed are
+  excluded — the same visibility rule every roster and count applies, and the
+  rows link to the contact's page.
 
   ## Options
     * `:limit` — rows to return (default 6)
@@ -98,6 +100,8 @@ defmodule PhoenixKitCRM.Interactions do
   @spec list_recent(keyword()) :: [Interaction.t()]
   def list_recent(opts \\ []) do
     Interaction
+    |> join(:inner, [i], c in Contact, on: c.uuid == i.contact_uuid)
+    |> where([i, c], c.status != "trashed")
     |> order_by([i], desc: i.occurred_at, desc: i.inserted_at)
     |> limit(^Keyword.get(opts, :limit, 6))
     |> repo().all()

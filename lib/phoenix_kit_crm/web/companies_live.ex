@@ -129,7 +129,7 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
       <.empty_state
         :if={@companies == []}
         icon="hero-building-office-2"
-        title={empty_title(@total_count, @search)}
+        title={empty_title(@total_count, @search, @filter)}
         variant="card"
       >
         <.link
@@ -277,10 +277,13 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
   # Distinguishes a genuinely empty result from an empty PAGE of a non-empty
   # one (a stale pagination link after a bulk delete, or a page number past
   # the end) — "No companies yet." would be actively misleading if there are
-  # more companies total and this is just a later page.
-  defp empty_title(0, ""), do: gettext("No companies yet.")
-  defp empty_title(0, _search), do: gettext("No companies match your search.")
-  defp empty_title(_total_count, _search), do: gettext("No companies on this page.")
+  # more companies total and this is just a later page. Same logic for a
+  # non-default filter: zero suppliers (or zero no-contact companies — the
+  # healthy state) is not "no companies yet".
+  defp empty_title(0, "", "active"), do: gettext("No companies yet.")
+  defp empty_title(0, "", _filter), do: gettext("No companies match this filter.")
+  defp empty_title(0, _search, _filter), do: gettext("No companies match your search.")
+  defp empty_title(_total_count, _search, _filter), do: gettext("No companies on this page.")
 
   # Takes an assigns-shaped map — either a LiveView `socket.assigns` (from an
   # event handler) or the `assigns` passed into `render/1` (from the
