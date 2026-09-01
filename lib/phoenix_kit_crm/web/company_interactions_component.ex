@@ -11,7 +11,7 @@ defmodule PhoenixKitCRM.Web.CompanyInteractionsComponent do
   use Gettext, backend: PhoenixKitCRM.Gettext
 
   import PhoenixKitCRM.Web.Components.TabIntro, only: [tab_intro: 1]
-  import PhoenixKitCRM.Web.InteractionHelpers, only: [party_badge: 1]
+  import PhoenixKitCRM.Web.InteractionHelpers, only: [party_badge: 1, format_local: 2]
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKitCRM.{Attachments, Companies, Interactions, Paths}
@@ -62,12 +62,6 @@ defmodule PhoenixKitCRM.Web.CompanyInteractionsComponent do
     Storage.enabled?()
   rescue
     _ -> false
-  end
-
-  defp format_local(nil, _offset), do: "—"
-
-  defp format_local(%DateTime{} = utc, offset) do
-    utc |> DateTime.add(offset * 3600, :second) |> Calendar.strftime("%Y-%m-%d %H:%M")
   end
 
   @impl true

@@ -27,6 +27,7 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   # `user_details.ex:12-14`) — explicit import needed for the Orders tab's
   # row-link overlay.
   import PhoenixKitCRM.Web.Components.TabIntro, only: [tab_intro: 1]
+  import PhoenixKitCRM.Web.InteractionHelpers, only: [tz_offset: 1]
   import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
 
   alias PhoenixKit.Modules.Storage
@@ -595,24 +596,4 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   rescue
     _ -> nil
   end
-
-  # The viewer's timezone offset (hours) — user profile → system setting → UTC,
-  # via core's `PhoenixKit.Utils.Date.get_user_timezone/1`. Drives interaction
-  # times so they show/save in the user's configured timezone (storage is UTC).
-  defp tz_offset(%{} = user) do
-    case PhoenixKit.Utils.Date.get_user_timezone(user) do
-      off when is_binary(off) ->
-        case Integer.parse(off) do
-          {hours, _} -> hours
-          _ -> 0
-        end
-
-      _ ->
-        0
-    end
-  rescue
-    _ -> 0
-  end
-
-  defp tz_offset(_), do: 0
 end

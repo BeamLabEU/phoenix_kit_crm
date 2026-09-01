@@ -32,6 +32,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   alias PhoenixKitCRM.Web.Components.MirrorPanel
 
   import PhoenixKitCRM.Web.Components.TabIntro, only: [tab_intro: 1]
+  import PhoenixKitCRM.Web.InteractionHelpers, only: [tz_offset: 1]
   alias PhoenixKitWeb.Live.Components.MediaSelectorModal
 
   # `PhoenixKitCatalogue.Catalogue.PubSub`'s topic — a string contract, so no
@@ -942,21 +943,4 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
   defp member_role(m),
     do: [m.role_in_company, m.department] |> Enum.reject(&(&1 in [nil, ""])) |> Enum.join(" · ")
-
-  defp tz_offset(%{} = user) do
-    case PhoenixKit.Utils.Date.get_user_timezone(user) do
-      off when is_binary(off) ->
-        case Integer.parse(off) do
-          {hours, _} -> hours
-          _ -> 0
-        end
-
-      _ ->
-        0
-    end
-  rescue
-    _ -> 0
-  end
-
-  defp tz_offset(_), do: 0
 end

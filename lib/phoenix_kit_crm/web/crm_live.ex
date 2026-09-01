@@ -27,6 +27,11 @@ defmodule PhoenixKitCRM.Web.CRMLive do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitCRM.Gettext
 
+  import PhoenixKitCRM.Web.InteractionHelpers, only: [format_local: 2, tz_offset: 1]
+  # Core's stretched-link overlay (whole row/card clickable via one real <a>);
+  # deliberately not auto-imported by `use PhoenixKitWeb` — see its moduledoc.
+  import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
+
   alias PhoenixKitCRM.{Companies, Contacts, Interactions, Lists, PartyRoles, Paths}
   alias PhoenixKitCRM.Schemas.{Contact, Interaction}
 
@@ -181,8 +186,12 @@ defmodule PhoenixKitCRM.Web.CRMLive do
            there is nothing to fix. --%>
       <div :if={@enabled && is_integer(@no_contact_companies) && @no_contact_companies > 0}>
         <h3 class="text-lg font-semibold mb-3">{gettext("Needs attention")}</h3>
-        <div class="card bg-base-100 border border-base-200">
+        <div class="relative card bg-base-100 border border-base-200 hover:border-primary transition-colors">
           <div class="card-body p-4 flex-row items-center justify-between gap-3 flex-wrap">
+            <.row_link
+              navigate={filtered_path(Paths.companies(), "no-contacts")}
+              label={gettext("Review")}
+            />
             <div class="flex items-center gap-3">
               <.icon name="hero-exclamation-circle" class="w-5 h-5 text-warning" />
               <span class="text-sm">
@@ -194,7 +203,10 @@ defmodule PhoenixKitCRM.Web.CRMLive do
                 )}
               </span>
             </div>
-            <.link navigate={filtered_path(Paths.companies(), "no-contacts")} class="btn btn-outline btn-sm">
+            <.link
+              navigate={filtered_path(Paths.companies(), "no-contacts")}
+              class="btn btn-outline btn-sm relative z-10"
+            >
               {gettext("Review")}
             </.link>
           </div>
@@ -209,8 +221,12 @@ defmodule PhoenixKitCRM.Web.CRMLive do
       <div :if={@enabled && @counts && @counts.contacts > 0}>
         <h3 class="text-lg font-semibold mb-3">{gettext("Recent interactions")}</h3>
 
-        <div :if={@recent == []} class="card bg-base-100 border border-base-200">
+        <div
+          :if={@recent == []}
+          class="relative card bg-base-100 border border-base-200 hover:border-primary transition-colors"
+        >
           <div class="card-body p-4 flex-row items-center justify-between gap-3 flex-wrap">
+            <.row_link navigate={Paths.contacts()} label={gettext("Browse contacts")} />
             <div class="flex items-center gap-3">
               <.icon name="hero-chat-bubble-left-right" class="w-5 h-5 text-base-content/60" />
               <span class="text-sm text-base-content/70">
@@ -219,28 +235,32 @@ defmodule PhoenixKitCRM.Web.CRMLive do
                 )}
               </span>
             </div>
-            <.link navigate={Paths.contacts()} class="btn btn-outline btn-sm">
+            <.link navigate={Paths.contacts()} class="btn btn-outline btn-sm relative z-10">
               {gettext("Browse contacts")}
             </.link>
           </div>
         </div>
 
         <ol :if={@recent != []} class="flex flex-col gap-2">
+          <%!-- Core row_link makes the whole row click through to the contact;
+               the visible name stays plain text so the row carries exactly one
+               anchor per destination. --%>
           <li
             :for={i <- @recent}
-            class="rounded-box border border-base-200 bg-base-100 p-3 flex items-center justify-between gap-3 flex-wrap"
+            class="relative rounded-box border border-base-200 bg-base-100 p-3 flex items-center justify-between gap-3 flex-wrap hover:border-primary transition-colors"
           >
             <div class="flex items-center gap-2 min-w-0">
+              <.row_link
+                :if={i.contact}
+                navigate={Paths.contact(i.contact.uuid)}
+                label={Contact.display_name(i.contact)}
+              />
               <span class="badge badge-ghost badge-sm shrink-0">
                 {Interaction.type_label(i.interaction_type)}
               </span>
-              <.link
-                :if={i.contact}
-                navigate={Paths.contact(i.contact.uuid)}
-                class="font-medium link link-hover truncate"
-              >
+              <span :if={i.contact} class="font-medium truncate">
                 {Contact.display_name(i.contact)}
-              </.link>
+              </span>
               <span :if={i.subject} class="text-sm text-base-content/70 truncate">
                 {i.subject}
               </span>
@@ -253,9 +273,13 @@ defmodule PhoenixKitCRM.Web.CRMLive do
       </div>
 
       <%!-- Lists are a tool for grouping contacts, not a third record type —
-           one row, not a peer card. --%>
-      <div :if={@enabled} class="card bg-base-100 border border-base-200">
+           one row, not a peer card. Whole row clicks through (stretched link). --%>
+      <div
+        :if={@enabled}
+        class="relative card bg-base-100 border border-base-200 hover:border-primary transition-colors"
+      >
         <div class="card-body p-4 flex-row items-center justify-between gap-3 flex-wrap">
+          <.row_link navigate={Paths.lists()} label={gettext("Manage lists")} />
           <div class="flex items-center gap-3 min-w-0">
             <.icon name="hero-queue-list" class="w-5 h-5 text-base-content/60" />
             <div class="min-w-0">
@@ -275,7 +299,7 @@ defmodule PhoenixKitCRM.Web.CRMLive do
               </div>
             </div>
           </div>
-          <.link navigate={Paths.lists()} class="btn btn-outline btn-sm">
+          <.link navigate={Paths.lists()} class="btn btn-outline btn-sm relative z-10">
             {gettext("Manage lists")}
           </.link>
         </div>
@@ -331,43 +355,61 @@ defmodule PhoenixKitCRM.Web.CRMLive do
   attr(:companies_path, :string, required: true)
   attr(:contacts_path, :string, required: true)
 
-  # Each count is its own link — a role spans both record types and there is
-  # no combined "suppliers" destination, so a whole-tile link would have to
-  # pick one side and lie about the other. A zero company count stays visible
-  # but doesn't link (a filter with no results is a dead end) and the tile
-  # dims: "supported, unused" — hiding the tile would teach users the
+  # The whole tile is clickable like the hero cards (Max, 2026-09-01) via
+  # core's row_link overlay — a role spans both record types with no combined
+  # destination, so the tile can't be one big <a>. The overlay carries the
+  # PRIMARY destination (companies; contacts when only contacts hold the
+  # role), the visible counts stay plain text, and the secondary contact link
+  # stacks above the overlay with z-10 — two real anchors, no illegal nesting.
+  # A tile with nothing to open gets no overlay (a filter with no results is a
+  # dead end) and dims: "supported, unused" — hiding it would teach users the
   # vocabulary doesn't exist. The CONTACT line is secondary by design and is
   # omitted at zero rather than printing "0 contacts" four times.
   defp role_tile(assigns) do
+    company? = is_integer(assigns.company_count) and assigns.company_count > 0
+    contact? = is_integer(assigns.contact_count) and assigns.contact_count > 0
+
+    assigns =
+      assigns
+      |> assign(:company?, company?)
+      |> assign(:contact?, contact?)
+      |> assign(:unused?, assigns.company_count == 0 and not contact?)
+      |> assign(
+        :primary_path,
+        cond do
+          company? -> assigns.companies_path
+          contact? -> assigns.contacts_path
+          true -> nil
+        end
+      )
+
     ~H"""
     <div class={[
-      "card bg-base-100 shadow-sm border border-base-200",
-      @company_count == 0 && @contact_count == 0 && "opacity-60"
+      "relative card bg-base-100 shadow-sm border border-base-200",
+      @primary_path && "hover:border-primary transition-colors",
+      @unused? && "opacity-60"
     ]}>
       <div class="card-body p-4 gap-1">
+        <.row_link :if={@primary_path} navigate={@primary_path} label={@label} />
         <div class="flex items-center gap-2 text-base-content/60">
           <.icon name={@icon} class="w-4 h-4" />
           <span class="text-sm">{@label}</span>
         </div>
         <div :if={is_nil(@company_count)} class="text-2xl font-semibold">—</div>
-        <.link
-          :if={is_integer(@company_count) && @company_count > 0}
-          navigate={@companies_path}
-          class="link link-hover"
-        >
+        <div :if={@company?}>
           <span class="text-2xl font-semibold">{@company_count}</span>
           <span class="text-sm text-base-content/60">
             {ngettext("company", "companies", @company_count)}
           </span>
-        </.link>
+        </div>
         <div :if={@company_count == 0} class="text-base-content/50">
           <span class="text-2xl font-semibold">0</span>
           <span class="text-sm">{ngettext("company", "companies", 0)}</span>
         </div>
         <.link
-          :if={is_integer(@contact_count) && @contact_count > 0}
+          :if={@contact?}
           navigate={@contacts_path}
-          class="link link-hover text-sm text-base-content/60"
+          class="link link-hover text-sm text-base-content/60 relative z-10 self-start"
         >
           {ngettext("%{count} contact", "%{count} contacts", @contact_count,
             count: @contact_count
@@ -377,31 +419,4 @@ defmodule PhoenixKitCRM.Web.CRMLive do
     </div>
     """
   end
-
-  defp format_local(nil, _offset), do: "—"
-
-  defp format_local(%DateTime{} = utc, offset) do
-    utc |> DateTime.add(offset * 3600, :second) |> Calendar.strftime("%Y-%m-%d %H:%M")
-  end
-
-  # The viewer's timezone offset (hours) — user profile → system setting → UTC,
-  # via core's `PhoenixKit.Utils.Date.get_user_timezone/1`. Mirrors the
-  # contact/company interaction feeds so the same interaction shows the same
-  # time on every page.
-  defp tz_offset(%{} = user) do
-    case PhoenixKit.Utils.Date.get_user_timezone(user) do
-      off when is_binary(off) ->
-        case Integer.parse(off) do
-          {hours, _} -> hours
-          _ -> 0
-        end
-
-      _ ->
-        0
-    end
-  rescue
-    _ -> 0
-  end
-
-  defp tz_offset(_), do: 0
 end

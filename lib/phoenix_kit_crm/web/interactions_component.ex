@@ -9,7 +9,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   require Logger
 
-  import PhoenixKitCRM.Web.InteractionHelpers, only: [party_badge: 1]
+  import PhoenixKitCRM.Web.InteractionHelpers, only: [party_badge: 1, format_local: 2]
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Users.Auth
@@ -503,13 +503,6 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   end
 
   defp local_to_utc(_, _), do: nil
-
-  # A stored UTC datetime → display string in the user's tz.
-  defp format_local(nil, _offset), do: "—"
-
-  defp format_local(%DateTime{} = utc, offset) do
-    utc |> DateTime.add(offset * 3600, :second) |> Calendar.strftime("%Y-%m-%d %H:%M")
-  end
 
   # Host-passed assigns (the contact this feed belongs to + the acting user's
   # context, threaded from the show LiveView). Declared so the call site is
