@@ -116,11 +116,14 @@ defmodule PhoenixKitCRM.Web.CRMLiveTest do
     refute html =~ "Start your CRM"
   end
 
-  test "the quick actions are always offered", %{conn: conn} do
+  test "no top action buttons — the subtabs carry New contact/company (start card excepted)",
+       %{conn: conn} do
+    company_fixture("Existing Co")
+
     {:ok, view, _html} = live(conn, "/en/admin/crm")
 
-    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts/new"]}, "New contact")
-    assert has_element?(view, ~s{a[href="/en/admin/crm/companies/new"]}, "New company")
+    refute has_element?(view, ~s{a[href="/en/admin/crm/contacts/new"]})
+    refute has_element?(view, ~s{a[href="/en/admin/crm/companies/new"]})
   end
 
   test "the lists row renders with its count and link", %{conn: conn} do

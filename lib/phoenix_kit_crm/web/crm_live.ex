@@ -37,10 +37,10 @@ defmodule PhoenixKitCRM.Web.CRMLive do
     {:ok,
      assign(socket,
        page_title: gettext("CRM"),
-       page_subtitle:
-         gettext(
-           "The companies and people you work with — suppliers, manufacturers, customers and partners — and the interactions logged with them"
-         ),
+       # Rendered inline in the admin header bar, which truncates — keep it
+       # short enough to survive there. The by-role band below names the
+       # supplier/manufacturer vocabulary; the subtitle doesn't have to.
+       page_subtitle: gettext("Companies, people and the interactions between them"),
        enabled: PhoenixKitCRM.enabled?(),
        tz_offset: tz_offset(socket.assigns[:phoenix_kit_current_user]),
        counts: nil,
@@ -99,16 +99,9 @@ defmodule PhoenixKitCRM.Web.CRMLive do
         </.link>
       </div>
 
-      <%!-- The two commonest writes, always offered — onboarding cards come
-           and go with data, the way in shouldn't. --%>
-      <div :if={@enabled} class="flex justify-end gap-2">
-        <.link navigate={Paths.contact_new()} class="btn btn-primary btn-sm">
-          <.icon name="hero-plus" class="w-4 h-4" /> {gettext("New contact")}
-        </.link>
-        <.link navigate={Paths.company_new()} class="btn btn-outline btn-sm">
-          <.icon name="hero-plus" class="w-4 h-4" /> {gettext("New company")}
-        </.link>
-      </div>
+      <%!-- No New-contact/New-company buttons up here (Max, 2026-09-01): the
+           contacts and companies subtabs already carry them in their
+           toolbars, and the hero cards below are the way in. --%>
 
       <%!-- Shown only while the CRM is genuinely empty — both record types,
            not just contacts: 9 companies with no contacts is not an empty CRM,
