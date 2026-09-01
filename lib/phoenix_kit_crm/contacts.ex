@@ -74,6 +74,25 @@ defmodule PhoenixKitCRM.Contacts do
   end
 
   @doc """
+  Contact counts by status in one grouped query, zeros included:
+  `%{"active" => n, "inactive" => n, "trashed" => n}`. Backs the index's
+  filter strip, so the numbers are deliberately search-independent — tabs are
+  navigation, and a tab that vanished while a search was being typed would be
+  navigation that moves.
+  """
+  @spec status_counts() :: %{String.t() => non_neg_integer()}
+  def status_counts do
+    counted =
+      Contact
+      |> group_by([c], c.status)
+      |> select([c], {c.status, count(c.uuid)})
+      |> repo().all()
+      |> Map.new()
+
+    Map.new(Contact.statuses() ++ ["trashed"], &{&1, Map.get(counted, &1, 0)})
+  end
+
+  @doc """
   Groups non-trashed contacts sharing the same email (case-insensitive, via
   the column's citext type), for the CRM comparison screen's directory-wide
   duplicate-email report. Only emails held by 2+ contacts; blank/nil emails

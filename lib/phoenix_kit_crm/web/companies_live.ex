@@ -16,14 +16,15 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
     {:ok,
      assign(socket,
        page_title: gettext("CRM — Companies"),
-       filter: "active",
+       filter: "all",
        page: 1,
        search: "",
        companies: [],
        roles_map: %{},
        total_count: 0,
        total_pages: 1,
-       trashed_count: 0
+       status_counts: %{},
+       role_counts: %{}
      )}
   end
 
@@ -31,8 +32,8 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
   def handle_params(params, _uri, socket) do
     filter =
       case params["filter"] do
-        f when f in ["trashed", "no-contacts"] or f in @role_filters -> f
-        _ -> "active"
+        f when f in ["trashed", "no-contacts", "active", "inactive"] or f in @role_filters -> f
+        _ -> "all"
       end
 
     page = parse_page(params["page"])
@@ -133,7 +134,7 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
         variant="card"
       >
         <.link
-          :if={@total_count == 0 and @search == "" and @filter == "active"}
+          :if={@total_count == 0 and @search == "" and @filter == "all"}
           navigate={Paths.company_new()}
           class="btn btn-primary"
         >
@@ -152,7 +153,7 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
       >
         <:toolbar_title>
           <span class="text-sm text-base-content/60">
-            {ngettext("%{count} company", "%{count} companies", @total_count, count: @total_count)}
+            {result_label(@filter, @total_count)}
           </span>
         </:toolbar_title>
         <:toolbar_actions>
@@ -199,7 +200,7 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
         total_pages={@total_pages}
         base_path={Paths.companies()}
         params={%{
-          "filter" => (@filter != "active" && @filter) || nil,
+          "filter" => (@filter != "all" && @filter) || nil,
           "search" => (@search != "" && @search) || nil
         }}
       />
@@ -247,12 +248,20 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
       :roles_map,
       PartyRoles.active_roles_map("company", Enum.map(companies, & &1.uuid))
     )
-    |> assign(:trashed_count, Companies.count_companies(status: "trashed"))
+    # The strip's numbers: one grouped query per dimension, search-independent
+    # (tabs are navigation; the toolbar count is the one that follows search).
+    |> assign(:status_counts, Companies.status_counts())
+    |> assign(:role_counts, PartyRoles.role_counts("company"))
   end
 
   # Non-role filters as Companies context opts; role filters go through
-  # PartyRoles instead and never reach this.
+  # PartyRoles instead and never reach this. "active"/"inactive" are real
+  # statuses (the forms offer both) — the DEFAULT view is "all", which is
+  # everything not trashed, exactly the scope it always was but no longer
+  # mislabelled "Active".
   defp filter_scope("trashed"), do: [status: "trashed"]
+  defp filter_scope("active"), do: [status: "active"]
+  defp filter_scope("inactive"), do: [status: "inactive"]
   defp filter_scope("no-contacts"), do: [without_contacts: true]
   defp filter_scope(_), do: []
 
@@ -280,46 +289,103 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
   # more companies total and this is just a later page. Same logic for a
   # non-default filter: zero suppliers (or zero no-contact companies — the
   # healthy state) is not "no companies yet".
-  defp empty_title(0, "", "active"), do: gettext("No companies yet.")
+  defp empty_title(0, "", "all"), do: gettext("No companies yet.")
   defp empty_title(0, "", _filter), do: gettext("No companies match this filter.")
   defp empty_title(0, _search, _filter), do: gettext("No companies match your search.")
   defp empty_title(_total_count, _search, _filter), do: gettext("No companies on this page.")
 
+  # The toolbar count names what the filter shows — "5 suppliers", not
+  # "5 companies" with the reader left to remember which tab is on.
+  defp result_label("active", n),
+    do: ngettext("%{count} active company", "%{count} active companies", n, count: n)
+
+  defp result_label("inactive", n),
+    do: ngettext("%{count} inactive company", "%{count} inactive companies", n, count: n)
+
+  defp result_label("trashed", n),
+    do: ngettext("%{count} trashed company", "%{count} trashed companies", n, count: n)
+
+  defp result_label("no-contacts", n),
+    do:
+      ngettext("%{count} company without contacts", "%{count} companies without contacts", n,
+        count: n
+      )
+
+  defp result_label("supplier", n),
+    do: ngettext("%{count} supplier", "%{count} suppliers", n, count: n)
+
+  defp result_label("customer", n),
+    do: ngettext("%{count} customer", "%{count} customers", n, count: n)
+
+  defp result_label("manufacturer", n),
+    do: ngettext("%{count} manufacturer", "%{count} manufacturers", n, count: n)
+
+  defp result_label("partner", n),
+    do: ngettext("%{count} partner", "%{count} partners", n, count: n)
+
+  defp result_label(_all, n),
+    do: ngettext("%{count} company", "%{count} companies", n, count: n)
+
   # Takes an assigns-shaped map — either a LiveView `socket.assigns` (from an
   # event handler) or the `assigns` passed into `render/1` (from the
   # template) — both expose `:filter`/`:search`/`:page` the same way.
-  # "active" is the default filter (never shown in the query string, matching
-  # the plain `Paths.companies()` href the Active tab has always used).
-  # The filter strip, as nav_tabs data. The Trashed tab appears only while
-  # there is something in the trash (or the user is already looking at it).
+  # "all" is the default filter (never shown in the query string, matching the
+  # plain `Paths.companies()` href the default tab has always used).
+  #
+  # The strip only offers filters with something behind them (the boss's "why
+  # have a filter if there are no results"): role tabs render at count > 0,
+  # the Active/Inactive pair only once an inactive company exists (until then
+  # All IS active and the pair is noise), Trashed keeps its long-standing
+  # only-when-populated rule, and No contacts self-names only while you're on
+  # it (the overview's attention row is its way in). A tab whose filter is
+  # currently ACTIVE always renders, so emptying the last row of a view never
+  # strands you on a nameless tab. Every label carries its count.
   defp filter_tabs(assigns) do
-    [
-      %{id: "active", label: gettext("Active")},
-      %{id: "supplier", label: gettext("Suppliers")},
-      %{id: "customer", label: gettext("Customers")},
-      %{id: "manufacturer", label: gettext("Manufacturers")},
-      %{id: "partner", label: gettext("Partners")}
-    ]
+    %{status_counts: sc, role_counts: rc, filter: filter} = assigns
+    inactive = Map.get(sc, "inactive", 0)
+    trashed = Map.get(sc, "trashed", 0)
+
+    [%{id: "all", label: counted(gettext("All"), Map.get(sc, "active", 0) + inactive)}]
     |> Kernel.++(
-      # Reached from the overview's attention row, not advertised in the strip:
-      # the tab appears only while you're on it, so the current view has a name.
-      if assigns.filter == "no-contacts",
+      if inactive > 0 or filter in ["active", "inactive"] do
+        [
+          %{id: "active", label: counted(gettext("Active"), Map.get(sc, "active", 0))},
+          %{id: "inactive", label: counted(gettext("Inactive"), inactive)}
+        ]
+      else
+        []
+      end
+    )
+    |> Kernel.++(
+      [
+        {"supplier", gettext("Suppliers")},
+        {"customer", gettext("Customers")},
+        {"manufacturer", gettext("Manufacturers")},
+        {"partner", gettext("Partners")}
+      ]
+      |> Enum.filter(fn {id, _label} -> Map.get(rc, id, 0) > 0 or filter == id end)
+      |> Enum.map(fn {id, label} -> %{id: id, label: counted(label, Map.get(rc, id, 0))} end)
+    )
+    |> Kernel.++(
+      if filter == "no-contacts",
         do: [%{id: "no-contacts", label: gettext("No contacts")}],
         else: []
     )
     |> Kernel.++(
-      if assigns.trashed_count > 0 or assigns.filter == "trashed",
-        do: [%{id: "trashed", label: trashed_tab_label(assigns.trashed_count)}],
+      if trashed > 0 or filter == "trashed",
+        do: [%{id: "trashed", label: counted(gettext("Trashed"), trashed)}],
         else: []
     )
     |> Enum.map(&Map.put(&1, :patch, companies_path(assigns, filter: &1.id, page: 1)))
   end
 
+  defp counted(label, n), do: "#{label} (#{n})"
+
   defp companies_path(assigns, overrides) do
     params =
       %{filter: assigns.filter, search: assigns.search, page: assigns.page}
       |> Map.merge(Map.new(overrides))
-      |> Enum.reject(fn {k, v} -> v in [nil, "", 1] or (k == :filter and v == "active") end)
+      |> Enum.reject(fn {k, v} -> v in [nil, "", 1] or (k == :filter and v == "all") end)
       |> Enum.into(%{})
 
     case params do
@@ -327,9 +393,6 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
       _ -> Paths.companies() <> "?" <> URI.encode_query(params)
     end
   end
-
-  defp trashed_tab_label(0), do: gettext("Trashed")
-  defp trashed_tab_label(n), do: gettext("Trashed (%{count})", count: n)
 
   defp card_title_link(company, roles_map) do
     assigns = %{company: company, roles: Map.get(roles_map, company.uuid, [])}

@@ -16,14 +16,15 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
     {:ok,
      assign(socket,
        page_title: gettext("CRM — Contacts"),
-       filter: "active",
+       filter: "all",
        page: 1,
        search: "",
        contacts: [],
        roles_map: %{},
        total_count: 0,
        total_pages: 1,
-       trashed_count: 0
+       status_counts: %{},
+       role_counts: %{}
      )}
   end
 
@@ -31,8 +32,8 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
   def handle_params(params, _uri, socket) do
     filter =
       case params["filter"] do
-        f when f == "trashed" or f in @role_filters -> f
-        _ -> "active"
+        f when f in ["trashed", "active", "inactive"] or f in @role_filters -> f
+        _ -> "all"
       end
 
     page = parse_page(params["page"])
@@ -126,11 +127,11 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
       <.empty_state
         :if={@contacts == []}
         icon="hero-user"
-        title={empty_title(@total_count, @search)}
+        title={empty_title(@total_count, @search, @filter)}
         variant="card"
       >
         <.link
-          :if={@total_count == 0 and @search == "" and @filter == "active"}
+          :if={@total_count == 0 and @search == "" and @filter == "all"}
           navigate={Paths.contact_new()}
           class="btn btn-primary"
         >
@@ -149,7 +150,7 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
       >
         <:toolbar_title>
           <span class="text-sm text-base-content/60">
-            {ngettext("%{count} contact", "%{count} contacts", @total_count, count: @total_count)}
+            {result_label(@filter, @total_count)}
           </span>
         </:toolbar_title>
         <:toolbar_actions>
@@ -207,7 +208,7 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
         total_pages={@total_pages}
         base_path={Paths.contacts()}
         params={%{
-          "filter" => (@filter != "active" && @filter) || nil,
+          "filter" => (@filter != "all" && @filter) || nil,
           "search" => (@search != "" && @search) || nil
         }}
       />
@@ -230,9 +231,8 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
     # even feed straight into `<.pagination>`'s range math.
     total_count =
       case filter do
-        "trashed" -> Contacts.count_contacts([status: "trashed"] ++ count_opts)
         role when role in @role_filters -> PartyRoles.count_contacts_with_role(role, count_opts)
-        _ -> Contacts.count_contacts(count_opts)
+        _ -> Contacts.count_contacts(filter_scope(filter) ++ count_opts)
       end
 
     total_pages = max(ceil(total_count / @page_size), 1)
@@ -243,9 +243,8 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
 
     contacts =
       case filter do
-        "trashed" -> Contacts.list_contacts([status: "trashed"] ++ page_opts)
         role when role in @role_filters -> PartyRoles.list_contacts_with_role(role, page_opts)
-        _ -> Contacts.list_contacts(page_opts)
+        _ -> Contacts.list_contacts(filter_scope(filter) ++ page_opts)
       end
 
     socket
@@ -254,8 +253,21 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
     |> assign(:total_count, total_count)
     |> assign(:total_pages, total_pages)
     |> assign(:roles_map, PartyRoles.active_roles_map("contact", Enum.map(contacts, & &1.uuid)))
-    |> assign(:trashed_count, Contacts.count_contacts(status: "trashed"))
+    # The strip's numbers: one grouped query per dimension, search-independent
+    # (tabs are navigation; the toolbar count is the one that follows search).
+    |> assign(:status_counts, Contacts.status_counts())
+    |> assign(:role_counts, PartyRoles.role_counts("contact"))
   end
+
+  # Non-role filters as Contacts context opts; role filters go through
+  # PartyRoles instead and never reach this. "active"/"inactive" are real
+  # statuses (the form offers both) — the DEFAULT view is "all", which is
+  # everything not trashed, exactly the scope it always was but no longer
+  # mislabelled "Active".
+  defp filter_scope("trashed"), do: [status: "trashed"]
+  defp filter_scope("active"), do: [status: "active"]
+  defp filter_scope("inactive"), do: [status: "inactive"]
+  defp filter_scope(_), do: []
 
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
@@ -279,38 +291,88 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
   # one (a stale pagination link after a bulk delete, or a page number past
   # the end) — "No contacts yet." would be actively misleading if there are
   # 1397 contacts total and this is just page 57.
-  defp empty_title(0, ""), do: gettext("No contacts yet.")
-  defp empty_title(0, _search), do: gettext("No contacts match your search.")
-  defp empty_title(_total_count, _search), do: gettext("No contacts on this page.")
+  defp empty_title(0, "", "all"), do: gettext("No contacts yet.")
+  defp empty_title(0, "", _filter), do: gettext("No contacts match this filter.")
+  defp empty_title(0, _search, _filter), do: gettext("No contacts match your search.")
+  defp empty_title(_total_count, _search, _filter), do: gettext("No contacts on this page.")
+
+  # The toolbar count names what the filter shows — "5 suppliers", not
+  # "5 contacts" with the reader left to remember which tab is on.
+  defp result_label("active", n),
+    do: ngettext("%{count} active contact", "%{count} active contacts", n, count: n)
+
+  defp result_label("inactive", n),
+    do: ngettext("%{count} inactive contact", "%{count} inactive contacts", n, count: n)
+
+  defp result_label("trashed", n),
+    do: ngettext("%{count} trashed contact", "%{count} trashed contacts", n, count: n)
+
+  defp result_label("supplier", n),
+    do: ngettext("%{count} supplier", "%{count} suppliers", n, count: n)
+
+  defp result_label("customer", n),
+    do: ngettext("%{count} customer", "%{count} customers", n, count: n)
+
+  defp result_label("manufacturer", n),
+    do: ngettext("%{count} manufacturer", "%{count} manufacturers", n, count: n)
+
+  defp result_label("partner", n),
+    do: ngettext("%{count} partner", "%{count} partners", n, count: n)
+
+  defp result_label(_all, n),
+    do: ngettext("%{count} contact", "%{count} contacts", n, count: n)
 
   # Takes an assigns-shaped map — either a LiveView `socket.assigns` (from an
   # event handler) or the `assigns` passed into `render/1` (from the
   # template) — both expose `:filter`/`:search`/`:page` the same way.
-  # "active" is the default filter (never shown in the query string, matching
-  # the plain `Paths.contacts()` href the Active tab has always used).
-  # The filter strip, as nav_tabs data. The Trashed tab appears only while
-  # there is something in the trash (or the user is already looking at it).
+  # "all" is the default filter (never shown in the query string, matching the
+  # plain `Paths.contacts()` href the default tab has always used).
+  #
+  # Same strip rules as the companies index: only filters with something
+  # behind them are offered, an active filter's tab always renders, and every
+  # label carries its count. See `CompaniesLive.filter_tabs/1` for the full
+  # reasoning.
   defp filter_tabs(assigns) do
-    [
-      %{id: "active", label: gettext("Active")},
-      %{id: "supplier", label: gettext("Suppliers")},
-      %{id: "customer", label: gettext("Customers")},
-      %{id: "manufacturer", label: gettext("Manufacturers")},
-      %{id: "partner", label: gettext("Partners")}
-    ]
+    %{status_counts: sc, role_counts: rc, filter: filter} = assigns
+    inactive = Map.get(sc, "inactive", 0)
+    trashed = Map.get(sc, "trashed", 0)
+
+    [%{id: "all", label: counted(gettext("All"), Map.get(sc, "active", 0) + inactive)}]
     |> Kernel.++(
-      if assigns.trashed_count > 0 or assigns.filter == "trashed",
-        do: [%{id: "trashed", label: trashed_tab_label(assigns.trashed_count)}],
+      if inactive > 0 or filter in ["active", "inactive"] do
+        [
+          %{id: "active", label: counted(gettext("Active"), Map.get(sc, "active", 0))},
+          %{id: "inactive", label: counted(gettext("Inactive"), inactive)}
+        ]
+      else
+        []
+      end
+    )
+    |> Kernel.++(
+      [
+        {"supplier", gettext("Suppliers")},
+        {"customer", gettext("Customers")},
+        {"manufacturer", gettext("Manufacturers")},
+        {"partner", gettext("Partners")}
+      ]
+      |> Enum.filter(fn {id, _label} -> Map.get(rc, id, 0) > 0 or filter == id end)
+      |> Enum.map(fn {id, label} -> %{id: id, label: counted(label, Map.get(rc, id, 0))} end)
+    )
+    |> Kernel.++(
+      if trashed > 0 or filter == "trashed",
+        do: [%{id: "trashed", label: counted(gettext("Trashed"), trashed)}],
         else: []
     )
     |> Enum.map(&Map.put(&1, :patch, contacts_path(assigns, filter: &1.id, page: 1)))
   end
 
+  defp counted(label, n), do: "#{label} (#{n})"
+
   defp contacts_path(assigns, overrides) do
     params =
       %{filter: assigns.filter, search: assigns.search, page: assigns.page}
       |> Map.merge(Map.new(overrides))
-      |> Enum.reject(fn {k, v} -> v in [nil, "", 1] or (k == :filter and v == "active") end)
+      |> Enum.reject(fn {k, v} -> v in [nil, "", 1] or (k == :filter and v == "all") end)
       |> Enum.into(%{})
 
     case params do
@@ -335,9 +397,6 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
 
   defp company_name(%{company: %{name: name}}) when is_binary(name), do: name
   defp company_name(_), do: nil
-
-  defp trashed_tab_label(0), do: gettext("Trashed")
-  defp trashed_tab_label(n), do: gettext("Trashed (%{count})", count: n)
 
   defp card_title_link(contact, roles_map) do
     assigns = %{contact: contact, roles: Map.get(roles_map, contact.uuid, [])}

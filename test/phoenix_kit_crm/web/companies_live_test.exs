@@ -25,13 +25,69 @@ defmodule PhoenixKitCRM.Web.CompaniesLiveTest do
   end
 
   test "the filter strip is core nav_tabs (border) with prefixed patch hrefs", %{conn: conn} do
+    {:ok, supplier_co} = Companies.create_company(%{"name" => "Supplier Co"})
+    {:ok, _} = PhoenixKitCRM.PartyRoles.grant_role(supplier_co, "supplier")
+    {:ok, _} = Companies.create_company(%{"name" => "Plain Co"})
+
     {:ok, view, html} = live(conn, "/en/admin/crm/companies")
 
     assert html =~ ~s(role="tablist")
     assert html =~ "tabs-border"
-    assert has_element?(view, "a.tab-active", "Active")
-    assert has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=supplier"]}, "Suppliers")
+    # The default tab is honestly "All" — the old "Active" label promised a
+    # status dichotomy the strip didn't offer — and every label has its count.
+    assert has_element?(view, "a.tab-active", "All (2)")
+
+    assert has_element?(
+             view,
+             ~s{a[href="/en/admin/crm/companies?filter=supplier"]},
+             "Suppliers (1)"
+           )
+
+    # Filters with nothing behind them aren't offered.
+    refute has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=customer"]})
+    refute has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=partner"]})
     refute has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=trashed"]})
+    # Everything is active, so the Active/Inactive pair would be noise.
+    refute has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=active"]})
+  end
+
+  test "the Active/Inactive pair appears once an inactive company exists, and both scope by status",
+       %{conn: conn} do
+    {:ok, _} = Companies.create_company(%{"name" => "Awake Co"})
+    {:ok, _} = Companies.create_company(%{"name" => "Dormant Co", "status" => "inactive"})
+
+    {:ok, view, html} = live(conn, "/en/admin/crm/companies")
+
+    # The default view is All: everything not trashed, inactive included —
+    # exactly the scope the old "Active" tab silently had.
+    assert html =~ "Awake Co"
+    assert html =~ "Dormant Co"
+    assert has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=active"]}, "Active (1)")
+
+    assert has_element?(
+             view,
+             ~s{a[href="/en/admin/crm/companies?filter=inactive"]},
+             "Inactive (1)"
+           )
+
+    {:ok, _view, html} = live(conn, "/en/admin/crm/companies?filter=inactive")
+    assert html =~ "Dormant Co"
+    refute html =~ "Awake Co"
+    assert html =~ "1 inactive company"
+
+    {:ok, _view, html} = live(conn, "/en/admin/crm/companies?filter=active")
+    assert html =~ "Awake Co"
+    refute html =~ "Dormant Co"
+  end
+
+  test "the toolbar count names the filter, not a bare company count", %{conn: conn} do
+    {:ok, supplier_co} = Companies.create_company(%{"name" => "Sole Vendor"})
+    {:ok, _} = PhoenixKitCRM.PartyRoles.grant_role(supplier_co, "supplier")
+    {:ok, _} = Companies.create_company(%{"name" => "Other Firm"})
+
+    {:ok, _view, html} = live(conn, "/en/admin/crm/companies?filter=supplier")
+    assert html =~ "1 supplier"
+    refute html =~ "1 company"
   end
 
   test "the no-contacts filter lists only companies without live contacts and names itself in the strip",

@@ -144,6 +144,16 @@ defmodule PhoenixKitCRM.CompaniesTest do
     end
   end
 
+  describe "status_counts/0" do
+    test "one grouped read covering the whole status vocabulary, zeros included" do
+      company_fixture(%{"name" => "Active One"})
+      company_fixture(%{"name" => "Active Two"})
+      {:ok, _} = Companies.trash_company(company_fixture(%{"name" => "Binned"}))
+
+      assert Companies.status_counts() == %{"active" => 2, "inactive" => 0, "trashed" => 1}
+    end
+  end
+
   describe "list_memberships/1" do
     test "excludes memberships whose contact is trashed" do
       company = company_fixture(%{"name" => "Roster Co"})

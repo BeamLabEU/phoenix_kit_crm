@@ -100,6 +100,25 @@ defmodule PhoenixKitCRM.Companies do
     end
   end
 
+  @doc """
+  Company counts by status in one grouped query, zeros included:
+  `%{"active" => n, "inactive" => n, "trashed" => n}`. Backs the index's
+  filter strip, so the numbers are deliberately search-independent — tabs are
+  navigation, and a tab that vanished while a search was being typed would be
+  navigation that moves.
+  """
+  @spec status_counts() :: %{String.t() => non_neg_integer()}
+  def status_counts do
+    counted =
+      Company
+      |> group_by([c], c.status)
+      |> select([c], {c.status, count(c.uuid)})
+      |> repo().all()
+      |> Map.new()
+
+    Map.new(Company.statuses() ++ ["trashed"], &{&1, Map.get(counted, &1, 0)})
+  end
+
   @doc "Same filters as `list_companies/1` (`:status`/`:include_trashed`/`:search`/`:without_contacts`); ignores `:limit`/`:offset`."
   @spec count_companies(keyword()) :: non_neg_integer()
   def count_companies(opts \\ []) do

@@ -144,6 +144,16 @@ defmodule PhoenixKitCRM.ContactsTest do
     end
   end
 
+  describe "status_counts/0" do
+    test "one grouped read covering the whole status vocabulary, zeros included" do
+      contact_fixture(%{"name" => "Active One"})
+      contact_fixture(%{"name" => "Dormant One", "status" => "inactive"})
+      {:ok, _} = Contacts.trash_contact(contact_fixture(%{"name" => "Binned"}))
+
+      assert Contacts.status_counts() == %{"active" => 1, "inactive" => 1, "trashed" => 1}
+    end
+  end
+
   describe "list_by_uuids/1" do
     test "returns the contacts for the given uuids; [] for empty input" do
       a = contact_fixture(%{"name" => "A"})
