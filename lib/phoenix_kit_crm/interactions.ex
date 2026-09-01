@@ -15,15 +15,19 @@ defmodule PhoenixKitCRM.Interactions do
   alias PhoenixKitCRM.Attachments
   alias PhoenixKitCRM.Contacts
   alias PhoenixKitCRM.PubSub
-  alias PhoenixKitCRM.Schemas.{Contact, Interaction, InteractionParty}
+  alias PhoenixKitCRM.Schemas.{Company, CompanyMembership, Contact, Interaction, InteractionParty}
   alias PhoenixKitCRM.StaffLink
 
   defp repo, do: RepoHelper.repo()
 
   @doc """
   Lists every interaction that involves the given contact — whether they are
-  the **subject** (`interactions.contact_uuid`) or an **involved party**
-  (`interaction_parties.contact_uuid`). Newest first; parties preloaded.
+  the **anchor** (`interactions.contact_uuid`) or an **involved party**
+  (`interaction_parties.contact_uuid`). Newest first; parties and the company
+  anchor preloaded (a company-anchored interaction reaches this feed through
+  the party arm, and the page needs the company to say why the row is there).
+  Company-anchored rows whose company is trashed are hidden — the same
+  visibility rule every roster and feed applies.
   """
   @spec list_involving(UUIDv7.t() | String.t() | nil) :: [Interaction.t()]
   def list_involving(contact_uuid) do
@@ -37,13 +41,82 @@ defmodule PhoenixKitCRM.Interactions do
 
         Interaction
         |> where([i], i.contact_uuid == ^contact_uuid or i.uuid in subquery(party_subq))
+        |> join(:left, [i], co in Company, on: co.uuid == i.company_uuid)
+        |> where([i, co], is_nil(i.company_uuid) or co.status != "trashed")
         |> order_by([i], desc: i.occurred_at, desc: i.inserted_at)
         |> repo().all()
-        |> repo().preload(parties: from(p in InteractionParty, order_by: p.position))
+        |> repo().preload([
+          :company,
+          parties: from(p in InteractionParty, order_by: p.position)
+        ])
 
       :error ->
         []
     end
+  end
+
+  @doc """
+  A company's interaction feed. One query — the two arms are combined so
+  ordering and `:limit` apply to the merged result (limiting per arm skews
+  the window).
+
+  ## Options
+    * `:scope` — `:all` (default): company-anchored plus interactions whose
+      anchor contact is a CURRENT live member; `:company`: company-anchored
+      only; `:members`: the member rollup only (the pre-V05 tab's meaning —
+      member-as-anchor, never mere party involvement, or the company would
+      inherit its people's unrelated calls).
+    * `:limit` — cap the rows read; same contract as `list_for_contacts/2`.
+
+  `list_for_contacts/2` remains the member-rollup primitive other consumers
+  call with explicit uuids; this wraps the membership lookup and the
+  company arm.
+  """
+  @spec list_for_company(UUIDv7.t() | String.t() | nil, keyword()) :: [Interaction.t()]
+  def list_for_company(company_uuid, opts \\ []) do
+    case Ecto.UUID.cast(company_uuid) do
+      {:ok, _} ->
+        scope = Keyword.get(opts, :scope, :all)
+
+        Interaction
+        |> where(^company_scope_condition(scope, company_uuid))
+        |> order_by([i], desc: i.occurred_at, desc: i.inserted_at)
+        |> maybe_limit(opts[:limit])
+        |> repo().all()
+        |> repo().preload([
+          :contact,
+          :company,
+          parties: from(p in InteractionParty, order_by: p.position)
+        ])
+
+      :error ->
+        []
+    end
+  end
+
+  defp company_scope_condition(:company, company_uuid),
+    do: dynamic([i], i.company_uuid == ^company_uuid)
+
+  defp company_scope_condition(:members, company_uuid),
+    do: dynamic([i], i.contact_uuid in subquery(live_member_uuids(company_uuid)))
+
+  defp company_scope_condition(:all, company_uuid) do
+    dynamic(
+      [i],
+      i.company_uuid == ^company_uuid or
+        i.contact_uuid in subquery(live_member_uuids(company_uuid))
+    )
+  end
+
+  # The roster's visibility rule (`Companies.list_memberships/1`), as a
+  # subquery: memberships whose contact is trashed don't count.
+  defp live_member_uuids(company_uuid) do
+    from(m in CompanyMembership,
+      join: ct in Contact,
+      on: ct.uuid == m.contact_uuid,
+      where: m.company_uuid == ^company_uuid and ct.status != "trashed",
+      select: m.contact_uuid
+    )
   end
 
   @doc "UUIDs of the interactions a contact is the subject of (for the Files rollup)."
@@ -88,11 +161,11 @@ defmodule PhoenixKitCRM.Interactions do
   defp maybe_limit(query, _), do: query
 
   @doc """
-  The newest interactions across the whole CRM, subject contact preloaded.
-  Powers the overview's recent feed, so it stays deliberately narrow: capped
-  rows, no parties preload. Interactions whose subject contact is trashed are
-  excluded — the same visibility rule every roster and count applies, and the
-  rows link to the contact's page.
+  The newest interactions across the whole CRM, anchor preloaded (contact or
+  company). Powers the overview's recent feed, so it stays deliberately
+  narrow: capped rows, no parties preload. Interactions whose anchor is
+  trashed are excluded — the same visibility rule every roster and count
+  applies, and each row links to its anchor's page.
 
   ## Options
     * `:limit` — rows to return (default 6)
@@ -100,12 +173,17 @@ defmodule PhoenixKitCRM.Interactions do
   @spec list_recent(keyword()) :: [Interaction.t()]
   def list_recent(opts \\ []) do
     Interaction
-    |> join(:inner, [i], c in Contact, on: c.uuid == i.contact_uuid)
-    |> where([i, c], c.status != "trashed")
+    |> join(:left, [i], c in Contact, on: c.uuid == i.contact_uuid)
+    |> join(:left, [i, c], co in Company, on: co.uuid == i.company_uuid)
+    |> where(
+      [i, c, co],
+      (not is_nil(i.contact_uuid) and c.status != "trashed") or
+        (not is_nil(i.company_uuid) and co.status != "trashed")
+    )
     |> order_by([i], desc: i.occurred_at, desc: i.inserted_at)
     |> limit(^Keyword.get(opts, :limit, 6))
     |> repo().all()
-    |> repo().preload([:contact])
+    |> repo().preload([:contact, :company])
   end
 
   @doc "Total logged interactions. Interactions have no soft-delete status."
@@ -180,7 +258,7 @@ defmodule PhoenixKitCRM.Interactions do
 
     result =
       repo().transaction(fn ->
-        case interaction |> Interaction.changeset(attrs) |> repo().update() do
+        case interaction |> Interaction.update_changeset(attrs) |> repo().update() do
           {:ok, updated} ->
             reconcile_parties(updated, party_inputs)
             repo().preload(updated, [:parties], force: true)
@@ -199,6 +277,10 @@ defmodule PhoenixKitCRM.Interactions do
           updated.uuid,
           old_uuids ++ PubSub.involved_contact_uuids(updated)
         )
+
+        # The anchor is immutable (update_changeset never casts it), so the
+        # same company feed that saw the create sees the edit.
+        PubSub.broadcast_to_company_feed(:interaction_updated, updated.uuid, updated.company_uuid)
 
         ok
 
@@ -227,21 +309,29 @@ defmodule PhoenixKitCRM.Interactions do
     end
   end
 
-  # The contact's Events feed audit entry for an interaction lifecycle event.
+  # The anchor's Events feed audit entry for an interaction lifecycle event.
   # Logged in the context (not the LiveView) so it's written before the realtime
   # broadcast and so every path records it. The actor defaults to the interaction
   # owner; callers thread the acting user via `opts[:actor_uuid]`. Best-effort via
   # the Activity wrapper. Only the type + short subject are recorded (never the
-  # free-text body).
+  # free-text body). The resource follows the anchor — a company-anchored
+  # interaction is the company's lifecycle event, and appears on ITS Events
+  # tab; member/party contacts get the realtime broadcast, not a duplicate
+  # activity entry.
   defp log_interaction(action, %Interaction{} = interaction, opts \\ []) do
+    {resource_type, resource_uuid} =
+      if interaction.company_uuid,
+        do: {"crm_company", interaction.company_uuid},
+        else: {"crm_contact", interaction.contact_uuid}
+
     # No `target_uuid`: core treats it as the affected *user* and fans out a
     # notification, but an interaction isn't a user — setting it to the
     # interaction uuid just triggers a failed notification insert. The interaction
     # is referenced in metadata instead.
     Activity.log(action,
       actor_uuid: Keyword.get(opts, :actor_uuid) || interaction.owner_user_uuid,
-      resource_type: "crm_contact",
-      resource_uuid: interaction.contact_uuid,
+      resource_type: resource_type,
+      resource_uuid: resource_uuid,
       metadata: %{
         "interaction_uuid" => interaction.uuid,
         "interaction_type" => interaction.interaction_type,

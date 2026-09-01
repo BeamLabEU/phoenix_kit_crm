@@ -25,11 +25,12 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Users.Auth
+  alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCRM.{Activity, Attachments, Companies, PartyRoles, Paths}
   alias PhoenixKitCRM.PubSub, as: CRMPubSub
   alias PhoenixKitCRM.Schemas.{Company, Contact}
-  alias PhoenixKitCRM.Web.{CompanyInteractionsComponent, EventsComponent, MediaComponent}
   alias PhoenixKitCRM.Web.Components.MirrorPanel
+  alias PhoenixKitCRM.Web.{EventsComponent, InteractionsComponent, MediaComponent}
 
   import PhoenixKitCRM.Web.Components.TabIntro, only: [tab_intro: 1]
   import PhoenixKitCRM.Web.InteractionHelpers, only: [tz_offset: 1]
@@ -138,8 +139,15 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     previous = socket.assigns.subscribed_company
 
     if previous != company.uuid do
-      if previous, do: CRMPubSub.unsubscribe(CRMPubSub.topic_company(previous))
+      if previous do
+        CRMPubSub.unsubscribe(CRMPubSub.topic_company(previous))
+        CRMPubSub.unsubscribe(CRMPubSub.topic_company_interactions(previous))
+      end
+
       CRMPubSub.subscribe(CRMPubSub.topic_company(company.uuid))
+      # The company's OWN interaction feed (company-anchored writes) — member
+      # interactions arrive on the per-member topics synced below.
+      CRMPubSub.subscribe(CRMPubSub.topic_company_interactions(company.uuid))
       assign(socket, :subscribed_company, company.uuid)
     else
       socket
@@ -202,7 +210,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
     case socket.assigns.tab do
       "interactions" ->
-        send_update(CompanyInteractionsComponent,
+        send_update(InteractionsComponent,
           id: "crm-company-interactions-#{uuid}",
           refresh_token: System.unique_integer([:monotonic])
         )
@@ -694,12 +702,19 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
         </div>
       </div>
 
-      <div :if={@tab == "interactions"}>
+      <div :if={@tab == "interactions"} class="flex flex-col gap-3">
+        <.tab_intro text={
+          gettext(
+            "Interactions with this company itself, and — under People — everything logged on its contacts. Log company-level ones here; a person's own are logged on their page."
+          )
+        } />
         <.live_component
-          module={CompanyInteractionsComponent}
+          module={InteractionsComponent}
           id={"crm-company-interactions-#{@company.uuid}"}
           company={@company}
-          members={@memberships}
+          current_user_uuid={current_user_uuid(assigns)}
+          current_user_name={current_user_name(assigns)}
+          phoenix_kit_current_user={@phoenix_kit_current_user}
           tz_offset={@tz_offset}
         />
       </div>
@@ -960,4 +975,28 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
   defp member_role(m),
     do: [m.role_in_company, m.department] |> Enum.reject(&(&1 in [nil, ""])) |> Enum.join(" · ")
+
+  defp current_user_uuid(assigns) do
+    case assigns[:phoenix_kit_current_user] do
+      %{uuid: uuid} -> uuid
+      _ -> nil
+    end
+  end
+
+  # Display name for the composer's "Add me" party shortcut — full name, else
+  # email. Mirrors the contact page's helper.
+  defp current_user_name(assigns) do
+    case assigns[:phoenix_kit_current_user] do
+      %{} = user ->
+        case User.full_name(user) do
+          name when is_binary(name) and name != "" -> name
+          _ -> user.email
+        end
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
+  end
 end

@@ -65,13 +65,13 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
       if company do
         memberships = safe(fn -> Companies.list_memberships(company.uuid) end) || []
 
-        contact_uuids =
-          memberships |> Enum.map(& &1.contact_uuid) |> Enum.reject(&is_nil/1)
-
         # Limit in the QUERY: this tab shows the newest few, and the company's
         # full history (parties preloaded) is not ours to read for that.
+        # "Recent interactions with this client" means the company's OWN
+        # (company-anchored, V05) merged with its members' — list_for_company
+        # limits the combined window in SQL.
         recent =
-          safe(fn -> Interactions.list_for_contacts(contact_uuids, limit: @recent_limit) end) ||
+          safe(fn -> Interactions.list_for_company(company.uuid, limit: @recent_limit) end) ||
             []
 
         {memberships, recent}

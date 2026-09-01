@@ -173,28 +173,112 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     assert html =~ "set the Company field on an existing contact"
   end
 
-  test "the Interactions tab says interactions are logged on the contact — a sentence, no per-member links",
+  test "the Interactions tab has a company composer that logs a company-anchored interaction",
+       %{conn: conn} do
+    {:ok, company} = Companies.create_company(%{"name" => "Initech"})
+    # The composer stamps the acting user as owner — a persisted one, or the
+    # owner FK (rightly) refuses the insert.
+    user = org_user_fixture(%{})
+    conn = put_test_scope(conn, fake_scope(user_uuid: user.uuid))
+
+    {:ok, view, html} =
+      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+
+    # The composer works with zero members — that is the whole point of
+    # company-anchored interactions.
+    assert html =~ "Log an interaction with Initech"
+
+    view
+    |> element("form[phx-change=composer_change]")
+    |> render_change(%{"interaction" => %{"subject" => "Front desk call"}})
+
+    view |> element("button[phx-click=save_interaction]") |> render_click()
+
+    assert [interaction] = Interactions.list_for_company(company.uuid)
+    assert interaction.company_uuid == company.uuid
+    assert interaction.contact_uuid == nil
+    assert interaction.subject == "Front desk call"
+    assert interaction.owner_user_uuid == user.uuid
+    assert render(view) =~ "Front desk call"
+  end
+
+  test "the Interactions tab merges company and member rows with provenance, scope filter splits them",
        %{conn: conn} do
     {:ok, company} = Companies.create_company(%{"name" => "Initech"})
     anna = member_fixture(company, "Anna Member")
 
-    {:ok, _view, html} =
+    {:ok, _own} =
+      Interactions.create_interaction(%{
+        "company_uuid" => company.uuid,
+        "interaction_type" => "call",
+        "subject" => "Company-level call",
+        "occurred_at" => DateTime.utc_now() |> DateTime.truncate(:second)
+      })
+
+    {:ok, _member_own} =
+      Interactions.create_interaction(%{
+        "contact_uuid" => anna.uuid,
+        "interaction_type" => "note",
+        "subject" => "Anna's own note",
+        "occurred_at" => DateTime.utc_now() |> DateTime.truncate(:second)
+      })
+
+    {:ok, view, html} =
       live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
-    assert html =~ "logged on the contact&#39;s own page"
-    refute html =~ ~s(href="/en/admin/crm/contacts/#{anna.uuid}?tab=interactions")
-    refute html =~ "no contacts yet"
+    # Default :all — both rows, each with provenance (Company badge / name link).
+    assert html =~ "Company-level call"
+    assert html =~ "Anna&#39;s own note"
+    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts/#{anna.uuid}"]}, "Anna Member")
+
+    html = view |> element("button[phx-value-scope=company]") |> render_click()
+    assert html =~ "Company-level call"
+    refute html =~ "Anna&#39;s own note"
+
+    html = view |> element("button[phx-value-scope=members]") |> render_click()
+    refute html =~ "Company-level call"
+    assert html =~ "Anna&#39;s own note"
   end
 
-  test "the Interactions tab points to the Members tab when the company has no contacts",
+  test "a member's own interaction is read-only on the company page — delete only for company-anchored rows",
        %{conn: conn} do
     {:ok, company} = Companies.create_company(%{"name" => "Initech"})
+    anna = member_fixture(company, "Anna Member")
 
-    {:ok, _view, html} =
+    {:ok, own} =
+      Interactions.create_interaction(%{
+        "company_uuid" => company.uuid,
+        "interaction_type" => "call",
+        "occurred_at" => DateTime.utc_now() |> DateTime.truncate(:second)
+      })
+
+    {:ok, member_own} =
+      Interactions.create_interaction(%{
+        "contact_uuid" => anna.uuid,
+        "interaction_type" => "note",
+        "occurred_at" => DateTime.utc_now() |> DateTime.truncate(:second)
+      })
+
+    {:ok, view, _html} =
       live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
-    assert html =~ "no contacts yet"
-    assert html =~ "Members tab first"
+    assert has_element?(
+             view,
+             ~s{button[phx-click=delete_interaction][phx-value-uuid="#{own.uuid}"]}
+           )
+
+    refute has_element?(
+             view,
+             ~s{button[phx-click=delete_interaction][phx-value-uuid="#{member_own.uuid}"]}
+           )
+
+    # A forged delete for the member's row is refused by the handler's
+    # ownership gate too — the missing button is not the only defense.
+    view
+    |> with_target("#crm-company-interactions-#{company.uuid}")
+    |> render_click("delete_interaction", %{"uuid" => member_own.uuid})
+
+    assert Interactions.get_interaction(member_own.uuid)
   end
 
   test "Events, Files, Images and Comments tabs each carry their intro", %{conn: conn} do

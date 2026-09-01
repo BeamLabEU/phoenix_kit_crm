@@ -218,4 +218,132 @@ defmodule PhoenixKitCRM.InteractionsTest do
       refute hidden.uuid in uuids
     end
   end
+
+  describe "company-anchored interactions (V05)" do
+    defp company_fixture(name \\ "Acme Anchor Co") do
+      {:ok, company} = PhoenixKitCRM.Companies.create_company(%{"name" => name})
+      company
+    end
+
+    defp company_attrs(company, attrs \\ %{}) do
+      Map.merge(
+        %{
+          "company_uuid" => company.uuid,
+          "interaction_type" => "call",
+          "occurred_at" => DateTime.utc_now() |> DateTime.truncate(:second)
+        },
+        attrs
+      )
+    end
+
+    test "exactly one anchor: neither and both are changeset errors, not DB 500s" do
+      company = company_fixture()
+      contact = contact_fixture()
+
+      assert {:error, cs} =
+               Interactions.create_interaction(%{
+                 "interaction_type" => "note",
+                 "occurred_at" => DateTime.utc_now() |> DateTime.truncate(:second)
+               })
+
+      assert cs.errors[:contact_uuid]
+
+      assert {:error, cs} =
+               Interactions.create_interaction(
+                 company_attrs(company, %{"contact_uuid" => contact.uuid})
+               )
+
+      assert cs.errors[:company_uuid]
+    end
+
+    test "list_for_company scopes: :company, :members, and :all as one merged window" do
+      company = company_fixture()
+      member = contact_fixture("Member Mia")
+      {:ok, _} = Contacts.set_primary_company(member, company.uuid, "Eng", nil)
+      outsider = contact_fixture("Outsider Otto")
+
+      {:ok, own} = Interactions.create_interaction(company_attrs(company))
+      {:ok, member_own} = Interactions.create_interaction(interaction_attrs(member))
+      {:ok, unrelated} = Interactions.create_interaction(interaction_attrs(outsider))
+
+      company_uuids =
+        Interactions.list_for_company(company.uuid, scope: :company) |> Enum.map(& &1.uuid)
+
+      assert company_uuids == [own.uuid]
+
+      member_uuids =
+        Interactions.list_for_company(company.uuid, scope: :members) |> Enum.map(& &1.uuid)
+
+      assert member_own.uuid in member_uuids
+      refute own.uuid in member_uuids
+
+      all_uuids = Interactions.list_for_company(company.uuid) |> Enum.map(& &1.uuid)
+      assert own.uuid in all_uuids
+      assert member_own.uuid in all_uuids
+      refute unrelated.uuid in all_uuids
+
+      # :limit applies to the MERGED window, newest first.
+      assert [first] = Interactions.list_for_company(company.uuid, limit: 1)
+      assert first.uuid in [own.uuid, member_own.uuid]
+    end
+
+    test "a company-anchored row with a contact party reaches that contact's involving feed, company preloaded" do
+      company = company_fixture()
+      anna = contact_fixture("Party Anna")
+
+      {:ok, interaction} =
+        Interactions.create_interaction(company_attrs(company), [
+          %{raw_name: "Party Anna", contact_uuid: anna.uuid}
+        ])
+
+      assert [row] = Interactions.list_involving(anna.uuid)
+      assert row.uuid == interaction.uuid
+      assert row.company.name == "Acme Anchor Co"
+    end
+
+    test "involving feed hides company-anchored rows once the company is trashed" do
+      company = company_fixture("Doomed Co")
+      anna = contact_fixture("Party Anna")
+
+      {:ok, _} =
+        Interactions.create_interaction(company_attrs(company), [
+          %{raw_name: "Party Anna", contact_uuid: anna.uuid}
+        ])
+
+      {:ok, _} = PhoenixKitCRM.Companies.trash_company(company)
+
+      assert Interactions.list_involving(anna.uuid) == []
+    end
+
+    test "list_recent includes company-anchored rows and hides trashed-company ones" do
+      kept_co = company_fixture("Kept Co")
+      doomed_co = company_fixture("Doomed Co")
+      {:ok, kept} = Interactions.create_interaction(company_attrs(kept_co))
+      {:ok, hidden} = Interactions.create_interaction(company_attrs(doomed_co))
+      {:ok, _} = PhoenixKitCRM.Companies.trash_company(doomed_co)
+
+      rows = Interactions.list_recent()
+      uuids = Enum.map(rows, & &1.uuid)
+      assert kept.uuid in uuids
+      refute hidden.uuid in uuids
+      assert Enum.find(rows, &(&1.uuid == kept.uuid)).company.name == "Kept Co"
+    end
+
+    test "the anchor is immutable: an update smuggling anchor fields is silently ignored" do
+      company = company_fixture()
+      other = contact_fixture("Other Contact")
+      {:ok, interaction} = Interactions.create_interaction(company_attrs(company))
+
+      {:ok, updated} =
+        Interactions.update_interaction(interaction, %{
+          "subject" => "Edited",
+          "contact_uuid" => other.uuid,
+          "company_uuid" => nil
+        })
+
+      assert updated.subject == "Edited"
+      assert updated.company_uuid == company.uuid
+      assert updated.contact_uuid == nil
+    end
+  end
 end

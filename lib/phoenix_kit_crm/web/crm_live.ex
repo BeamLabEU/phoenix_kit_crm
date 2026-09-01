@@ -33,7 +33,7 @@ defmodule PhoenixKitCRM.Web.CRMLive do
   import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
 
   alias PhoenixKitCRM.{Companies, Contacts, Interactions, Lists, PartyRoles, Paths}
-  alias PhoenixKitCRM.Schemas.{Contact, Interaction}
+  alias PhoenixKitCRM.Schemas.{Company, Contact, Interaction}
 
   @recent_limit 6
 
@@ -214,11 +214,12 @@ defmodule PhoenixKitCRM.Web.CRMLive do
       </div>
 
       <%!-- Newest interactions across the CRM. There is no interactions index
-           page — an interaction lives on its contact — so rows link to the
-           contact and the empty state points there too, not at a "view all"
-           that doesn't exist. Hidden while there are no contacts at all: the
-           start card above already explains the workflow. --%>
-      <div :if={@enabled && @counts && @counts.contacts > 0}>
+           page — an interaction lives on its anchor (a contact or, since V05,
+           a company) — so rows link to the anchor and the empty state points
+           there too, not at a "view all" that doesn't exist. Hidden only
+           while the CRM is empty of both record types: the start card above
+           already explains the workflow then. --%>
+      <div :if={@enabled && @counts && (@counts.contacts > 0 || @counts.companies > 0)}>
         <h3 class="text-lg font-semibold mb-3">{gettext("Recent interactions")}</h3>
 
         <div
@@ -231,7 +232,7 @@ defmodule PhoenixKitCRM.Web.CRMLive do
               <.icon name="hero-chat-bubble-left-right" class="w-5 h-5 text-base-content/60" />
               <span class="text-sm text-base-content/70">
                 {gettext(
-                  "No interactions logged yet. Calls, emails, meetings and notes are logged from a contact's page."
+                  "No interactions logged yet. Calls, emails, meetings and notes are logged from a contact's or company's page."
                 )}
               </span>
             </div>
@@ -242,24 +243,29 @@ defmodule PhoenixKitCRM.Web.CRMLive do
         </div>
 
         <ol :if={@recent != []} class="flex flex-col gap-2">
-          <%!-- Core row_link makes the whole row click through to the contact;
-               the visible name stays plain text so the row carries exactly one
-               anchor per destination. --%>
+          <%!-- Core row_link makes the whole row click through to the row's
+               ANCHOR — its contact or its company; the visible name stays
+               plain text so the row carries exactly one link per destination. --%>
           <li
             :for={i <- @recent}
             class="relative rounded-box border border-base-200 bg-base-100 p-3 flex items-center justify-between gap-3 flex-wrap hover:border-primary transition-colors"
           >
             <div class="flex items-center gap-2 min-w-0">
               <.row_link
-                :if={i.contact}
-                navigate={Paths.contact(i.contact.uuid)}
-                label={Contact.display_name(i.contact)}
+                :if={anchor_path(i)}
+                navigate={anchor_path(i)}
+                label={anchor_name(i)}
               />
               <span class="badge badge-ghost badge-sm shrink-0">
                 {Interaction.type_label(i.interaction_type)}
               </span>
-              <span :if={i.contact} class="font-medium truncate">
-                {Contact.display_name(i.contact)}
+              <.icon
+                :if={i.company_uuid}
+                name="hero-building-office-2"
+                class="w-3.5 h-3.5 shrink-0 text-base-content/50"
+              />
+              <span :if={anchor_name(i)} class="font-medium truncate">
+                {anchor_name(i)}
               </span>
               <span :if={i.subject} class="text-sm text-base-content/70 truncate">
                 {i.subject}
@@ -321,6 +327,16 @@ defmodule PhoenixKitCRM.Web.CRMLive do
   end
 
   defp filtered_path(base, filter), do: base <> "?filter=" <> filter
+
+  # A recent row's anchor — the record it is about. Preloaded nils fall
+  # through the struct matches.
+  defp anchor_name(%{contact: %Contact{} = c}), do: Contact.display_name(c)
+  defp anchor_name(%{company: %Company{} = co}), do: Company.display_name(co)
+  defp anchor_name(_), do: nil
+
+  defp anchor_path(%{contact: %Contact{} = c}), do: Paths.contact(c.uuid)
+  defp anchor_path(%{company: %Company{} = co}), do: Paths.company(co.uuid)
+  defp anchor_path(_), do: nil
 
   attr(:label, :string, required: true)
   attr(:count, :any, default: nil)
