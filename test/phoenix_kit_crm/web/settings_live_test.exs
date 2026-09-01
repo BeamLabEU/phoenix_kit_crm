@@ -29,6 +29,8 @@ defmodule PhoenixKitCRM.Web.SettingsLiveTest do
 
     assert to =~ "/admin/settings/crm"
     assert RoleSettings.enabled?(role.uuid)
+    # Granting a role CRM access was the module's only unlogged mutation.
+    assert_activity_logged("crm.role_access_enabled", resource_uuid: role.uuid)
   end
 
   test "an enabled role row carries the portal info the overview used to show — user count and the portal link",

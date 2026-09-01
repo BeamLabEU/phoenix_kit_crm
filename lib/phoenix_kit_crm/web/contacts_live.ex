@@ -375,7 +375,9 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
     |> Enum.map(&Map.put(&1, :patch, contacts_path(assigns, filter: &1.id, page: 1, search: "")))
   end
 
-  defp counted(label, n), do: "#{label} (#{n})"
+  # A msgid, not bare interpolation — the count-in-label convention is a
+  # translation surface (a locale may not parenthesise).
+  defp counted(label, n), do: gettext("%{label} (%{count})", label: label, count: n)
 
   defp contacts_path(assigns, overrides) do
     params =

@@ -9,6 +9,7 @@ defmodule PhoenixKitCRM.Interactions do
   """
 
   import Ecto.Query, warn: false
+  require Logger
 
   alias PhoenixKit.RepoHelper
   alias PhoenixKitCRM.Activity
@@ -190,6 +191,62 @@ defmodule PhoenixKitCRM.Interactions do
   @spec count_interactions() :: non_neg_integer()
   def count_interactions, do: repo().aggregate(Interaction, :count, :uuid)
 
+  # ── Anchor-cascade cleanup ──────────────────────────────────────────
+  #
+  # Hard-deleting a company or contact removes its anchored interactions via
+  # the DB CASCADE, which bypasses `delete_interaction/2` — the only path
+  # that purges the interaction's media folder and broadcasts the deletion.
+  # The parent-delete contexts collect the doomed rows inside their
+  # transaction and hand them here after the commit.
+
+  @doc """
+  The interactions a parent's hard-delete will cascade away — collect BEFORE
+  the delete (parties preloaded, for the deletion broadcast fan-out), then
+  pass the result to `cleanup_cascaded/1` once the parent delete commits.
+  """
+  @spec collect_for_cascade(:company | :contact, binary()) :: [Interaction.t()]
+  def collect_for_cascade(:company, uuid) do
+    Interaction |> where([i], i.company_uuid == ^uuid) |> repo().all() |> repo().preload(:parties)
+  end
+
+  def collect_for_cascade(:contact, uuid) do
+    Interaction |> where([i], i.contact_uuid == ^uuid) |> repo().all() |> repo().preload(:parties)
+  end
+
+  @doc """
+  Post-cascade cleanup: purge each cascaded interaction's media folder and
+  broadcast its deletion so open feeds (party contacts, the company feed)
+  drop the rows. No per-row activity entry — the parent's own deletion is
+  the logged event. Best-effort, like the lifecycle path it mirrors.
+  """
+  @spec cleanup_cascaded([Interaction.t()]) :: :ok
+  def cleanup_cascaded(interactions) do
+    Enum.each(interactions, fn i ->
+      Attachments.purge_interaction_media(i.uuid)
+      PubSub.broadcast_interaction(:interaction_deleted, i)
+    end)
+  end
+
+  @doc """
+  Tells every party contact's open feed that a company's soft-delete state
+  flipped — `list_involving/1` hides a trashed company's anchored rows, and
+  without this the open pages stay stale until reload.
+  """
+  @spec notify_company_visibility(binary()) :: :ok
+  def notify_company_visibility(company_uuid) do
+    contact_uuids =
+      from(p in InteractionParty,
+        join: i in Interaction,
+        on: i.uuid == p.interaction_uuid,
+        where: i.company_uuid == ^company_uuid and not is_nil(p.contact_uuid),
+        distinct: true,
+        select: p.contact_uuid
+      )
+      |> repo().all()
+
+    PubSub.broadcast_company_visibility(company_uuid, contact_uuids)
+  end
+
   @spec get_interaction(UUIDv7.t() | String.t() | nil) :: Interaction.t() | nil
   def get_interaction(uuid) do
     with {:ok, _} <- Ecto.UUID.cast(uuid),
@@ -200,9 +257,21 @@ defmodule PhoenixKitCRM.Interactions do
     end
   end
 
+  @doc """
+  Form-tracking changeset. Dispatches on persistence: a fresh struct gets the
+  create changeset (anchor fields castable), a loaded one the update
+  changeset (anchor immutable) — handing a form the create changeset for an
+  edit would collect anchor fields that `update_interaction/4` then silently
+  drops.
+  """
   @spec change_interaction(Interaction.t(), map()) :: Ecto.Changeset.t()
-  def change_interaction(%Interaction{} = interaction, attrs \\ %{}),
+  def change_interaction(interaction, attrs \\ %{})
+
+  def change_interaction(%Interaction{uuid: nil} = interaction, attrs),
     do: Interaction.changeset(interaction, attrs)
+
+  def change_interaction(%Interaction{} = interaction, attrs),
+    do: Interaction.update_changeset(interaction, attrs)
 
   @doc """
   Creates an interaction and (re)builds its party list. `party_inputs` is a
@@ -239,13 +308,23 @@ defmodule PhoenixKitCRM.Interactions do
     end
   end
 
-  # Best-effort: move the composer's staged files into the interaction's folder.
+  # Best-effort: move the composer's staged files into the interaction's
+  # folder. Best-effort must still be LOUD — the interaction save has already
+  # succeeded and the composer cleared its staged list, so a swallowed
+  # failure here is silent data loss with no trace (the exact bug class that
+  # hid the dropzone for weeks).
   defp attach_files(_interaction, [], _actor), do: :ok
 
   defp attach_files(%Interaction{} = interaction, file_uuids, actor_uuid) do
     case Attachments.ensure_interaction_folder(interaction.uuid, actor_uuid) do
-      {:ok, folder_uuid} -> Enum.each(file_uuids, &Attachments.attach(&1, folder_uuid))
-      _ -> :ok
+      {:ok, folder_uuid} ->
+        # attach/2 logs its own per-file failures and always returns :ok.
+        Enum.each(file_uuids, &Attachments.attach(&1, folder_uuid))
+
+      other ->
+        Logger.warning(
+          "[CRM] no attachment folder for interaction #{interaction.uuid} — #{length(file_uuids)} staged file(s) dropped: #{inspect(other)}"
+        )
     end
   end
 

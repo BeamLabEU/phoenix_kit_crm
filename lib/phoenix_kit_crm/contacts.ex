@@ -260,7 +260,8 @@ defmodule PhoenixKitCRM.Contacts do
     # read inside the transaction, under a row lock on the contact (an FK
     # insert of a new membership waits on it) — and told after the commit.
     case do_delete_contact(contact) do
-      {:ok, {deleted, companies}} ->
+      {:ok, {deleted, companies, cascading}} ->
+        PhoenixKitCRM.Interactions.cleanup_cascaded(cascading)
         announce_to_companies({:ok, deleted}, :member_left, companies)
 
       error ->
@@ -271,6 +272,11 @@ defmodule PhoenixKitCRM.Contacts do
   defp do_delete_contact(%Contact{} = contact) do
     repo().transaction(fn ->
       companies = locked_company_uuids_for(contact)
+
+      # Collect what the interactions FK cascade is about to remove — the
+      # cascade bypasses the interaction lifecycle path where media purge
+      # and deletion broadcasts live. Cleaned up post-commit by the caller.
+      cascading = PhoenixKitCRM.Interactions.collect_for_cascade(:contact, contact.uuid)
 
       affected_list_uuids =
         ListMember
@@ -285,7 +291,7 @@ defmodule PhoenixKitCRM.Contacts do
           # The party-role rows are soft references with no FK, so nothing
           # else removes them.
           PartyRoles.delete_roles_for("contact", contact.uuid)
-          {deleted, companies}
+          {deleted, companies, cascading}
 
         {:error, changeset} ->
           repo().rollback(changeset)

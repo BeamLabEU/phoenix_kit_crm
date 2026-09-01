@@ -46,7 +46,7 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
   def handle_event("toggle_role", %{"role_uuid" => uuid, "value" => v}, socket) do
     enabled? = v == "on" or v == "true"
 
-    case RoleSettings.set_enabled(uuid, enabled?) do
+    case RoleSettings.set_enabled(uuid, enabled?, actor_opts(socket)) do
       {:ok, _} ->
         # set_enabled/2 re-registers the role tabs in core's dashboard
         # registry, but the sidebar in this page's layout reads the registry
@@ -145,6 +145,13 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
 
     </div>
     """
+  end
+
+  defp actor_opts(socket) do
+    case socket.assigns[:phoenix_kit_current_user] do
+      %{uuid: uuid} -> [actor_uuid: uuid]
+      _ -> []
+    end
   end
 
   defp enabled_role_uuids do

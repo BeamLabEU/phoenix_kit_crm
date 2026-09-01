@@ -35,8 +35,6 @@ defmodule PhoenixKitCRM.Web.CRMLive do
   alias PhoenixKitCRM.{Companies, Contacts, Interactions, Lists, PartyRoles, Paths}
   alias PhoenixKitCRM.Schemas.{Company, Contact, Interaction}
 
-  @recent_limit 6
-
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
@@ -67,7 +65,7 @@ defmodule PhoenixKitCRM.Web.CRMLive do
        |> assign(:company_roles, PartyRoles.role_counts("company"))
        |> assign(:contact_roles, PartyRoles.role_counts("contact"))
        |> assign(:no_contact_companies, Companies.count_companies(without_contacts: true))
-       |> assign(:recent, Interactions.list_recent(limit: @recent_limit))}
+       |> assign(:recent, Interactions.list_recent())}
     else
       {:noreply, socket}
     end
@@ -222,12 +220,19 @@ defmodule PhoenixKitCRM.Web.CRMLive do
       <div :if={@enabled && @counts && (@counts.contacts > 0 || @counts.companies > 0)}>
         <h3 class="text-lg font-semibold mb-3">{gettext("Recent interactions")}</h3>
 
+        <%!-- The way in follows what exists: with contacts, their pages are
+             the richer composer home; companies-only installs get pointed at
+             companies (the old hardcoded contacts link led to an empty index). --%>
+        <% {empty_path, empty_label} =
+          if @counts.contacts > 0,
+            do: {Paths.contacts(), gettext("Browse contacts")},
+            else: {Paths.companies(), gettext("Browse companies")} %>
         <div
           :if={@recent == []}
           class="relative card bg-base-100 border border-base-200 hover:border-primary transition-colors"
         >
           <div class="card-body p-4 flex-row items-center justify-between gap-3 flex-wrap">
-            <.row_link navigate={Paths.contacts()} label={gettext("Browse contacts")} />
+            <.row_link navigate={empty_path} label={empty_label} />
             <div class="flex items-center gap-3">
               <.icon name="hero-chat-bubble-left-right" class="w-5 h-5 text-base-content/60" />
               <span class="text-sm text-base-content/70">
@@ -236,8 +241,8 @@ defmodule PhoenixKitCRM.Web.CRMLive do
                 )}
               </span>
             </div>
-            <.link navigate={Paths.contacts()} class="btn btn-outline btn-sm relative z-10">
-              {gettext("Browse contacts")}
+            <.link navigate={empty_path} class="btn btn-outline btn-sm relative z-10">
+              {empty_label}
             </.link>
           </div>
         </div>
@@ -245,17 +250,14 @@ defmodule PhoenixKitCRM.Web.CRMLive do
         <ol :if={@recent != []} class="flex flex-col gap-2">
           <%!-- Core row_link makes the whole row click through to the row's
                ANCHOR — its contact or its company; the visible name stays
-               plain text so the row carries exactly one link per destination. --%>
+               plain text so the row carries exactly one link per destination.
+               Anchor name/path hoisted per row: three template sites each. --%>
           <li
-            :for={i <- @recent}
+            :for={{i, name, path} <- Enum.map(@recent, &{&1, anchor_name(&1), anchor_path(&1)})}
             class="relative rounded-box border border-base-200 bg-base-100 p-3 flex items-center justify-between gap-3 flex-wrap hover:border-primary transition-colors"
           >
             <div class="flex items-center gap-2 min-w-0">
-              <.row_link
-                :if={anchor_path(i)}
-                navigate={anchor_path(i)}
-                label={anchor_name(i)}
-              />
+              <.row_link :if={path} navigate={path} label={name} />
               <span class="badge badge-ghost badge-sm shrink-0">
                 {Interaction.type_label(i.interaction_type)}
               </span>
@@ -264,8 +266,8 @@ defmodule PhoenixKitCRM.Web.CRMLive do
                 name="hero-building-office-2"
                 class="w-3.5 h-3.5 shrink-0 text-base-content/50"
               />
-              <span :if={anchor_name(i)} class="font-medium truncate">
-                {anchor_name(i)}
+              <span :if={name} class="font-medium truncate">
+                {name}
               </span>
               <span :if={i.subject} class="text-sm text-base-content/70 truncate">
                 {i.subject}

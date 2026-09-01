@@ -75,6 +75,24 @@ defmodule PhoenixKitCRM.Web.CRMLiveTest do
     refute html =~ "Needs attention"
   end
 
+  test "a company-anchored row in the recent feed names and links its company", %{conn: conn} do
+    {:ok, company} = Companies.create_company(%{"name" => "Recent Anchor Co"})
+
+    {:ok, _} =
+      Interactions.create_interaction(%{
+        "company_uuid" => company.uuid,
+        "interaction_type" => "call",
+        "subject" => "Front desk call",
+        "occurred_at" => DateTime.utc_now() |> DateTime.truncate(:second)
+      })
+
+    {:ok, view, html} = live(conn, "/en/admin/crm")
+
+    assert html =~ "Recent Anchor Co"
+    assert html =~ "hero-building-office-2"
+    assert has_element?(view, ~s{a[href="/en/admin/crm/companies/#{company.uuid}"]})
+  end
+
   test "recent interactions render newest first and link to the subject contact", %{conn: conn} do
     anna = contact_fixture("Anna Subject")
 
@@ -101,6 +119,17 @@ defmodule PhoenixKitCRM.Web.CRMLiveTest do
 
     assert html =~ "No interactions logged yet"
     assert has_element?(view, ~s{a[href="/en/admin/crm/contacts"]}, "Browse contacts")
+  end
+
+  test "a companies-only install's empty state points at companies, where its composer lives",
+       %{conn: conn} do
+    company_fixture("Only Co")
+
+    {:ok, view, html} = live(conn, "/en/admin/crm")
+
+    assert html =~ "No interactions logged yet"
+    assert has_element?(view, ~s{a[href="/en/admin/crm/companies"]}, "Browse companies")
+    refute has_element?(view, "a", "Browse contacts")
   end
 
   test "the start card shows only while BOTH record types are empty", %{conn: conn} do

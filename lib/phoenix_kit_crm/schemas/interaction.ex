@@ -66,6 +66,14 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
   @castable ~w(contact_uuid company_uuid interaction_type occurred_at subject body owner_user_uuid metadata)a
   @anchor_fields ~w(contact_uuid company_uuid)a
 
+  @doc """
+  CREATE-only changeset — the only one that casts the anchor fields. Anchor
+  immutability is an application-level rule, not a DB constraint (the CHECK
+  only pins exactly-one): reusing this changeset for an UPDATE would let
+  attrs retarget the row to another anchor, silently moving it between
+  feeds, activity ownership and broadcasts. Updates go through
+  `update_changeset/2`.
+  """
   @spec changeset(t() | Ecto.Changeset.t(t()), map()) :: Ecto.Changeset.t(t())
   def changeset(interaction, attrs) do
     interaction
@@ -101,6 +109,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
       message: "must be one of: #{Enum.join(@types, ", ")}"
     )
     |> validate_length(:subject, max: 255)
+    |> assoc_constraint(:owner_user)
   end
 
   # Exactly one anchor. Both errors land on visible fields so a form shows

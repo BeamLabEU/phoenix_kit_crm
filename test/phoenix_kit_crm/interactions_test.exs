@@ -282,9 +282,55 @@ defmodule PhoenixKitCRM.InteractionsTest do
       assert member_own.uuid in all_uuids
       refute unrelated.uuid in all_uuids
 
-      # :limit applies to the MERGED window, newest first.
+      # :limit applies to the MERGED window, newest first — the two rows get
+      # DISTINCT times so a per-arm limit (the bug this pins against) could
+      # not sneak the older row through.
+      {:ok, _} =
+        Interactions.update_interaction(own, %{
+          "occurred_at" =>
+            DateTime.utc_now() |> DateTime.add(-2, :hour) |> DateTime.truncate(:second)
+        })
+
+      {:ok, _} =
+        Interactions.update_interaction(member_own, %{
+          "occurred_at" =>
+            DateTime.utc_now() |> DateTime.add(-1, :hour) |> DateTime.truncate(:second)
+        })
+
       assert [first] = Interactions.list_for_company(company.uuid, limit: 1)
-      assert first.uuid in [own.uuid, member_own.uuid]
+      assert first.uuid == member_own.uuid
+    end
+
+    test "a trashed member leaves :members and :all — the roster rule, in the feed" do
+      company = company_fixture("Roster Rule Co")
+      mia = contact_fixture("Member Mia")
+      {:ok, _} = Contacts.set_primary_company(mia, company.uuid, "Eng", nil)
+      {:ok, mias_own} = Interactions.create_interaction(interaction_attrs(mia))
+      {:ok, _} = Contacts.trash_contact(mia)
+
+      refute mias_own.uuid in (Interactions.list_for_company(company.uuid, scope: :members)
+                               |> Enum.map(& &1.uuid))
+
+      refute mias_own.uuid in (Interactions.list_for_company(company.uuid) |> Enum.map(& &1.uuid))
+    end
+
+    test "update_changeset still enforces the non-anchor rules" do
+      company = company_fixture()
+      {:ok, interaction} = Interactions.create_interaction(company_attrs(company))
+
+      assert {:error, cs} =
+               Interactions.update_interaction(interaction, %{
+                 "interaction_type" => "carrier-pigeon"
+               })
+
+      assert cs.errors[:interaction_type]
+
+      assert {:error, cs} =
+               Interactions.update_interaction(interaction, %{
+                 "subject" => String.duplicate("x", 256)
+               })
+
+      assert cs.errors[:subject]
     end
 
     test "a company-anchored row with a contact party reaches that contact's involving feed, company preloaded" do
@@ -327,6 +373,48 @@ defmodule PhoenixKitCRM.InteractionsTest do
       assert kept.uuid in uuids
       refute hidden.uuid in uuids
       assert Enum.find(rows, &(&1.uuid == kept.uuid)).company.name == "Kept Co"
+    end
+
+    test "hard-deleting a company cleans up after the cascade: deletion broadcasts reach party feeds" do
+      company = company_fixture("Doomed Cascade Co")
+      anna = contact_fixture("Party Anna")
+
+      {:ok, interaction} =
+        Interactions.create_interaction(company_attrs(company), [
+          %{raw_name: "Party Anna", contact_uuid: anna.uuid}
+        ])
+
+      :ok =
+        PhoenixKitCRM.PubSub.subscribe(PhoenixKitCRM.PubSub.topic_contact_interactions(anna.uuid))
+
+      {:ok, _} = PhoenixKitCRM.Companies.delete_company(company)
+
+      # The DB cascade removed the row; the cleanup path still tells Anna's
+      # open feed (and purged the media folder — best-effort, not assertable
+      # without storage).
+      interaction_uuid = interaction.uuid
+      assert_receive {:crm, :interaction_deleted, %{interaction_uuid: ^interaction_uuid}}
+      assert Interactions.get_interaction(interaction.uuid) == nil
+    end
+
+    test "trashing and restoring a company tells party feeds their rows changed visibility" do
+      company = company_fixture("Blinking Co")
+      anna = contact_fixture("Party Anna")
+
+      {:ok, _} =
+        Interactions.create_interaction(company_attrs(company), [
+          %{raw_name: "Party Anna", contact_uuid: anna.uuid}
+        ])
+
+      :ok =
+        PhoenixKitCRM.PubSub.subscribe(PhoenixKitCRM.PubSub.topic_contact_interactions(anna.uuid))
+
+      {:ok, trashed} = PhoenixKitCRM.Companies.trash_company(company)
+      company_uuid = company.uuid
+      assert_receive {:crm, :company_visibility_changed, %{company_uuid: ^company_uuid}}
+
+      {:ok, _} = PhoenixKitCRM.Companies.restore_company(trashed)
+      assert_receive {:crm, :company_visibility_changed, %{company_uuid: ^company_uuid}}
     end
 
     test "the anchor is immutable: an update smuggling anchor fields is silently ignored" do

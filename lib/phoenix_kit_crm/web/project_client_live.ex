@@ -13,8 +13,8 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
   `PhoenixKitCRM.Companies.company_options/0`).
 
   Shows the linked company card, its member contacts, and the most recent
-  interactions across those members (the company's aggregated feed), with
-  link-outs to the CRM admin. Read-only here — mutations live in CRM. The
+  interactions with the client — the company's own (company-anchored, V05)
+  merged with its members' — with link-outs to the CRM admin. Read-only here — mutations live in CRM. The
   extension declares no write action, so the hub hands this tab
   `"can_write" => false` and there is nothing to gate.
 
@@ -65,9 +65,8 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
       if company do
         memberships = safe(fn -> Companies.list_memberships(company.uuid) end) || []
 
-        # Limit in the QUERY: this tab shows the newest few, and the company's
-        # full history (parties preloaded) is not ours to read for that.
-        # "Recent interactions with this client" means the company's OWN
+        # Limit in the QUERY: this tab shows the newest few. "Recent
+        # interactions with this client" means the company's OWN
         # (company-anchored, V05) merged with its members' — list_for_company
         # limits the combined window in SQL.
         recent =

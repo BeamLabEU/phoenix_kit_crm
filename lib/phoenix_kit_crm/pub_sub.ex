@@ -31,6 +31,7 @@ defmodule PhoenixKitCRM.PubSub do
   general `topic_company/1` topic: that one signals record/roster changes and
   triggers heavier reloads than a feed refresh needs.
   """
+  @spec topic_company_interactions(binary()) :: String.t()
   def topic_company_interactions(company_uuid), do: "crm:company:#{company_uuid}:interactions"
 
   @doc "Topic for CRM contact-list live updates (membership changes, counters)."
@@ -79,6 +80,25 @@ defmodule PhoenixKitCRM.PubSub do
   def broadcast_interaction(event, %Interaction{} = interaction) do
     broadcast_to_contacts(event, interaction.uuid, involved_contact_uuids(interaction))
     broadcast_to_company_feed(event, interaction.uuid, interaction.company_uuid)
+  end
+
+  @doc """
+  A company's soft-delete state flipped, so its anchored interactions just
+  (dis)appeared from involving feeds — sent to each affected party contact's
+  feed topic. Best-effort (rescued).
+  """
+  @spec broadcast_company_visibility(binary(), [binary()]) :: :ok
+  def broadcast_company_visibility(company_uuid, contact_uuids) do
+    msg = {:crm, :company_visibility_changed, %{company_uuid: company_uuid}}
+
+    contact_uuids
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.each(&Manager.broadcast(topic_contact_interactions(&1), msg))
+
+    :ok
+  rescue
+    _ -> :ok
   end
 
   @doc """

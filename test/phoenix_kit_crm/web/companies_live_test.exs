@@ -128,12 +128,35 @@ defmodule PhoenixKitCRM.Web.CompaniesLiveTest do
     assert html =~ "Bare Co"
     refute html =~ "Staffed Co"
     # Not advertised in the strip — the overview's attention row is the way in —
-    # but the current view names itself while you're on it.
-    assert has_element?(view, "a.tab-active", "No contacts")
-    assert bare.uuid != staffed.uuid
+    # but the current view names itself while you're on it, count included.
+    assert has_element?(view, "a.tab-active", "No contacts (1)")
 
     {:ok, view, _html} = live(conn, "/en/admin/crm/companies")
     refute has_element?(view, "a", "No contacts")
+  end
+
+  test "the filter you're ON always keeps its tab, even at zero results", %{conn: conn} do
+    {:ok, _} = Companies.create_company(%{"name" => "Some Co"})
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/companies?filter=partner")
+
+    # Nobody is a partner, but stranding the user on a nameless tab is worse
+    # than showing the zero.
+    assert has_element?(view, "a.tab-active", "Partners (0)")
+  end
+
+  test "search combines with the new status filter end to end", %{conn: conn} do
+    {:ok, _} = Companies.create_company(%{"name" => "Sleepy Hollow", "status" => "inactive"})
+    {:ok, _} = Companies.create_company(%{"name" => "Sleepy Meadow", "status" => "inactive"})
+    {:ok, _} = Companies.create_company(%{"name" => "Awake Hollow"})
+
+    {:ok, _view, html} =
+      live(conn, "/en/admin/crm/companies?filter=inactive&search=Hollow")
+
+    assert html =~ "Sleepy Hollow"
+    refute html =~ "Sleepy Meadow"
+    refute html =~ "Awake Hollow"
+    assert html =~ "1 inactive company"
   end
 
   test "an empty filter result says the filter matched nothing, not that no companies exist",

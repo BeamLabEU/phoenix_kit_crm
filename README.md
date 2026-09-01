@@ -7,8 +7,8 @@ An interaction-tracking CRM: **contacts** (people) and **companies** (legal enti
 ## Features
 
 - **Contacts** — people with profile fields, an optional linked login account, a circular avatar, and soft-delete (trash/restore). Each contact has **Interactions**, **Files**, **Images**, **Comments**, and **Events** (activity) tabs.
-- **Companies** — legal entities with a **Members** roster (contacts + their role/department), an **Interactions** rollup across those members, a logo, soft-delete, and the same Files/Images/Comments/Events tabs.
-- **Interactions** — logged interactions (call/email/meeting/note/other) anchored to a contact, with resolvable involved parties (CRM contacts or staff people) and a profile snapshot frozen at save time.
+- **Companies** — legal entities with a **Members** roster (contacts + their role/department), a logo, soft-delete, and the same Files/Images/Comments/Events tabs. The **Interactions** tab both logs company-level interactions and merges in the members' own, behind an All | Company | People filter.
+- **Interactions** — logged interactions (call/email/meeting/note/other) anchored to exactly one record — a contact **or a company** (the exclusive-arc anchor; `subject` is just the title) — with resolvable involved parties (CRM contacts or staff people) and a profile snapshot frozen at save time. "Anna at Acme" is a company-anchored interaction with Anna as a party, and shows on both pages.
 - **Role opt-in** — choose which non-system roles can access CRM; enabled roles get their own subtab under `/admin/crm/role/:role_uuid`.
 - **Per-user column config** — each admin picks which columns to show; the layout is persisted in `phoenix_kit_crm_user_role_view`.
 - **Activity logging** — create/update/trash/delete across contacts, companies, and interactions is recorded and surfaced on each record's Events tab.
@@ -42,6 +42,8 @@ sidebar automatically; toggle it on to expose `/admin/crm`.
 | `/admin/crm/companies`                       | `PhoenixKitCRM.Web.CompaniesLive` |
 | `/admin/crm/companies/new` · `/:uuid/edit`   | `PhoenixKitCRM.Web.CompanyFormLive` |
 | `/admin/crm/companies/:uuid`                 | `PhoenixKitCRM.Web.CompanyShowLive` |
+| `/admin/crm/lists` (+ `/new`, `/:uuid/edit`, `/:uuid/members`, `/:uuid/import`) | `PhoenixKitCRM.Web.ListsLive` + form/members/import views |
+| `/admin/crm/comparison`                      | `PhoenixKitCRM.Web.ComparisonLive` |
 | `/admin/crm/organizations`                   | `PhoenixKitCRM.Web.OrganizationsView` |
 | `/admin/crm/role/:role_uuid`                 | `PhoenixKitCRM.Web.RoleView`      |
 | `/admin/settings/crm`                        | `PhoenixKitCRM.Web.SettingsLive`  |
@@ -50,14 +52,21 @@ The CRM section appears only after the module is toggled on under **Admin > Sett
 
 ## Database
 
-The module's tables live in `phoenix_kit` **core** (the CRM tables migration), per the PhoenixKit convention — not in this repo:
+The module owns its schema through its **own versioned migration chain**
+(`PhoenixKitCRM.Migrations`, via the `PhoenixKit.Module.migration_module/0`
+callback). V01 adopts the tables core historically created; later versions are
+this repo's — V05 added the company interaction anchor. The applied version is
+a `crm_schema:<N>` comment marker on `phoenix_kit_crm_contacts`.
 
 - `phoenix_kit_crm_contacts`, `phoenix_kit_crm_companies`, `phoenix_kit_crm_company_memberships` — the people, legal entities, and their associations
-- `phoenix_kit_crm_interactions`, `phoenix_kit_crm_interaction_parties` — logged interactions + their involved parties
+- `phoenix_kit_crm_interactions`, `phoenix_kit_crm_interaction_parties` — logged interactions (anchored to a contact XOR a company) + their involved parties
+- `phoenix_kit_crm_party_roles` — supplier/customer/manufacturer/partner roles on companies and contacts
+- `phoenix_kit_crm_lists`, `phoenix_kit_crm_list_members` — mailing lists + their members
 - `phoenix_kit_crm_role_settings` — which roles have CRM access enabled
 - `phoenix_kit_crm_user_role_view` — per-user, per-scope view configuration
 
-The parent app applies them via `mix phoenix_kit.install` / `mix phoenix_kit.update`.
+The parent app applies both chains via `mix phoenix_kit.install` / `mix phoenix_kit.update`
+(`mix phoenix_kit.status` reports them).
 
 ## Settings keys
 

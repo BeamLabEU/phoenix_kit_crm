@@ -252,6 +252,15 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
          |> assign(:c_body, "")
          |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz_offset] || 0))
          |> assign(:save_error, nil)
+         # A company-anchored save under the People scope would be invisible —
+         # the row is excluded by construction, so the composer clears and
+         # nothing appears, indistinguishable from a failed save. Jump to All
+         # so the just-logged row is on screen.
+         |> then(fn s ->
+           if s.assigns.anchor_kind == :company and s.assigns.feed_scope == :members,
+             do: assign(s, :feed_scope, :all),
+             else: s
+         end)
          |> load_interactions()}
 
       {:error, changeset} ->
@@ -285,11 +294,22 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     with %Interaction{} = row <- row,
          true <- owns_row?(socket, row),
          %Interaction{} = i <- Interactions.get_interaction(uuid) do
-      Interactions.delete_interaction(i, actor_uuid: socket.assigns[:current_user_uuid])
-      {:noreply, load_interactions(socket)}
+      case Interactions.delete_interaction(i, actor_uuid: socket.assigns[:current_user_uuid]) do
+        {:ok, _} ->
+          {:noreply, socket |> assign(:save_error, nil) |> load_interactions()}
+
+        {:error, _changeset} ->
+          # The row stays; say so instead of reloading it back in silence.
+          {:noreply, assign(socket, :save_error, gettext("Could not delete this interaction."))}
+      end
     else
       _ -> {:noreply, socket}
     end
+  rescue
+    # Two sessions deleting the same row race get/delete: the loser's
+    # repo.delete raises StaleEntryError. The row is gone either way — just
+    # refresh rather than crashing this LiveView into a reconnect.
+    _e in Ecto.StaleEntryError -> {:noreply, load_interactions(socket)}
   end
 
   # The dropzone form's phx-change (auto_upload does the actual work via the
@@ -359,7 +379,16 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   @doc false
   # Test-only window onto the filtered accept list, so a mime-table change
   # that would make allow_upload raise fails a test instead of a page.
+  @spec __known_upload_accept__() :: [String.t()]
   def __known_upload_accept__, do: known_upload_accept()
+
+  defp upload_error_label(:too_large), do: gettext("File is larger than 25 MB")
+  defp upload_error_label(:not_accepted), do: gettext("This file type is not accepted")
+
+  defp upload_error_label(:too_many_files),
+    do: gettext("Too many files — up to 10 per interaction")
+
+  defp upload_error_label(_), do: gettext("Upload failed")
 
   defp uploads_allowed?(socket) do
     match?(%{attachments: _}, socket.assigns[:uploads] || %{})
@@ -703,13 +732,23 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
               </div>
             </form>
 
-            <%!-- In-progress uploads --%>
+            <%!-- In-progress uploads. With auto_upload a REJECTED entry
+                 (too large, wrong type, 11th file) never reaches the progress
+                 callback — it just sits here; without the error line it reads
+                 as a frozen upload with no explanation. --%>
             <div
               :for={entry <- @uploads.attachments.entries}
               class="flex items-center gap-2 text-xs"
             >
               <span class="flex-1 truncate">{entry.client_name}</span>
+              <span
+                :for={err <- upload_errors(@uploads.attachments, entry)}
+                class="text-error shrink-0"
+              >
+                {upload_error_label(err)}
+              </span>
               <progress
+                :if={upload_errors(@uploads.attachments, entry) == []}
                 value={entry.progress}
                 max="100"
                 class="progress progress-primary progress-xs w-24"
@@ -726,6 +765,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
               >
                 <.icon name="hero-x-mark" class="w-4 h-4" />
               </button>
+            </div>
+
+            <div :for={err <- upload_errors(@uploads.attachments)} class="text-xs text-error">
+              {upload_error_label(err)}
             </div>
 
             <%!-- Staged (uploaded, pending save) --%>

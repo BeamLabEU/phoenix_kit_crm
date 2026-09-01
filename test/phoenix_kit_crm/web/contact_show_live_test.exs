@@ -61,6 +61,43 @@ defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
     assert html =~ "quote.pdf"
   end
 
+  test "a company-anchored interaction spilling in via party is read-only on the contact page",
+       %{conn: conn} do
+    {:ok, company} = PhoenixKitCRM.Companies.create_company(%{"name" => "Anchor Co"})
+    {:ok, anna} = Contacts.create_contact(%{"name" => "Party Anna"})
+
+    {:ok, spilled} =
+      Interactions.create_interaction(
+        %{
+          "company_uuid" => company.uuid,
+          "interaction_type" => "meeting",
+          "subject" => "Site visit at Anchor Co",
+          "occurred_at" => DateTime.utc_now() |> DateTime.truncate(:second)
+        },
+        [%{raw_name: "Party Anna", contact_uuid: anna.uuid}]
+      )
+
+    {:ok, view, html} =
+      live(conn, "/en/admin/crm/contacts/#{anna.uuid}?tab=interactions")
+
+    # The row shows, names its company anchor, and offers no delete — it is
+    # managed from the company's page.
+    assert html =~ "Site visit at Anchor Co"
+    assert has_element?(view, ~s{a[href="/en/admin/crm/companies/#{company.uuid}"]}, "Anchor Co")
+
+    refute has_element?(
+             view,
+             ~s{button[phx-click=delete_interaction][phx-value-uuid="#{spilled.uuid}"]}
+           )
+
+    # And a forged delete event is refused by the handler's ownership gate.
+    view
+    |> with_target("#crm-interactions-#{anna.uuid}")
+    |> render_click("delete_interaction", %{"uuid" => spilled.uuid})
+
+    assert Interactions.get_interaction(spilled.uuid)
+  end
+
   test "renders the contact's name", %{conn: conn} do
     {:ok, contact} = Contacts.create_contact(%{"name" => "Grace Hopper"})
 

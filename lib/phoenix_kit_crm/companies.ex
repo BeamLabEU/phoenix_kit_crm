@@ -10,6 +10,7 @@ defmodule PhoenixKitCRM.Companies do
   alias PhoenixKit.RepoHelper
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
+  alias PhoenixKitCRM.Interactions
   alias PhoenixKitCRM.Mirror
   alias PhoenixKitCRM.PartyRoles
   alias PhoenixKitCRM.Schemas.{Company, CompanyMembership, Contact}
@@ -161,34 +162,62 @@ defmodule PhoenixKitCRM.Companies do
   def trash_company(%Company{status: "trashed"}), do: {:error, :already_trashed}
 
   def trash_company(%Company{} = company) do
-    company
-    |> SoftDelete.trash_changeset(Company.soft_delete_status())
-    |> repo().update()
+    case company |> SoftDelete.trash_changeset(Company.soft_delete_status()) |> repo().update() do
+      {:ok, _} = ok ->
+        # Its anchored interactions just left every involving feed (the
+        # trashed-company guard) — tell the party contacts' open pages.
+        Interactions.notify_company_visibility(company.uuid)
+        ok
+
+      error ->
+        error
+    end
   end
 
   @spec restore_company(Company.t()) :: {:ok, Company.t()} | {:error, atom() | Ecto.Changeset.t()}
   def restore_company(%Company{status: "trashed"} = company) do
-    company
-    |> SoftDelete.restore_changeset(Company.statuses())
-    |> repo().update()
+    case company |> SoftDelete.restore_changeset(Company.statuses()) |> repo().update() do
+      {:ok, _} = ok ->
+        # The mirror flip: the anchored rows just reappeared.
+        Interactions.notify_company_visibility(company.uuid)
+        ok
+
+      error ->
+        error
+    end
   end
 
   def restore_company(%Company{}), do: {:error, :not_trashed}
 
-  @doc "Permanently deletes a company (cascades its memberships)."
+  @doc "Permanently deletes a company (cascades its memberships and anchored interactions)."
   @spec delete_company(Company.t()) :: {:ok, Company.t()} | {:error, Ecto.Changeset.t()}
   def delete_company(%Company{} = company) do
-    repo().transaction(fn ->
-      case repo().delete(company) do
-        # Soft reference, no FK: nothing else clears these.
-        {:ok, deleted} ->
-          PartyRoles.delete_roles_for("company", company.uuid)
-          deleted
+    result =
+      repo().transaction(fn ->
+        # Collect what the FK cascade is about to remove — the cascade
+        # bypasses the interaction lifecycle path where media purge and
+        # deletion broadcasts live.
+        cascading = Interactions.collect_for_cascade(:company, company.uuid)
 
-        {:error, changeset} ->
-          repo().rollback(changeset)
-      end
-    end)
+        case repo().delete(company) do
+          # Soft reference, no FK: nothing else clears these.
+          {:ok, deleted} ->
+            PartyRoles.delete_roles_for("company", company.uuid)
+            {deleted, cascading}
+
+          {:error, changeset} ->
+            repo().rollback(changeset)
+        end
+      end)
+
+    case result do
+      {:ok, {deleted, cascading}} ->
+        Interactions.cleanup_cascaded(cascading)
+        {:ok, deleted}
+
+      error ->
+        error
+    end
   end
 
   @doc "Searches companies by name (case-insensitive) for the picker. Excludes trashed."

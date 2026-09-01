@@ -41,6 +41,21 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
     assert html =~ "Drag files here or click to upload"
   end
 
+  test "no enabled bucket, no dropzone — storage on alone is not enough", %{conn: conn} do
+    # The setup-created bucket exists in THIS test too (sandboxed per test?
+    # no — setup runs per test, so disable it) — verify by disabling every
+    # bucket first.
+    for bucket <- Storage.list_enabled_buckets() do
+      {:ok, _} = Storage.update_bucket(bucket, %{enabled: false})
+    end
+
+    {:ok, contact} = Contacts.create_contact(%{"name" => "Bucketless Bella"})
+
+    {:ok, _view, html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=interactions")
+
+    refute html =~ "Drag files here or click to upload"
+  end
+
   test "every offered accept extension is one the mime library can name" do
     # Mirrors `allow_upload`'s own gate: one unknown extension in the accept
     # list raises and takes the whole dropzone with it.

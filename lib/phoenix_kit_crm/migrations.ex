@@ -731,7 +731,11 @@ defmodule PhoenixKitCRM.Migrations do
       end
 
     # Interpolated into DDL — same guard the Legal/projects chains use.
-    unless prefix =~ ~r/^[a-zA-Z_][a-zA-Z0-9_]*$/ do
+    # \A..\z, not ^..$: PCRE's $ also matches before a trailing newline, so
+    # "public\n" would pass the anchored-line form. Nothing exploitable
+    # follows (the newline lands inside a quoted literal), but the guard
+    # should mean what it says.
+    unless prefix =~ ~r/\A[a-zA-Z_][a-zA-Z0-9_]*\z/ do
       raise ArgumentError, "invalid schema prefix: #{inspect(prefix)}"
     end
 

@@ -252,6 +252,12 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
     # (tabs are navigation; the toolbar count is the one that follows search).
     |> assign(:status_counts, Companies.status_counts())
     |> assign(:role_counts, PartyRoles.role_counts("company"))
+    # Only the no-contacts tab needs this, and it only renders while active —
+    # don't pay the query on every other view.
+    |> assign(
+      :no_contacts_count,
+      if(filter == "no-contacts", do: Companies.count_companies(without_contacts: true))
+    )
   end
 
   # Non-role filters as Companies context opts; role filters go through
@@ -376,7 +382,12 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
     )
     |> Kernel.++(
       if filter == "no-contacts",
-        do: [%{id: "no-contacts", label: gettext("No contacts")}],
+        do: [
+          %{
+            id: "no-contacts",
+            label: counted(gettext("No contacts"), assigns.no_contacts_count || 0)
+          }
+        ],
         else: []
     )
     |> Kernel.++(
@@ -391,7 +402,9 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
     |> Enum.map(&Map.put(&1, :patch, companies_path(assigns, filter: &1.id, page: 1, search: "")))
   end
 
-  defp counted(label, n), do: "#{label} (#{n})"
+  # A msgid, not bare interpolation — the count-in-label convention is a
+  # translation surface (a locale may not parenthesise).
+  defp counted(label, n), do: gettext("%{label} (%{count})", label: label, count: n)
 
   defp companies_path(assigns, overrides) do
     params =

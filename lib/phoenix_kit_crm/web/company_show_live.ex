@@ -1,9 +1,13 @@
 defmodule PhoenixKitCRM.Web.CompanyShowLive do
   @moduledoc """
-  Show page for a CRM company. Tabs: Overview (details + contacts), Interactions
-  (a read-only rollup of interactions logged on the company's contacts), and
-  Events always; Files + Images when core Storage is enabled; Comments when the
-  comments module is enabled. The header shows a circular logo (icon fallback).
+  Show page for a CRM company. Tabs: Overview (identity block — logo picker,
+  status, role badges — plus details), Members, Interactions (a composer for
+  company-anchored interactions plus a merged feed of the members' own,
+  behind an All | Company | People filter), and Events always; Catalogue when
+  the catalogue module is enabled; Files + Images when core Storage is
+  enabled; Comments when the comments module is enabled. There is no in-body
+  header band: the name lives in the layout header and Edit rides its
+  `page_action` chip.
   """
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitCRM.Gettext
@@ -25,7 +29,6 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Users.Auth
-  alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCRM.{Activity, Attachments, Companies, PartyRoles, Paths}
   alias PhoenixKitCRM.PubSub, as: CRMPubSub
   alias PhoenixKitCRM.Schemas.{Company, Contact}
@@ -33,7 +36,10 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   alias PhoenixKitCRM.Web.{EventsComponent, InteractionsComponent, MediaComponent}
 
   import PhoenixKitCRM.Web.Components.TabIntro, only: [tab_intro: 1]
-  import PhoenixKitCRM.Web.InteractionHelpers, only: [tz_offset: 1]
+
+  import PhoenixKitCRM.Web.InteractionHelpers,
+    only: [tz_offset: 1, current_user_uuid: 1, current_user_name: 1]
+
   import PhoenixKitCRM.Web.PartyRoleHelpers, only: [role_label: 1, role_badge_class: 1]
   alias PhoenixKitWeb.Live.Components.MediaSelectorModal
 
@@ -918,6 +924,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
         :if={@storage_enabled and @url}
         type="button"
         phx-click="remove_avatar"
+        phx-disable-with="…"
         data-confirm={gettext("Remove this logo?")}
         class="absolute -top-1 -right-1 btn btn-xs btn-circle btn-error opacity-0 group-hover:opacity-100 transition"
         aria-label={gettext("Remove logo")}
@@ -975,28 +982,4 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
   defp member_role(m),
     do: [m.role_in_company, m.department] |> Enum.reject(&(&1 in [nil, ""])) |> Enum.join(" · ")
-
-  defp current_user_uuid(assigns) do
-    case assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> uuid
-      _ -> nil
-    end
-  end
-
-  # Display name for the composer's "Add me" party shortcut — full name, else
-  # email. Mirrors the contact page's helper.
-  defp current_user_name(assigns) do
-    case assigns[:phoenix_kit_current_user] do
-      %{} = user ->
-        case User.full_name(user) do
-          name when is_binary(name) and name != "" -> name
-          _ -> user.email
-        end
-
-      _ ->
-        nil
-    end
-  rescue
-    _ -> nil
-  end
 end

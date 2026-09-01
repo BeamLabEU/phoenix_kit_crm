@@ -9,6 +9,7 @@ defmodule PhoenixKitCRM.Web.InteractionHelpers do
   use Phoenix.Component
   use Gettext, backend: PhoenixKitCRM.Gettext
 
+  alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCRM.{Paths, StaffLink}
 
   @doc "An involved-party badge — links to the contact/staff page when resolvable."
@@ -100,5 +101,35 @@ defmodule PhoenixKitCRM.Web.InteractionHelpers do
 
   def format_local(%DateTime{} = utc, offset) do
     utc |> DateTime.add(offset * 3600, :second) |> Calendar.strftime("%Y-%m-%d %H:%M")
+  end
+
+  @doc """
+  The acting user's uuid from the page assigns — what the composer stamps as
+  the interaction owner. One definition for both show LiveViews (they were
+  verbatim copies).
+  """
+  @spec current_user_uuid(map()) :: binary() | nil
+  def current_user_uuid(assigns) do
+    case assigns[:phoenix_kit_current_user] do
+      %{uuid: uuid} -> uuid
+      _ -> nil
+    end
+  end
+
+  @doc "Display name for the composer's \"Add me\" shortcut — full name, else email."
+  @spec current_user_name(map()) :: String.t() | nil
+  def current_user_name(assigns) do
+    case assigns[:phoenix_kit_current_user] do
+      %{} = user ->
+        case User.full_name(user) do
+          name when is_binary(name) and name != "" -> name
+          _ -> user.email
+        end
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
   end
 end
