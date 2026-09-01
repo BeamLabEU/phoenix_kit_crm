@@ -322,7 +322,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
       socket.assigns.storage_enabled and Storage.list_enabled_buckets() != [] ->
         socket
         |> allow_upload(:attachments,
-          accept: @upload_accept,
+          accept: known_upload_accept(),
           max_entries: 10,
           max_file_size: @max_upload_size,
           auto_upload: true,
@@ -334,8 +334,32 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
         assign(socket, :can_attach, false)
     end
   rescue
-    _ -> assign(socket, :can_attach, false)
+    # Degrading to no-dropzone is right (a broken upload config must not take
+    # the composer down), but it has to be LOUD: a silent version of this
+    # rescue hid a raising allow_upload for weeks and nobody could attach
+    # anything, with no trace anywhere.
+    e ->
+      Logger.warning(
+        "[CRM] interaction attachments disabled (allow_upload failed): " <> Exception.message(e)
+      )
+
+      assign(socket, :can_attach, false)
   end
+
+  # `allow_upload` REFUSES any accept extension the mime library cannot name
+  # (`MIME.has_type?/1`) — and one unknown extension used to cost every file
+  # type its upload, because the raise landed in the rescue above (.m4a/.ogg/
+  # .mkv are unknown to mime 2.0.7). Offer the locally-known subset instead;
+  # a host that wants the rest extends `config :mime, :types` and they rejoin
+  # by themselves.
+  defp known_upload_accept do
+    Enum.filter(@upload_accept, fn "." <> ext -> MIME.has_type?(ext) end)
+  end
+
+  @doc false
+  # Test-only window onto the filtered accept list, so a mime-table change
+  # that would make allow_upload raise fails a test instead of a page.
+  def __known_upload_accept__, do: known_upload_accept()
 
   defp uploads_allowed?(socket) do
     match?(%{attachments: _}, socket.assigns[:uploads] || %{})
