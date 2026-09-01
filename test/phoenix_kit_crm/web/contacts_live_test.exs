@@ -89,6 +89,20 @@ defmodule PhoenixKitCRM.Web.ContactsLiveTest do
     assert html =~ "1 inactive contact"
   end
 
+  test "a lone inactive population doesn't drag a dead Active (0) tab along", %{conn: conn} do
+    {:ok, _} = Contacts.create_contact(%{"name" => "Dormant Dana", "status" => "inactive"})
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/contacts")
+
+    assert has_element?(
+             view,
+             ~s{a[href="/en/admin/crm/contacts?filter=inactive"]},
+             "Inactive (1)"
+           )
+
+    refute has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=active"]})
+  end
+
   test "the Trashed tab appears once a contact is in the trash", %{conn: conn} do
     {:ok, contact} = Contacts.create_contact(%{"name" => "To Be Trashed"})
     {:ok, _} = Contacts.trash_contact(contact)

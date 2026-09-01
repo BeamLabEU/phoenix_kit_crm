@@ -39,7 +39,7 @@ msgstr "Kontakt"
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:613
 #: lib/phoenix_kit_crm/web/contact_show_live.ex:349
 #: lib/phoenix_kit_crm/web/contacts_live.ex:170
-#: lib/phoenix_kit_crm/web/contacts_live.ex:417
+#: lib/phoenix_kit_crm/web/contacts_live.ex:426
 #: lib/phoenix_kit_crm/web/list_import_live.ex:360
 #: lib/phoenix_kit_crm/web/list_members_live.ex:403
 #: lib/phoenix_kit_crm/web/list_members_live.ex:589
@@ -68,11 +68,11 @@ msgid "Registered"
 msgstr "Registreeritud"
 
 #: lib/phoenix_kit_crm/web/companies_live.ex:173
-#: lib/phoenix_kit_crm/web/companies_live.ex:413
+#: lib/phoenix_kit_crm/web/companies_live.ex:425
 #: lib/phoenix_kit_crm/web/company_form_live.ex:470
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:615
 #: lib/phoenix_kit_crm/web/contacts_live.ex:172
-#: lib/phoenix_kit_crm/web/contacts_live.ex:418
+#: lib/phoenix_kit_crm/web/contacts_live.ex:427
 #: lib/phoenix_kit_crm/web/list_form_live.ex:139
 #: lib/phoenix_kit_crm/web/list_form_live.ex:144
 #: lib/phoenix_kit_crm/web/list_members_live.ex:591
@@ -433,10 +433,8 @@ msgstr "(sina)"
 msgid "Actions"
 msgstr "Toimingud"
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:352
 #: lib/phoenix_kit_crm/web/company_form_live.ex:564
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:748
-#: lib/phoenix_kit_crm/web/contacts_live.ex:344
 #: lib/phoenix_kit_crm/web/list_form_live.ex:164
 #: lib/phoenix_kit_crm/web/lists_live.ex:81
 #, elixir-autogen, elixir-format
@@ -640,7 +638,7 @@ msgstr "Ettevõtted"
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:637
 #: lib/phoenix_kit_crm/web/contact_show_live.ex:352
 #: lib/phoenix_kit_crm/web/contacts_live.ex:169
-#: lib/phoenix_kit_crm/web/contacts_live.ex:416
+#: lib/phoenix_kit_crm/web/contacts_live.ex:425
 #, elixir-autogen, elixir-format
 msgid "Company"
 msgstr "Ettevõte"
@@ -884,8 +882,8 @@ msgstr "Loo esimene nimekiri"
 msgid "Current %{noun}"
 msgstr "Praegune %{noun}"
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:439
-#: lib/phoenix_kit_crm/web/contacts_live.ex:456
+#: lib/phoenix_kit_crm/web/companies_live.ex:451
+#: lib/phoenix_kit_crm/web/contacts_live.ex:465
 #, elixir-autogen, elixir-format
 msgid "Delete permanently"
 msgstr "Kustuta jäädavalt"
@@ -895,8 +893,8 @@ msgstr "Kustuta jäädavalt"
 msgid "Delete this interaction?"
 msgstr "Kas kustutada see suhtlus?"
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:436
-#: lib/phoenix_kit_crm/web/contacts_live.ex:453
+#: lib/phoenix_kit_crm/web/companies_live.ex:448
+#: lib/phoenix_kit_crm/web/contacts_live.ex:462
 #: lib/phoenix_kit_crm/web/interactions_component.ex:769
 #: lib/phoenix_kit_crm/web/media_component.ex:323
 #: lib/phoenix_kit_crm/web/media_component.ex:371
@@ -932,10 +930,10 @@ msgstr "Korduvad e-posti aadressid"
 msgid "Duplicate in file"
 msgstr "Korduv failis"
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:446
+#: lib/phoenix_kit_crm/web/companies_live.ex:458
 #: lib/phoenix_kit_crm/web/company_show_live.ex:588
 #: lib/phoenix_kit_crm/web/contact_show_live.ex:335
-#: lib/phoenix_kit_crm/web/contacts_live.ex:463
+#: lib/phoenix_kit_crm/web/contacts_live.ex:472
 #: lib/phoenix_kit_crm/web/lists_live.ex:206
 #, elixir-autogen, elixir-format
 msgid "Edit"
@@ -1066,16 +1064,14 @@ msgstr "Importimine… %{done} / %{total}"
 msgid "In search results:"
 msgstr "Otsingutulemustes:"
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:353
 #: lib/phoenix_kit_crm/web/company_form_live.ex:565
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:749
-#: lib/phoenix_kit_crm/web/contacts_live.ex:345
 #, elixir-autogen, elixir-format
 msgid "Inactive"
 msgstr "Mitteaktiivne"
 
 #: lib/phoenix_kit_crm/web/companies_live.ex:172
-#: lib/phoenix_kit_crm/web/companies_live.ex:412
+#: lib/phoenix_kit_crm/web/companies_live.ex:424
 #: lib/phoenix_kit_crm/web/company_form_live.ex:474
 #: lib/phoenix_kit_crm/web/company_show_live.ex:605
 #, elixir-autogen, elixir-format
@@ -1268,12 +1264,12 @@ msgstr "Liige eemaldatud"
 msgid "Members"
 msgstr "Liikmed"
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:453
+#: lib/phoenix_kit_crm/web/companies_live.ex:465
 #, elixir-autogen, elixir-format
 msgid "Move this company to trash?"
 msgstr "Kas viia see ettevõte prügikasti?"
 
-#: lib/phoenix_kit_crm/web/contacts_live.ex:470
+#: lib/phoenix_kit_crm/web/contacts_live.ex:479
 #, elixir-autogen, elixir-format
 msgid "Move this contact to trash?"
 msgstr "Kas viia see kontakt prügikasti?"
@@ -1284,8 +1280,8 @@ msgstr "Kas viia see kontakt prügikasti?"
 msgid "Moved to trash"
 msgstr "Viidud prügikasti"
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:452
-#: lib/phoenix_kit_crm/web/contacts_live.ex:469
+#: lib/phoenix_kit_crm/web/companies_live.ex:464
+#: lib/phoenix_kit_crm/web/contacts_live.ex:478
 #, elixir-autogen, elixir-format
 msgid "Moving…"
 msgstr "Liigutamine…"
@@ -1524,12 +1520,12 @@ msgstr "Kleebi e-posti aadressid"
 msgid "Pasted text is too large (max %{size})"
 msgstr "Kleebitud tekst on liiga suur (maksimaalselt %{size})"
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:437
+#: lib/phoenix_kit_crm/web/companies_live.ex:449
 #, elixir-autogen, elixir-format
 msgid "Permanently delete this company? This cannot be undone."
 msgstr "Kas kustutada see ettevõte jäädavalt? Seda ei saa tagasi võtta."
 
-#: lib/phoenix_kit_crm/web/contacts_live.ex:454
+#: lib/phoenix_kit_crm/web/contacts_live.ex:463
 #, elixir-autogen, elixir-format
 msgid "Permanently delete this contact? This cannot be undone."
 msgstr "Kas kustutada see kontakt jäädavalt? Seda ei saa tagasi võtta."
@@ -1635,8 +1631,8 @@ msgstr "Kas eemaldada see foto?"
 msgid "Removed"
 msgstr "Eemaldatud"
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:429
-#: lib/phoenix_kit_crm/web/contacts_live.ex:446
+#: lib/phoenix_kit_crm/web/companies_live.ex:441
+#: lib/phoenix_kit_crm/web/contacts_live.ex:455
 #, elixir-autogen, elixir-format
 msgid "Restore"
 msgstr "Taasta"
@@ -1657,8 +1653,8 @@ msgstr "Enne foto muutmist taasta see kontakt."
 msgid "Restored from trash"
 msgstr "Prügikastist taastatud"
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:427
-#: lib/phoenix_kit_crm/web/contacts_live.ex:444
+#: lib/phoenix_kit_crm/web/companies_live.ex:439
+#: lib/phoenix_kit_crm/web/contacts_live.ex:453
 #, elixir-autogen, elixir-format
 msgid "Restoring…"
 msgstr "Taastamine…"
@@ -1827,8 +1823,8 @@ msgstr "Tellijad"
 msgid "Supplier"
 msgstr "Tarnija"
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:361
-#: lib/phoenix_kit_crm/web/contacts_live.ex:353
+#: lib/phoenix_kit_crm/web/companies_live.ex:369
+#: lib/phoenix_kit_crm/web/contacts_live.ex:359
 #: lib/phoenix_kit_crm/web/crm_live.ex:316
 #, elixir-autogen, elixir-format
 msgid "Suppliers"
@@ -1859,14 +1855,14 @@ msgstr "Selle nimekirja keel on %{locale}."
 msgid "This record is in the trash — restore it before adding media."
 msgstr "See kirje on prügikastis — taasta see enne meediafailide lisamist."
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:455
-#: lib/phoenix_kit_crm/web/contacts_live.ex:472
+#: lib/phoenix_kit_crm/web/companies_live.ex:467
+#: lib/phoenix_kit_crm/web/contacts_live.ex:481
 #, elixir-autogen, elixir-format
 msgid "Trash"
 msgstr "Prügikasti"
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:376
-#: lib/phoenix_kit_crm/web/contacts_live.ex:363
+#: lib/phoenix_kit_crm/web/companies_live.ex:384
+#: lib/phoenix_kit_crm/web/contacts_live.ex:369
 #: lib/phoenix_kit_crm/web/project_client_live.ex:118
 #, elixir-autogen, elixir-format
 msgid "Trashed"
@@ -2015,8 +2011,8 @@ msgstr "Loodud"
 msgid "Customer"
 msgstr "Klient"
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:362
-#: lib/phoenix_kit_crm/web/contacts_live.ex:354
+#: lib/phoenix_kit_crm/web/companies_live.ex:370
+#: lib/phoenix_kit_crm/web/contacts_live.ex:360
 #: lib/phoenix_kit_crm/web/crm_live.ex:318
 #, elixir-autogen, elixir-format
 msgid "Customers"
@@ -2120,15 +2116,15 @@ msgstr "Kataloog"
 msgid "Logo URL"
 msgstr "Logo URL"
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:363
-#: lib/phoenix_kit_crm/web/contacts_live.ex:355
+#: lib/phoenix_kit_crm/web/companies_live.ex:371
+#: lib/phoenix_kit_crm/web/contacts_live.ex:361
 #: lib/phoenix_kit_crm/web/crm_live.ex:317
 #, elixir-autogen
 msgid "Manufacturers"
 msgstr "Tootjad"
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:364
-#: lib/phoenix_kit_crm/web/contacts_live.ex:356
+#: lib/phoenix_kit_crm/web/companies_live.ex:372
+#: lib/phoenix_kit_crm/web/contacts_live.ex:362
 #: lib/phoenix_kit_crm/web/crm_live.ex:319
 #, elixir-autogen
 msgid "Partners"
@@ -2517,7 +2513,7 @@ msgstr "Halda nimekirju"
 msgid "Needs attention"
 msgstr "Vajab tähelepanu"
 
-#: lib/phoenix_kit_crm/web/companies_live.ex:371
+#: lib/phoenix_kit_crm/web/companies_live.ex:379
 #, elixir-autogen, elixir-format
 msgid "No contacts"
 msgstr "Kontaktideta"
@@ -2651,3 +2647,17 @@ msgstr[1] "%{count} kontakti prügikastis"
 #, elixir-autogen, elixir-format
 msgid "No contacts match this filter."
 msgstr "Ükski kontakt ei vasta sellele filtrile."
+
+#: lib/phoenix_kit_crm/web/companies_live.ex:358
+#: lib/phoenix_kit_crm/web/contacts_live.ex:348
+#, elixir-autogen, elixir-format
+msgctxt "status filter tab"
+msgid "Active"
+msgstr "Aktiivsed"
+
+#: lib/phoenix_kit_crm/web/companies_live.ex:359
+#: lib/phoenix_kit_crm/web/contacts_live.ex:349
+#, elixir-autogen, elixir-format
+msgctxt "status filter tab"
+msgid "Inactive"
+msgstr "Mitteaktiivsed"

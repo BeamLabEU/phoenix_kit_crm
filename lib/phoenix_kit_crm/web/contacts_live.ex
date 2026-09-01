@@ -339,11 +339,17 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
 
     [%{id: "all", label: counted(gettext("All"), Map.get(sc, "active", 0) + inactive)}]
     |> Kernel.++(
+      # Same rules as the companies strip: the status dimension appears once
+      # inactive records exist; within it each tab still needs results (or to
+      # be the current filter). pgettext because the tab names a set while the
+      # form's status dropdown reuses the bare msgid for one record's state.
       if inactive > 0 or filter in ["active", "inactive"] do
         [
-          %{id: "active", label: counted(gettext("Active"), Map.get(sc, "active", 0))},
-          %{id: "inactive", label: counted(gettext("Inactive"), inactive)}
+          {"active", pgettext("status filter tab", "Active"), Map.get(sc, "active", 0)},
+          {"inactive", pgettext("status filter tab", "Inactive"), inactive}
         ]
+        |> Enum.filter(fn {id, _label, n} -> n > 0 or filter == id end)
+        |> Enum.map(fn {id, label, n} -> %{id: id, label: counted(label, n)} end)
       else
         []
       end
@@ -363,7 +369,10 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
         do: [%{id: "trashed", label: counted(gettext("Trashed"), trashed)}],
         else: []
     )
-    |> Enum.map(&Map.put(&1, :patch, contacts_path(assigns, filter: &1.id, page: 1)))
+    # A tab click RESETS search (page too): the label's count describes the
+    # unsearched destination. Searching within a filter still works — type
+    # while on it.
+    |> Enum.map(&Map.put(&1, :patch, contacts_path(assigns, filter: &1.id, page: 1, search: "")))
   end
 
   defp counted(label, n), do: "#{label} (#{n})"

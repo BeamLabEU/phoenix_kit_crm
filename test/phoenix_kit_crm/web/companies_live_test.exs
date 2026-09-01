@@ -80,6 +80,32 @@ defmodule PhoenixKitCRM.Web.CompaniesLiveTest do
     refute html =~ "Dormant Co"
   end
 
+  test "a lone inactive population doesn't drag a dead Active (0) tab along", %{conn: conn} do
+    {:ok, _} = Companies.create_company(%{"name" => "Dormant Co", "status" => "inactive"})
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/companies")
+
+    assert has_element?(
+             view,
+             ~s{a[href="/en/admin/crm/companies?filter=inactive"]},
+             "Inactive (1)"
+           )
+
+    refute has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=active"]})
+  end
+
+  test "tab clicks reset the search — the label's count describes the unsearched destination",
+       %{conn: conn} do
+    {:ok, supplier_co} = Companies.create_company(%{"name" => "Alpha Vendor"})
+    {:ok, _} = PhoenixKitCRM.PartyRoles.grant_role(supplier_co, "supplier")
+    {:ok, _} = Companies.create_company(%{"name" => "Beta Firm"})
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/companies?search=Alpha")
+
+    assert has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=supplier"]})
+    refute has_element?(view, ~s{a[href*="filter=supplier"][href*="search"]})
+  end
+
   test "the toolbar count names the filter, not a bare company count", %{conn: conn} do
     {:ok, supplier_co} = Companies.create_company(%{"name" => "Sole Vendor"})
     {:ok, _} = PhoenixKitCRM.PartyRoles.grant_role(supplier_co, "supplier")
