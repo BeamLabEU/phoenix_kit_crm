@@ -30,4 +30,25 @@ defmodule PhoenixKitCRM.Web.SettingsLiveTest do
     assert to =~ "/admin/settings/crm"
     assert RoleSettings.enabled?(role.uuid)
   end
+
+  test "an enabled role row carries the portal info the overview used to show — user count and the portal link",
+       %{conn: conn} do
+    role = Repo.insert!(%Role{name: "Sales #{System.unique_integer([:positive])}"})
+    {:ok, _} = RoleSettings.set_enabled(role.uuid, true)
+
+    {:ok, view, html} = live(conn, "/en/admin/crm/settings")
+
+    assert html =~ "0 users"
+    assert has_element?(view, ~s{a[href="/en/admin/crm/role/#{role.uuid}"]}, "Open portal view")
+  end
+
+  test "a disabled role row offers no portal link — there is no portal view to open", %{
+    conn: conn
+  } do
+    role = Repo.insert!(%Role{name: "Dormant #{System.unique_integer([:positive])}"})
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/settings")
+
+    refute has_element?(view, ~s{a[href="/en/admin/crm/role/#{role.uuid}"]})
+  end
 end

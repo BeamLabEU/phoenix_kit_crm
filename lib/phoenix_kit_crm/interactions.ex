@@ -87,6 +87,23 @@ defmodule PhoenixKitCRM.Interactions do
   defp maybe_limit(query, n) when is_integer(n) and n > 0, do: limit(query, ^n)
   defp maybe_limit(query, _), do: query
 
+  @doc """
+  The newest interactions across the whole CRM (any contact), subject contact
+  preloaded. Powers the overview's recent feed, so it stays deliberately
+  narrow: capped rows, no parties preload.
+
+  ## Options
+    * `:limit` — rows to return (default 6)
+  """
+  @spec list_recent(keyword()) :: [Interaction.t()]
+  def list_recent(opts \\ []) do
+    Interaction
+    |> order_by([i], desc: i.occurred_at, desc: i.inserted_at)
+    |> limit(^Keyword.get(opts, :limit, 6))
+    |> repo().all()
+    |> repo().preload([:contact])
+  end
+
   @doc "Total logged interactions. Interactions have no soft-delete status."
   @spec count_interactions() :: non_neg_integer()
   def count_interactions, do: repo().aggregate(Interaction, :count, :uuid)

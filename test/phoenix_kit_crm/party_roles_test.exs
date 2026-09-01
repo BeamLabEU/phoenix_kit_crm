@@ -612,4 +612,45 @@ defmodule PhoenixKitCRM.PartyRolesTest do
       assert PartyRoles.has_role?(company, "supplier")
     end
   end
+
+  describe "role_counts/1" do
+    test "covers the whole role vocabulary with zeros and scopes to the type" do
+      company = company_fixture()
+      {:ok, _} = PartyRoles.grant_role(company, "supplier")
+      {:ok, _} = PartyRoles.grant_role(company, "manufacturer")
+      {:ok, _} = PartyRoles.grant_role(contact_fixture(), "supplier")
+
+      assert PartyRoles.role_counts("company") == %{
+               "supplier" => 1,
+               "manufacturer" => 1,
+               "customer" => 0,
+               "partner" => 0
+             }
+
+      assert PartyRoles.role_counts("contact") == %{
+               "supplier" => 1,
+               "manufacturer" => 0,
+               "customer" => 0,
+               "partner" => 0
+             }
+    end
+
+    test "matches count_companies_with_role: revoked roles and trashed holders don't count" do
+      revoked = company_fixture(%{"name" => "Revoked Co"})
+      {:ok, _} = PartyRoles.grant_role(revoked, "supplier")
+      {:ok, _} = PartyRoles.revoke_role(revoked, "supplier")
+
+      trashed = company_fixture(%{"name" => "Trashed Co"})
+      {:ok, _} = PartyRoles.grant_role(trashed, "supplier")
+      {:ok, _} = Companies.trash_company(trashed)
+
+      counted = company_fixture(%{"name" => "Counted Co"})
+      {:ok, _} = PartyRoles.grant_role(counted, "supplier")
+
+      assert PartyRoles.role_counts("company")["supplier"] ==
+               PartyRoles.count_companies_with_role("supplier")
+
+      assert PartyRoles.role_counts("company")["supplier"] == 1
+    end
+  end
 end

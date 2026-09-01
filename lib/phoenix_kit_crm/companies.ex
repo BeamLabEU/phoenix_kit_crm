@@ -50,13 +50,17 @@ defmodule PhoenixKitCRM.Companies do
     * `:status` — `"trashed"` for the Trash view, or any specific status
     * `:include_trashed` — `true` to include trashed alongside the rest
     * `:search` — name/email ILIKE match
+    * `:without_contacts` — only companies with no live contact (no membership
+      to a non-trashed contact — the same visibility rule as `list_memberships/1`,
+      so a company shown here really does have an empty Members tab)
     * `:limit` / `:offset` — pagination; both no-ops when absent
   """
   @spec list_companies(keyword()) :: [Company.t()]
   def list_companies(opts \\ []) do
-    Company
+    from(c in Company, as: :company)
     |> apply_status_scope(opts)
     |> maybe_search_companies(opts)
+    |> maybe_without_contacts(opts)
     |> order_by([c], asc: c.name)
     |> maybe_paginate(opts)
     |> repo().all()
@@ -96,12 +100,13 @@ defmodule PhoenixKitCRM.Companies do
     end
   end
 
-  @doc "Same filters as `list_companies/1` (`:status`/`:include_trashed`/`:search`); ignores `:limit`/`:offset`."
+  @doc "Same filters as `list_companies/1` (`:status`/`:include_trashed`/`:search`/`:without_contacts`); ignores `:limit`/`:offset`."
   @spec count_companies(keyword()) :: non_neg_integer()
   def count_companies(opts \\ []) do
-    Company
+    from(c in Company, as: :company)
     |> apply_status_scope(opts)
     |> maybe_search_companies(opts)
+    |> maybe_without_contacts(opts)
     |> repo().aggregate(:count, :uuid)
   end
 
@@ -476,6 +481,26 @@ defmodule PhoenixKitCRM.Companies do
 
       _ ->
         query
+    end
+  end
+
+  # A membership to a trashed contact does not count as "has contacts" — the
+  # roster (`list_memberships/1`) hides it, so this filter must agree or the
+  # overview sends someone to a company whose Members tab looks populated.
+  defp maybe_without_contacts(query, opts) do
+    if opts[:without_contacts] do
+      where(
+        query,
+        not exists(
+          from(m in CompanyMembership,
+            join: ct in Contact,
+            on: ct.uuid == m.contact_uuid,
+            where: m.company_uuid == parent_as(:company).uuid and ct.status != "trashed"
+          )
+        )
+      )
+    else
+      query
     end
   end
 

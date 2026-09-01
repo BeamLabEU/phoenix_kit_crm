@@ -34,6 +34,26 @@ defmodule PhoenixKitCRM.Web.CompaniesLiveTest do
     refute has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=trashed"]})
   end
 
+  test "the no-contacts filter lists only companies without live contacts and names itself in the strip",
+       %{conn: conn} do
+    {:ok, bare} = Companies.create_company(%{"name" => "Bare Co"})
+    {:ok, staffed} = Companies.create_company(%{"name" => "Staffed Co"})
+    {:ok, worker} = PhoenixKitCRM.Contacts.create_contact(%{"name" => "Worker"})
+    {:ok, _} = PhoenixKitCRM.Contacts.set_primary_company(worker, staffed.uuid, "Eng", nil)
+
+    {:ok, view, html} = live(conn, "/en/admin/crm/companies?filter=no-contacts")
+
+    assert html =~ "Bare Co"
+    refute html =~ "Staffed Co"
+    # Not advertised in the strip — the overview's attention row is the way in —
+    # but the current view names itself while you're on it.
+    assert has_element?(view, "a.tab-active", "No contacts")
+    assert bare.uuid != staffed.uuid
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/companies")
+    refute has_element?(view, "a", "No contacts")
+  end
+
   test "the Trashed tab appears once a company is in the trash", %{conn: conn} do
     {:ok, company} = Companies.create_company(%{"name" => "To Be Trashed"})
     {:ok, _} = Companies.trash_company(company)

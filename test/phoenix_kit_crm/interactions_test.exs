@@ -175,4 +175,35 @@ defmodule PhoenixKitCRM.InteractionsTest do
       assert Interactions.get_interaction(i.uuid) == nil
     end
   end
+
+  describe "list_recent/1" do
+    test "newest occurred_at first across contacts, capped, with the contact preloaded" do
+      a = contact_fixture("Anna")
+      b = contact_fixture("Bruno")
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      {:ok, oldest} =
+        Interactions.create_interaction(
+          interaction_attrs(a, %{"occurred_at" => DateTime.add(now, -3, :hour)})
+        )
+
+      {:ok, middle} =
+        Interactions.create_interaction(
+          interaction_attrs(b, %{"occurred_at" => DateTime.add(now, -2, :hour)})
+        )
+
+      {:ok, newest} =
+        Interactions.create_interaction(
+          interaction_attrs(a, %{"occurred_at" => DateTime.add(now, -1, :hour)})
+        )
+
+      assert [first, second] = Interactions.list_recent(limit: 2)
+      assert first.uuid == newest.uuid
+      assert second.uuid == middle.uuid
+      assert first.contact.name == "Anna"
+
+      all_uuids = Interactions.list_recent() |> Enum.map(& &1.uuid)
+      assert oldest.uuid in all_uuids
+    end
+  end
 end

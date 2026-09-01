@@ -31,7 +31,7 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
   def handle_params(params, _uri, socket) do
     filter =
       case params["filter"] do
-        f when f == "trashed" or f in @role_filters -> f
+        f when f in ["trashed", "no-contacts"] or f in @role_filters -> f
         _ -> "active"
       end
 
@@ -222,9 +222,8 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
     # even feed straight into `<.pagination>`'s range math.
     total_count =
       case filter do
-        "trashed" -> Companies.count_companies([status: "trashed"] ++ count_opts)
         role when role in @role_filters -> PartyRoles.count_companies_with_role(role, count_opts)
-        _ -> Companies.count_companies(count_opts)
+        _ -> Companies.count_companies(filter_scope(filter) ++ count_opts)
       end
 
     total_pages = max(ceil(total_count / @page_size), 1)
@@ -235,9 +234,8 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
 
     companies =
       case filter do
-        "trashed" -> Companies.list_companies([status: "trashed"] ++ page_opts)
         role when role in @role_filters -> PartyRoles.list_companies_with_role(role, page_opts)
-        _ -> Companies.list_companies(page_opts)
+        _ -> Companies.list_companies(filter_scope(filter) ++ page_opts)
       end
 
     socket
@@ -251,6 +249,12 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
     )
     |> assign(:trashed_count, Companies.count_companies(status: "trashed"))
   end
+
+  # Non-role filters as Companies context opts; role filters go through
+  # PartyRoles instead and never reach this.
+  defp filter_scope("trashed"), do: [status: "trashed"]
+  defp filter_scope("no-contacts"), do: [without_contacts: true]
+  defp filter_scope(_), do: []
 
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
@@ -293,6 +297,13 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
       %{id: "manufacturer", label: gettext("Manufacturers")},
       %{id: "partner", label: gettext("Partners")}
     ]
+    |> Kernel.++(
+      # Reached from the overview's attention row, not advertised in the strip:
+      # the tab appears only while you're on it, so the current view has a name.
+      if assigns.filter == "no-contacts",
+        do: [%{id: "no-contacts", label: gettext("No contacts")}],
+        else: []
+    )
     |> Kernel.++(
       if assigns.trashed_count > 0 or assigns.filter == "trashed",
         do: [%{id: "trashed", label: trashed_tab_label(assigns.trashed_count)}],

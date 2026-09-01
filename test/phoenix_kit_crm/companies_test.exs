@@ -109,6 +109,41 @@ defmodule PhoenixKitCRM.CompaniesTest do
     end
   end
 
+  describe "the :without_contacts filter" do
+    test "keeps only companies with no live contact, counting a trashed-contact roster as empty" do
+      bare = company_fixture(%{"name" => "Bare Co"})
+      staffed = company_fixture(%{"name" => "Staffed Co"})
+      ghost = company_fixture(%{"name" => "Ghost Roster Co"})
+
+      {:ok, _} = Contacts.set_primary_company(contact_fixture("Live"), staffed.uuid, "Eng", nil)
+      gone = contact_fixture("Gone")
+      {:ok, _} = Contacts.set_primary_company(gone, ghost.uuid, "Eng", nil)
+      {:ok, _} = Contacts.trash_contact(gone)
+
+      uuids = Companies.list_companies(without_contacts: true) |> Enum.map(& &1.uuid)
+      assert bare.uuid in uuids
+      # A roster of only trashed contacts renders as an empty Members tab, so
+      # the filter must agree with what the page shows.
+      assert ghost.uuid in uuids
+      refute staffed.uuid in uuids
+
+      assert Companies.count_companies(without_contacts: true) == 2
+    end
+
+    test "composes with search and the status scope" do
+      bare = company_fixture(%{"name" => "Findable Bare"})
+      _other_bare = company_fixture(%{"name" => "Other Bare"})
+      {:ok, _trashed} = Companies.trash_company(company_fixture(%{"name" => "Findable Trashed"}))
+
+      uuids =
+        Companies.list_companies(without_contacts: true, search: "Findable")
+        |> Enum.map(& &1.uuid)
+
+      assert uuids == [bare.uuid]
+      assert Companies.count_companies(without_contacts: true, search: "Findable") == 1
+    end
+  end
+
   describe "list_memberships/1" do
     test "excludes memberships whose contact is trashed" do
       company = company_fixture(%{"name" => "Roster Co"})
