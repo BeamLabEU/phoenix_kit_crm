@@ -32,6 +32,27 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     user
   end
 
+  test "the header band is gone: Edit is the layout's action chip, identity opens Overview",
+       %{conn: conn} do
+    {:ok, company} = Companies.create_company(%{"name" => "Chipset Co"})
+    {:ok, _} = PhoenixKitCRM.PartyRoles.grant_role(company, "supplier")
+
+    {:ok, view, html} = live(conn, "/en/admin/crm/companies/#{company.uuid}")
+
+    # Edit reaches the layout as the breadcrumb action chip, not an in-body
+    # button — the band that held only logo + status + Edit is deleted.
+    assert has_element?(
+             view,
+             ~s{#test-page-action[href="/en/admin/crm/companies/#{company.uuid}/edit"]},
+             "Edit company"
+           )
+
+    refute has_element?(view, ~s{a.btn[href="/en/admin/crm/companies/#{company.uuid}/edit"]})
+
+    # The identity block (status + role badges) opens the Overview tab instead.
+    assert html =~ "Supplier"
+  end
+
   # ── Live refresh ──────────────────────────────────────────────────
   #
   # Everything on this page used to be loaded once in handle_params: a

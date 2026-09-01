@@ -33,6 +33,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
   import PhoenixKitCRM.Web.Components.TabIntro, only: [tab_intro: 1]
   import PhoenixKitCRM.Web.InteractionHelpers, only: [tz_offset: 1]
+  import PhoenixKitCRM.Web.PartyRoleHelpers, only: [role_label: 1, role_badge_class: 1]
   alias PhoenixKitWeb.Live.Components.MediaSelectorModal
 
   # `PhoenixKitCatalogue.Catalogue.PubSub`'s topic — a string contract, so no
@@ -91,9 +92,21 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
          |> assign_catalogue(catalogue_enabled, company)
          |> assign(:avatar_url, Attachments.avatar_url(company))
          |> assign(:tz_offset, tz_offset(socket.assigns[:phoenix_kit_current_user]))
+         |> assign(
+           :company_roles,
+           Map.get(PartyRoles.active_roles_map("company", [company.uuid]), company.uuid, [])
+         )
          |> assign(:page_title, Company.display_name(company))
          |> assign(:page_section, gettext("Companies"))
          |> assign(:page_section_path, Paths.companies())
+         # Edit lives in the layout's breadcrumb action chip — the in-body
+         # header band it used to occupy is gone (it held only the logo, the
+         # status badge and this button once the name moved into the header).
+         |> assign(:page_action, %{
+           icon: "hero-pencil-square",
+           label: gettext("Edit company"),
+           navigate: Paths.company_edit(company.uuid)
+         })
          |> assign(:mirror_user, mirror_user(company))}
     end
   end
@@ -579,16 +592,10 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   def render(assigns) do
     ~H"""
     <div class="flex flex-col px-4 py-6 gap-6">
-      <div class="flex items-center justify-between flex-wrap gap-2">
-        <div class="flex items-center gap-3">
-          <.company_logo url={@avatar_url} storage_enabled={@storage_enabled} />
-          <.status_badge status={@company.status} size={:sm} />
-        </div>
-        <.link navigate={Paths.company_edit(@company.uuid)} class="btn btn-outline btn-sm">
-          <.icon name="hero-pencil-square" class="w-4 h-4" /> {gettext("Edit")}
-        </.link>
-      </div>
-
+      <%!-- No in-body header band (boss, via the todo): the name lives in the
+           layout header, Edit in its breadcrumb action chip, and the identity
+           block (logo / status / roles) opens the Overview tab. The page
+           starts at the tabs. --%>
       <%!-- Core's <.nav_tabs> border variant. patch URLs are built by
            tab_path/2 (already prefixed) — nav_tabs passes them verbatim. --%>
       <.nav_tabs
@@ -599,6 +606,16 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
       <div :if={@tab == "overview"} class="card bg-base-100 shadow-sm">
         <div class="card-body grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+          <div class="sm:col-span-2 flex items-center gap-3 flex-wrap">
+            <.company_logo url={@avatar_url} storage_enabled={@storage_enabled} />
+            <.status_badge status={@company.status} size={:sm} />
+            <span
+              :for={role <- @company_roles}
+              class={["badge badge-sm", role_badge_class(role)]}
+            >
+              {role_label(role)}
+            </span>
+          </div>
           <.field label={gettext("Website")} value={@company.website} />
           <.field label={gettext("Email")} value={@company.email} />
           <.field label={gettext("Phone")} value={@company.phone} />
