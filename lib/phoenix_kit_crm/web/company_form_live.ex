@@ -480,8 +480,13 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
             <div class="divider my-1 text-sm font-semibold text-base-content/60">
               {gettext("Commercial roles")}
             </div>
-            <div class="flex flex-wrap gap-4">
-              <label :for={role <- PartyRole.roles()} class="label cursor-pointer gap-2">
+            <%!-- Not core's <.checkbox>: its hidden-false fallback would
+                 inject "false" entries into the roles[] array. A plain flex
+                 label centers the box and the text on one axis — daisyUI's
+                 `label` + `fieldset-legend` classes carry their own block
+                 spacing and sat the text visibly off the checkbox. --%>
+            <div class="flex flex-wrap gap-x-6 gap-y-2">
+              <label :for={role <- PartyRole.roles()} class="flex items-center cursor-pointer gap-2">
                 <input
                   type="checkbox"
                   name="roles[]"
@@ -489,7 +494,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
                   checked={role in @roles_selected}
                   class="checkbox checkbox-sm"
                 />
-                <span class="fieldset-legend">{role_label(role)}</span>
+                <span class="text-sm">{role_label(role)}</span>
               </label>
             </div>
 

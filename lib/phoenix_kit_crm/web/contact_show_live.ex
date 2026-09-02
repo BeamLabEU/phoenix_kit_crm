@@ -27,10 +27,13 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   # `user_details.ex:12-14`) — explicit import needed for the Orders tab's
   # row-link overlay.
   import PhoenixKitCRM.Web.Components.TabIntro, only: [tab_intro: 1]
+
+  import PhoenixKitCRM.Web.InteractionHelpers,
+    only: [tz_offset: 1, current_user_uuid: 1, current_user_name: 1]
+
   import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
 
   alias PhoenixKit.Modules.Storage
-  alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCRM.{Activity, Attachments, Contacts, Paths}
   alias PhoenixKitCRM.PubSub, as: CRMPubSub
   alias PhoenixKitCRM.Schemas.Contact
@@ -531,6 +534,7 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
         :if={@storage_enabled and @url}
         type="button"
         phx-click="remove_avatar"
+        phx-disable-with="…"
         data-confirm={gettext("Remove this photo?")}
         class="absolute -top-1 -right-1 btn btn-xs btn-circle btn-error opacity-0 group-hover:opacity-100 transition"
         aria-label={gettext("Remove photo")}
@@ -572,47 +576,4 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
       parts -> " · " <> Enum.join(parts, " · ")
     end
   end
-
-  defp current_user_uuid(assigns) do
-    case assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> uuid
-      _ -> nil
-    end
-  end
-
-  # Display name for the "Add me" party shortcut — full name, else email.
-  defp current_user_name(assigns) do
-    case assigns[:phoenix_kit_current_user] do
-      %{} = user ->
-        case User.full_name(user) do
-          name when is_binary(name) and name != "" -> name
-          _ -> user.email
-        end
-
-      _ ->
-        nil
-    end
-  rescue
-    _ -> nil
-  end
-
-  # The viewer's timezone offset (hours) — user profile → system setting → UTC,
-  # via core's `PhoenixKit.Utils.Date.get_user_timezone/1`. Drives interaction
-  # times so they show/save in the user's configured timezone (storage is UTC).
-  defp tz_offset(%{} = user) do
-    case PhoenixKit.Utils.Date.get_user_timezone(user) do
-      off when is_binary(off) ->
-        case Integer.parse(off) do
-          {hours, _} -> hours
-          _ -> 0
-        end
-
-      _ ->
-        0
-    end
-  rescue
-    _ -> 0
-  end
-
-  defp tz_offset(_), do: 0
 end

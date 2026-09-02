@@ -25,6 +25,15 @@ defmodule PhoenixKitCRM.PubSub do
   @spec topic_contact_interactions(binary()) :: String.t()
   def topic_contact_interactions(contact_uuid), do: "crm:contact:#{contact_uuid}:interactions"
 
+  @doc """
+  A company's interaction feed — company-ANCHORED interactions only, the
+  symmetric twin of `topic_contact_interactions/1`. Deliberately not the
+  general `topic_company/1` topic: that one signals record/roster changes and
+  triggers heavier reloads than a feed refresh needs.
+  """
+  @spec topic_company_interactions(binary()) :: String.t()
+  def topic_company_interactions(company_uuid), do: "crm:company:#{company_uuid}:interactions"
+
   @doc "Topic for CRM contact-list live updates (membership changes, counters)."
   @spec topic_lists() :: String.t()
   def topic_lists, do: "crm:lists"
@@ -70,6 +79,46 @@ defmodule PhoenixKitCRM.PubSub do
   @spec broadcast_interaction(atom(), Interaction.t()) :: :ok
   def broadcast_interaction(event, %Interaction{} = interaction) do
     broadcast_to_contacts(event, interaction.uuid, involved_contact_uuids(interaction))
+    broadcast_to_company_feed(event, interaction.uuid, interaction.company_uuid)
+  end
+
+  @doc """
+  A company's soft-delete state flipped, so its anchored interactions just
+  (dis)appeared from involving feeds — sent to each affected party contact's
+  feed topic. Best-effort (rescued).
+  """
+  @spec broadcast_company_visibility(binary(), [binary()]) :: :ok
+  def broadcast_company_visibility(company_uuid, contact_uuids) do
+    msg = {:crm, :company_visibility_changed, %{company_uuid: company_uuid}}
+
+    contact_uuids
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.each(&Manager.broadcast(topic_contact_interactions(&1), msg))
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  @doc """
+  Broadcasts an interaction change to a company's interaction-feed topic —
+  a no-op for contact-anchored interactions (`company_uuid` nil). The anchor
+  is immutable, so updates and deletes reach the same topic creates did.
+  Best-effort (rescued), like every broadcast here.
+  """
+  @spec broadcast_to_company_feed(atom(), binary(), binary() | nil) :: :ok
+  def broadcast_to_company_feed(_event, _interaction_uuid, nil), do: :ok
+
+  def broadcast_to_company_feed(event, interaction_uuid, company_uuid) do
+    Manager.broadcast(
+      topic_company_interactions(company_uuid),
+      {:crm, event, %{interaction_uuid: interaction_uuid}}
+    )
+
+    :ok
+  rescue
+    _ -> :ok
   end
 
   @doc """

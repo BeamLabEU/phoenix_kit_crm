@@ -302,6 +302,35 @@ defmodule PhoenixKitCRM.PartyRoles do
   end
 
   @doc """
+  Active-role counts for one roleable type in a single grouped query, as a
+  `%{role => count}` map covering every role in `PartyRole.roles/0` (zeros
+  included, so a caller can render the full vocabulary without guessing).
+
+  Each number matches the no-options `count_companies_with_role/2` /
+  `count_contacts_with_role/2` for that role — in-force roles only, trashed
+  holders excluded — so a count shown next to a link agrees with the filtered
+  index the link opens.
+  """
+  @spec role_counts(String.t()) :: %{String.t() => non_neg_integer()}
+  def role_counts("company"), do: role_counts_for(Company, "company")
+  def role_counts("contact"), do: role_counts_for(Contact, "contact")
+
+  defp role_counts_for(schema, type) do
+    counted =
+      PartyRole
+      |> where([pr], pr.roleable_type == ^type)
+      |> in_force()
+      |> join(:inner, [pr], r in ^schema, on: r.uuid == pr.roleable_uuid)
+      |> where([pr, r], r.status != "trashed")
+      |> group_by([pr], pr.role)
+      |> select([pr], {pr.role, count(pr.uuid)})
+      |> repo().all()
+      |> Map.new()
+
+    Map.new(PartyRole.roles(), &{&1, Map.get(counted, &1, 0)})
+  end
+
+  @doc """
   Every party holding an active `role`, companies first then contacts, each
   normalized to the resolver's map shape (`:uuid`, `:name`, `:email`,
   `:phone`, `:website`, `:logo_url`, `:source`).

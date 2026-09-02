@@ -64,7 +64,7 @@ defmodule PhoenixKitCRM.Migrations do
 
   use Ecto.Migration
 
-  @current_version 4
+  @current_version 5
   @marker_prefix "crm_schema:"
   @version_table "phoenix_kit_crm_contacts"
 
@@ -149,6 +149,7 @@ defmodule PhoenixKitCRM.Migrations do
       v2_statements(p),
       v3_statements(p),
       v4_statements(prefix, p),
+      v5_statements(prefix, p),
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{@current_version}'"
     ])
   end
@@ -398,6 +399,113 @@ defmodule PhoenixKitCRM.Migrations do
     ]
   end
 
+  # ── V05: company-anchored interactions ──────────────────────────────
+  #
+  # The v2 design doc's Phase 5: an interaction's ANCHOR (the record it is
+  # about — `subject` is the title column, hence the different word) becomes
+  # contact XOR company. Exclusive arc with hard FKs, not a polymorphic
+  # type+uuid pair: both anchor tables are CRM-local so FK integrity is free,
+  # and a dangling anchor — unlike a dangling party, which still renders via
+  # `raw_name` — would be orphaned content. NO data migration: every existing
+  # row has a contact and no company, so it satisfies the CHECK as-is.
+  #
+  # Statement order matters: the CHECK must exist before contact_uuid loses
+  # NOT NULL, or a concurrently-replayed chain could briefly admit an
+  # anchorless row. The CHECK is added NOT VALID and validated separately —
+  # trivially true here, but VALIDATE takes only SHARE UPDATE EXCLUSIVE, so
+  # the pattern stays right if this ever replays on a big install.
+  defp v5_statements(prefix, p) do
+    [
+      "ALTER TABLE #{p}phoenix_kit_crm_interactions ADD COLUMN IF NOT EXISTS company_uuid UUID",
+      # `ADD COLUMN IF NOT EXISTS ... REFERENCES` would not guard the FK on
+      # replay when the column already exists — the FK needs its own guard,
+      # anchored on any FK constraint over the column (the workspace's
+      # add_if_not_exists-vs-references lesson).
+      """
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE t.relname = 'phoenix_kit_crm_interactions'
+            AND n.nspname = '#{prefix}'
+            AND c.contype = 'f'
+            AND EXISTS (
+              SELECT 1 FROM unnest(c.conkey) k
+              JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k
+              WHERE a.attname = 'company_uuid'
+            )
+        ) THEN
+          ALTER TABLE #{p}phoenix_kit_crm_interactions
+            ADD CONSTRAINT phoenix_kit_crm_interactions_company_uuid_fkey
+            FOREIGN KEY (company_uuid)
+            REFERENCES #{p}phoenix_kit_crm_companies(uuid)
+            ON DELETE CASCADE;
+        END IF;
+      END $$;
+      """,
+      """
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE c.conname = 'phoenix_kit_crm_interactions_anchor_xor'
+            AND t.relname = 'phoenix_kit_crm_interactions'
+            AND n.nspname = '#{prefix}'
+        ) THEN
+          ALTER TABLE #{p}phoenix_kit_crm_interactions
+            ADD CONSTRAINT phoenix_kit_crm_interactions_anchor_xor
+            CHECK (num_nonnulls(contact_uuid, company_uuid) = 1)
+            NOT VALID;
+        END IF;
+      END $$;
+      """,
+      """
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE c.conname = 'phoenix_kit_crm_interactions_anchor_xor'
+            AND t.relname = 'phoenix_kit_crm_interactions'
+            AND n.nspname = '#{prefix}'
+            AND NOT c.convalidated
+        ) THEN
+          ALTER TABLE #{p}phoenix_kit_crm_interactions
+            VALIDATE CONSTRAINT phoenix_kit_crm_interactions_anchor_xor;
+        END IF;
+      END $$;
+      """,
+      """
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM pg_attribute a
+          JOIN pg_class t ON t.oid = a.attrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE t.relname = 'phoenix_kit_crm_interactions'
+            AND n.nspname = '#{prefix}'
+            AND a.attname = 'contact_uuid'
+            AND a.attnotnull
+        ) THEN
+          ALTER TABLE #{p}phoenix_kit_crm_interactions
+            ALTER COLUMN contact_uuid DROP NOT NULL;
+        END IF;
+      END $$;
+      """,
+      """
+      CREATE INDEX IF NOT EXISTS idx_crm_interactions_company
+        ON #{p}phoenix_kit_crm_interactions (company_uuid, occurred_at DESC, inserted_at DESC)
+        WHERE company_uuid IS NOT NULL
+      """
+    ]
+  end
+
   defp companies_statements(p) do
     [
       """
@@ -623,7 +731,11 @@ defmodule PhoenixKitCRM.Migrations do
       end
 
     # Interpolated into DDL — same guard the Legal/projects chains use.
-    unless prefix =~ ~r/^[a-zA-Z_][a-zA-Z0-9_]*$/ do
+    # \A..\z, not ^..$: PCRE's $ also matches before a trailing newline, so
+    # "public\n" would pass the anchored-line form. Nothing exploitable
+    # follows (the newline lands inside a quoted literal), but the guard
+    # should mean what it says.
+    unless prefix =~ ~r/\A[a-zA-Z_][a-zA-Z0-9_]*\z/ do
       raise ArgumentError, "invalid schema prefix: #{inspect(prefix)}"
     end
 

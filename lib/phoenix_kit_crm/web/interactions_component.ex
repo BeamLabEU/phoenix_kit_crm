@@ -1,20 +1,29 @@
 defmodule PhoenixKitCRM.Web.InteractionsComponent do
   @moduledoc """
-  The Interactions / History tab for a contact: a reverse-chronological feed
-  of interactions involving the contact, plus a composer to log a new one with
-  a free-form-but-resolvable "involved parties" picker (CRM contacts + staff).
+  The Interactions / History tab for a contact OR a company: a
+  reverse-chronological feed plus a composer to log a new one with a
+  free-form-but-resolvable "involved parties" picker (CRM contacts + staff).
+
+  The host passes exactly one anchor assign — `contact` (the original mode)
+  or `company` (since V05). The composer stamps the anchor server-side, the
+  feed loads `list_involving/1` or `list_for_company/2` accordingly, and in
+  company mode an `All | Company | People` scope filter splits the company's
+  own interactions from the member rollup. Delete is offered only on rows
+  THIS page anchors — a row that merely spills in (a party involvement, a
+  member's own interaction) is read-only here and managed from its anchor's
+  page.
   """
   use PhoenixKitWeb, :live_component
   use Gettext, backend: PhoenixKitCRM.Gettext
 
   require Logger
 
-  import PhoenixKitCRM.Web.InteractionHelpers, only: [party_badge: 1]
+  import PhoenixKitCRM.Web.InteractionHelpers, only: [party_badge: 1, format_local: 2]
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Users.Auth
-  alias PhoenixKitCRM.{Attachments, Contacts, Interactions, StaffLink}
-  alias PhoenixKitCRM.Schemas.{Contact, Interaction}
+  alias PhoenixKitCRM.{Attachments, Contacts, Interactions, Paths, StaffLink}
+  alias PhoenixKitCRM.Schemas.{Company, Contact, Interaction}
 
   # Curated attachment allowlist — broad enough for real CRM attachments but
   # excludes inline-renderable script vectors (.html/.htm/.svg/.xml/.xhtml) that
@@ -38,6 +47,8 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
     {:ok,
      socket
+     |> assign_anchor()
+     |> assign_new(:feed_scope, fn -> :all end)
      |> assign_new(:staged_parties, fn -> [] end)
      |> assign_new(:staged_files, fn -> [] end)
      # Composer fields are controlled (kept in assigns) so re-renders triggered
@@ -56,26 +67,49 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      |> maybe_reload_interactions()}
   end
 
-  # Reload the feed only when the contact changes (mount / navigation) or the
-  # host signals a refresh via `:refresh_token` (its PubSub-driven `send_update`).
-  # An unrelated host re-render (e.g. the header avatar changing) re-passes the
-  # contact struct but no new token, so we skip the timeline re-query.
+  # Which record this feed belongs to. Exactly one of the `contact`/`company`
+  # host assigns is set; deriving kind + struct once keeps every branch below
+  # a one-liner.
+  defp assign_anchor(socket) do
+    case socket.assigns[:company] do
+      %{uuid: _} = company ->
+        socket |> assign(:anchor_kind, :company) |> assign(:anchor, company)
+
+      _ ->
+        socket |> assign(:anchor_kind, :contact) |> assign(:anchor, socket.assigns.contact)
+    end
+  end
+
+  # Reload the feed only when the anchor or scope filter changes (mount /
+  # navigation / filter click) or the host signals a refresh via
+  # `:refresh_token` (its PubSub-driven `send_update`). An unrelated host
+  # re-render (e.g. the header avatar changing) re-passes the anchor struct
+  # but no new token, so we skip the timeline re-query.
   defp maybe_reload_interactions(socket) do
-    uuid = socket.assigns.contact.uuid
+    key = {socket.assigns.anchor.uuid, socket.assigns.feed_scope}
     token = socket.assigns[:refresh_token]
 
-    if socket.assigns[:loaded_uuid] == uuid and socket.assigns[:loaded_token] == token do
+    if socket.assigns[:loaded_key] == key and socket.assigns[:loaded_token] == token do
       socket
     else
       socket
       |> load_interactions()
-      |> assign(:loaded_uuid, uuid)
+      |> assign(:loaded_key, key)
       |> assign(:loaded_token, token)
     end
   end
 
   defp load_interactions(socket) do
-    interactions = Interactions.list_involving(socket.assigns.contact.uuid)
+    interactions =
+      case socket.assigns.anchor_kind do
+        :contact ->
+          Interactions.list_involving(socket.assigns.anchor.uuid)
+
+        :company ->
+          Interactions.list_for_company(socket.assigns.anchor.uuid,
+            scope: socket.assigns.feed_scope
+          )
+      end
 
     interaction_files =
       if socket.assigns[:storage_enabled],
@@ -101,14 +135,17 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   def handle_event("search_party", %{"q" => q} = params, socket) when is_binary(q) do
     q = String.trim(q)
 
+    # On a contact's page the anchor contact is already implied — keep them
+    # out of the picker. A company anchor implies no person, so nothing is
+    # excluded there.
+    excluded =
+      case socket.assigns.anchor_kind do
+        :contact -> [socket.assigns.anchor.uuid]
+        :company -> []
+      end
+
     {results, has_more} =
-      search_parties(
-        q,
-        socket.assigns.staff_enabled,
-        parse_limit(params["limit"]),
-        # The subject contact is already implied — keep them out of the picker.
-        [socket.assigns.contact.uuid]
-      )
+      search_parties(q, socket.assigns.staff_enabled, parse_limit(params["limit"]), excluded)
 
     {:noreply,
      push_event(socket, "crm_party_results", %{q: q, results: results, has_more: has_more})}
@@ -174,9 +211,15 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     # `c_occurred_at` is the user's LOCAL time (profile tz); store true UTC.
     occurred_at = local_to_utc(socket.assigns.c_occurred_at, socket.assigns[:tz_offset] || 0)
 
+    anchor_key =
+      case socket.assigns.anchor_kind do
+        :contact -> "contact_uuid"
+        :company -> "company_uuid"
+      end
+
     attrs =
       %{
-        "contact_uuid" => socket.assigns.contact.uuid,
+        anchor_key => socket.assigns.anchor.uuid,
         "interaction_type" => socket.assigns.c_type,
         "subject" => socket.assigns.c_subject,
         "body" => socket.assigns.c_body,
@@ -209,6 +252,15 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
          |> assign(:c_body, "")
          |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz_offset] || 0))
          |> assign(:save_error, nil)
+         # A company-anchored save under the People scope would be invisible —
+         # the row is excluded by construction, so the composer clears and
+         # nothing appears, indistinguishable from a failed save. Jump to All
+         # so the just-logged row is on screen.
+         |> then(fn s ->
+           if s.assigns.anchor_kind == :company and s.assigns.feed_scope == :members,
+             do: assign(s, :feed_scope, :all),
+             else: s
+         end)
          |> load_interactions()}
 
       {:error, changeset} ->
@@ -217,25 +269,47 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   rescue
     e ->
       Logger.error(
-        "[CRM] save_interaction crashed (contact_uuid=#{inspect(socket.assigns.contact.uuid)}): " <>
+        "[CRM] save_interaction crashed (#{socket.assigns.anchor_kind}=#{inspect(socket.assigns.anchor.uuid)}): " <>
           Exception.format(:error, e, __STACKTRACE__)
       )
 
       {:noreply, assign(socket, :save_error, default_save_error())}
   end
 
-  def handle_event("delete_interaction", %{"uuid" => uuid}, socket) do
-    # Only delete interactions actually shown in this contact's feed — a forged
-    # event must not be able to delete an unrelated interaction by uuid.
-    in_feed? = Enum.any?(socket.assigns.interactions, &(&1.uuid == uuid))
+  def handle_event("set_feed_scope", %{"scope" => scope}, socket)
+      when scope in ~w(all company members) do
+    {:noreply,
+     socket
+     |> assign(:feed_scope, String.to_existing_atom(scope))
+     |> maybe_reload_interactions()}
+  end
 
-    with true <- in_feed?,
+  def handle_event("delete_interaction", %{"uuid" => uuid}, socket) do
+    # Two gates: the row must actually be in this feed (a forged event must
+    # not delete an unrelated interaction by uuid), AND this page must be its
+    # ANCHOR — a row that merely spills in (party involvement, the member
+    # rollup) is managed from its own page, not deleted from someone else's.
+    row = Enum.find(socket.assigns.interactions, &(&1.uuid == uuid))
+
+    with %Interaction{} = row <- row,
+         true <- owns_row?(socket, row),
          %Interaction{} = i <- Interactions.get_interaction(uuid) do
-      Interactions.delete_interaction(i, actor_uuid: socket.assigns[:current_user_uuid])
-      {:noreply, load_interactions(socket)}
+      case Interactions.delete_interaction(i, actor_uuid: socket.assigns[:current_user_uuid]) do
+        {:ok, _} ->
+          {:noreply, socket |> assign(:save_error, nil) |> load_interactions()}
+
+        {:error, _changeset} ->
+          # The row stays; say so instead of reloading it back in silence.
+          {:noreply, assign(socket, :save_error, gettext("Could not delete this interaction."))}
+      end
     else
       _ -> {:noreply, socket}
     end
+  rescue
+    # Two sessions deleting the same row race get/delete: the loser's
+    # repo.delete raises StaleEntryError. The row is gone either way — just
+    # refresh rather than crashing this LiveView into a reconnect.
+    _e in Ecto.StaleEntryError -> {:noreply, load_interactions(socket)}
   end
 
   # The dropzone form's phx-change (auto_upload does the actual work via the
@@ -268,7 +342,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
       socket.assigns.storage_enabled and Storage.list_enabled_buckets() != [] ->
         socket
         |> allow_upload(:attachments,
-          accept: @upload_accept,
+          accept: known_upload_accept(),
           max_entries: 10,
           max_file_size: @max_upload_size,
           auto_upload: true,
@@ -280,8 +354,41 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
         assign(socket, :can_attach, false)
     end
   rescue
-    _ -> assign(socket, :can_attach, false)
+    # Degrading to no-dropzone is right (a broken upload config must not take
+    # the composer down), but it has to be LOUD: a silent version of this
+    # rescue hid a raising allow_upload for weeks and nobody could attach
+    # anything, with no trace anywhere.
+    e ->
+      Logger.warning(
+        "[CRM] interaction attachments disabled (allow_upload failed): " <> Exception.message(e)
+      )
+
+      assign(socket, :can_attach, false)
   end
+
+  # `allow_upload` REFUSES any accept extension the mime library cannot name
+  # (`MIME.has_type?/1`) — and one unknown extension used to cost every file
+  # type its upload, because the raise landed in the rescue above (.m4a/.ogg/
+  # .mkv are unknown to mime 2.0.7). Offer the locally-known subset instead;
+  # a host that wants the rest extends `config :mime, :types` and they rejoin
+  # by themselves.
+  defp known_upload_accept do
+    Enum.filter(@upload_accept, fn "." <> ext -> MIME.has_type?(ext) end)
+  end
+
+  @doc false
+  # Test-only window onto the filtered accept list, so a mime-table change
+  # that would make allow_upload raise fails a test instead of a page.
+  @spec __known_upload_accept__() :: [String.t()]
+  def __known_upload_accept__, do: known_upload_accept()
+
+  defp upload_error_label(:too_large), do: gettext("File is larger than 25 MB")
+  defp upload_error_label(:not_accepted), do: gettext("This file type is not accepted")
+
+  defp upload_error_label(:too_many_files),
+    do: gettext("Too many files — up to 10 per interaction")
+
+  defp upload_error_label(_), do: gettext("Upload failed")
 
   defp uploads_allowed?(socket) do
     match?(%{attachments: _}, socket.assigns[:uploads] || %{})
@@ -504,17 +611,30 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   defp local_to_utc(_, _), do: nil
 
-  # A stored UTC datetime → display string in the user's tz.
-  defp format_local(nil, _offset), do: "—"
+  # This page anchors the row — the only rows its Delete is offered on.
+  defp owns_row?(%Phoenix.LiveView.Socket{assigns: assigns}, row), do: owns_row?(assigns, row)
+  defp owns_row?(%{anchor_kind: :contact, anchor: a}, row), do: row.contact_uuid == a.uuid
+  defp owns_row?(%{anchor_kind: :company, anchor: a}, row), do: row.company_uuid == a.uuid
 
-  defp format_local(%DateTime{} = utc, offset) do
-    utc |> DateTime.add(offset * 3600, :second) |> Calendar.strftime("%Y-%m-%d %H:%M")
+  defp composer_title(:contact, _anchor), do: gettext("Log an interaction")
+
+  defp composer_title(:company, company),
+    do: gettext("Log an interaction with %{name}", name: Company.display_name(company))
+
+  defp feed_scopes do
+    [
+      {"all", gettext("All")},
+      {"company", gettext("Company")},
+      {"members", gettext("People")}
+    ]
   end
 
-  # Host-passed assigns (the contact this feed belongs to + the acting user's
-  # context, threaded from the show LiveView). Declared so the call site is
-  # checked and the contract is explicit.
-  attr(:contact, :map, required: true)
+  # Host-passed assigns (the anchor this feed belongs to — `contact` OR
+  # `company`, exactly one — + the acting user's context, threaded from the
+  # show LiveView). Declared so the call site is checked and the contract is
+  # explicit.
+  attr(:contact, :map, default: nil)
+  attr(:company, :map, default: nil)
   attr(:current_user_uuid, :string, default: nil)
   attr(:current_user_name, :string, default: nil)
   attr(:phoenix_kit_current_user, :map, default: nil)
@@ -523,11 +643,11 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col gap-6">
+    <div id={@id} class="flex flex-col gap-6">
       <%!-- Composer --%>
       <div class="card bg-base-100 shadow-sm border border-base-200">
         <div class="card-body gap-3">
-          <h3 class="font-semibold">{gettext("Log an interaction")}</h3>
+          <h3 class="font-semibold">{composer_title(@anchor_kind, @anchor)}</h3>
 
           <.form
             for={%{}}
@@ -612,13 +732,23 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
               </div>
             </form>
 
-            <%!-- In-progress uploads --%>
+            <%!-- In-progress uploads. With auto_upload a REJECTED entry
+                 (too large, wrong type, 11th file) never reaches the progress
+                 callback — it just sits here; without the error line it reads
+                 as a frozen upload with no explanation. --%>
             <div
               :for={entry <- @uploads.attachments.entries}
               class="flex items-center gap-2 text-xs"
             >
               <span class="flex-1 truncate">{entry.client_name}</span>
+              <span
+                :for={err <- upload_errors(@uploads.attachments, entry)}
+                class="text-error shrink-0"
+              >
+                {upload_error_label(err)}
+              </span>
               <progress
+                :if={upload_errors(@uploads.attachments, entry) == []}
                 value={entry.progress}
                 max="100"
                 class="progress progress-primary progress-xs w-24"
@@ -635,6 +765,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
               >
                 <.icon name="hero-x-mark" class="w-4 h-4" />
               </button>
+            </div>
+
+            <div :for={err <- upload_errors(@uploads.attachments)} class="text-xs text-error">
+              {upload_error_label(err)}
             </div>
 
             <%!-- Staged (uploaded, pending save) --%>
@@ -753,6 +887,22 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
         </div>
       </div>
 
+      <%!-- Scope filter (company mode): the company's own interactions vs the
+           member rollup. Segmented buttons, not counted index tabs — the feed
+           is one query and this is a view split, not navigation. --%>
+      <div :if={@anchor_kind == :company} class="flex items-center gap-1">
+        <button
+          :for={{scope, label} <- feed_scopes()}
+          type="button"
+          phx-click="set_feed_scope"
+          phx-value-scope={scope}
+          phx-target={@myself}
+          class={["btn btn-xs", (to_string(@feed_scope) == scope && "btn-primary") || "btn-ghost"]}
+        >
+          {label}
+        </button>
+      </div>
+
       <%!-- Timeline --%>
       <.empty_state
         :if={@interactions == []}
@@ -764,11 +914,38 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
         <li :for={i <- @interactions} class="card bg-base-100 shadow-sm border border-base-200">
           <div class="card-body py-3 gap-1">
             <div class="flex items-center justify-between gap-2">
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 flex-wrap">
                 <span class="badge badge-ghost badge-sm">{Interaction.type_label(i.interaction_type)}</span>
+                <%!-- Provenance: on a company page every row says whether it is
+                     the company's own or a member's; on a contact page a
+                     company-anchored row (here via party involvement) names
+                     the company it belongs to. --%>
+                <span
+                  :if={@anchor_kind == :company && i.company_uuid}
+                  class="badge badge-outline badge-sm gap-1"
+                >
+                  <.icon name="hero-building-office-2" class="w-3 h-3" /> {gettext("Company")}
+                </span>
+                <.link
+                  :if={@anchor_kind == :company && i.contact}
+                  navigate={Paths.contact(i.contact.uuid)}
+                  class="link link-hover text-sm font-medium"
+                >
+                  {Contact.display_name(i.contact)}
+                </.link>
+                <.link
+                  :if={@anchor_kind == :contact && match?(%{uuid: _}, i.company)}
+                  navigate={Paths.company(i.company.uuid)}
+                  class="link link-hover text-sm text-base-content/70 inline-flex items-center gap-1"
+                >
+                  <.icon name="hero-building-office-2" class="w-3 h-3" /> {Company.display_name(
+                    i.company
+                  )}
+                </.link>
                 <span class="text-xs text-base-content/60">{format_local(i.occurred_at, @tz_offset)}</span>
               </div>
               <button
+                :if={owns_row?(assigns, i)}
                 type="button"
                 phx-click="delete_interaction"
                 phx-value-uuid={i.uuid}

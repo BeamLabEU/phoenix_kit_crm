@@ -15,14 +15,28 @@ configuration round it out.
 
 Registers one admin tab (`CRM`) with subtabs:
 
-- **Overview** (`/admin/crm`) — landing card with the enabled/disabled badge
+- **Overview** (`/admin/crm`) — a directory-led front door: Companies/Contacts
+  hero cards, a By-role band (each count deep-links the pre-filtered index),
+  a conditional needs-attention row (companies without live contacts → the
+  index's `?filter=no-contacts`), the newest interactions, and a Lists row.
+  Deliberately an overview, NOT a dashboard (the dashboards module owns those).
 - **Contacts** (`/admin/crm/contacts`) — the people list; each opens a profile
   (`ContactShowLive`) with Interactions / Files / Images / Comments / Events tabs
-- **Companies** (`/admin/crm/companies`) — legal entities with a Members roster
-  and an interactions rollup across those members (`CompanyShowLive`)
+- **Companies** (`/admin/crm/companies`) — legal entities; each opens
+  `CompanyShowLive` with a Members roster and an Interactions tab that both
+  logs company-anchored interactions and merges the members' own behind an
+  All | Company | People filter. Edit rides the layout's `page_action` chip;
+  the identity block (logo/status/role badges) opens the Overview tab.
+- **Lists** (`/admin/crm/lists`) — mailing lists (members, import, opt-out)
+- **Compare** (`/admin/crm/comparison`) — duplicate-email + list-overlap report
 - **Organizations** (`/admin/crm/organizations`) — organizations view
 - **Role subtabs** (`/admin/crm/role/:role_uuid`) — one per opted-in role,
   registered at runtime into `PhoenixKit.Dashboard.Registry`
+
+Both index pages share the same filter-strip rules: the default tab is **All**
+(everything not trashed), the Active/Inactive pair appears only once inactive
+records exist, role/status tabs render only with results (or while active),
+every label carries a search-independent count, and a tab click resets search.
 
 Plus a settings tab at `/admin/settings/crm`.
 
@@ -33,14 +47,23 @@ Plus a settings tab at `/admin/settings/crm`.
   CompanyMembership, Interaction, InteractionParty}`. Soft-delete is a `status`
   string column (`"trashed"`) with the prior status stashed in `metadata`; the
   changeset logic is shared via `PhoenixKitCRM.SoftDelete`.
+- **Interaction ANCHOR (V05)** — every interaction anchors to exactly one
+  record: `contact_uuid` XOR `company_uuid` (both hard FKs, DB CHECK
+  `num_nonnulls(...) = 1`). "Anchor" is the deliberate word — the `subject`
+  column is the title. The anchor is IMMUTABLE after create
+  (`Interaction.update_changeset/2` never casts it); composers stamp it
+  server-side. Any query inner-joining `contact` silently drops company rows —
+  the feeds LEFT JOIN both anchors with per-anchor trashed guards.
 - **Activity logging** — mutations log `"crm.<verb>"` actions through
   `PhoenixKitCRM.Activity` (a `Code.ensure_loaded?`-guarded wrapper over
   `PhoenixKit.Activity`); the Events-tab labels live in
   `PhoenixKitCRM.ActivityLabels`. Never put PII (email / phone / free-text body)
   in activity metadata, and don't set `target_uuid` to a non-user (it drives core
   notifications).
-- **Migrations** are versioned in `phoenix_kit` **core** (the CRM tables
-  migration), not in this repo — see "Database" below.
+- **Migrations** — the module owns its own versioned chain
+  (`PhoenixKitCRM.Migrations`, currently V05) via
+  `PhoenixKit.Module.migration_module/0`; V01 adopts the tables core
+  historically created — see "Database" below.
 - **No `Errors` dispatcher** — context functions return changesets or simple
   `{:error, atom}` shapes handled at the call site; there is no atom-to-gettext
   error module (none is needed yet).
@@ -69,7 +92,7 @@ mix test.reset              # drop + recreate + migrate the test repo
 
 This is a **library** (no endpoint, no router). Direct deps:
 
-- `phoenix_kit` (`~> 1.7`) — Module behaviour, Settings, RepoHelper, Dashboard tabs, admin layout, `Users.Roles`
+- `phoenix_kit` (`~> 2.0`, via the `pk_dep/3` local-path helper) — Module behaviour, Settings, RepoHelper, Dashboard tabs, admin layout, `Users.Roles`
 - `phoenix_live_view` (`~> 1.1`) — admin LiveViews
 - `ecto_sql` (`~> 3.13`) — schemas and changesets (`RoleSetting`, `UserRoleViewConfig`)
 - `lazy_html` (test only) — required by `Phoenix.LiveViewTest`
@@ -99,9 +122,8 @@ lib/phoenix_kit_crm/
     ├── company_show_live.ex                          # Company profile (Members + tabs)
     ├── organizations_view.ex                         # Organizations LiveView
     ├── role_view.ex                                  # Per-role users LiveView
-    ├── settings_live.ex                              # Settings LiveView (module toggle, role opt-in)
-    ├── interactions_component.ex                     # Contact interactions composer + timeline
-    ├── company_interactions_component.ex             # Company interactions rollup (read-only)
+    ├── settings_live.ex                              # Settings LiveView (module toggle, role opt-in + portal links)
+    ├── interactions_component.ex                     # Dual-anchor composer + feed (contact page AND company page)
     ├── events_component.ex                           # Events (activity) feed tab
     ├── media_component.ex                            # Files/Images tab (core Storage)
     ├── column_management.ex / column_modal.ex        # Per-user column picker
@@ -159,15 +181,25 @@ Two patterns coexist in this module:
 
 ## Database
 
-**Production migrations live in `phoenix_kit` core**, not here. Adding a new CRM-owned table means the next versioned migration (`VNN_*.ex`) under `phoenix_kit/lib/phoenix_kit/migrations/postgres/`.
+**The module owns its schema through its own versioned chain** —
+`PhoenixKitCRM.Migrations` (currently **V05**), reached via the
+`PhoenixKit.Module.migration_module/0` callback and applied by
+`mix phoenix_kit.update`. V01 *adopts* the tables core historically created
+(guarded `CREATE TABLE IF NOT EXISTS`); later versions are this repo's to
+write — V05 relaxed `interactions.contact_uuid` and added the `company_uuid`
+anchor arm. The applied version is a `crm_schema:<N>` comment marker on
+`phoenix_kit_crm_contacts`; every statement is idempotent and `down/1` never
+drops a table (pinned by tests).
 
 Module-owned tables:
 
 - `phoenix_kit_crm_contacts` — people (the primary entity); soft-delete via a `status` column
 - `phoenix_kit_crm_companies` — legal entities; soft-delete via `status`
 - `phoenix_kit_crm_company_memberships` — contact↔company associations (role / department)
-- `phoenix_kit_crm_interactions` — logged interactions anchored to a contact
+- `phoenix_kit_crm_interactions` — logged interactions, anchored to a contact XOR a company (V05)
 - `phoenix_kit_crm_interaction_parties` — an interaction's involved parties + their frozen snapshots
+- `phoenix_kit_crm_party_roles` — supplier/customer/manufacturer/partner roles on companies and contacts (polymorphic soft ref)
+- `phoenix_kit_crm_lists` / `phoenix_kit_crm_list_members` — mailing lists + members
 - `phoenix_kit_crm_role_settings` — primary key is `role_uuid` (FK to `phoenix_kit_user_roles`); columns `enabled`, `inserted_at`, `updated_at`.
 - `phoenix_kit_crm_user_role_view` — `(user_uuid, scope)` is unique; `view_config` is a JSON map; UUIDv7 primary key.
 

@@ -1,9 +1,13 @@
 defmodule PhoenixKitCRM.Web.CompanyShowLive do
   @moduledoc """
-  Show page for a CRM company. Tabs: Overview (details + contacts), Interactions
-  (a read-only rollup of interactions logged on the company's contacts), and
-  Events always; Files + Images when core Storage is enabled; Comments when the
-  comments module is enabled. The header shows a circular logo (icon fallback).
+  Show page for a CRM company. Tabs: Overview (identity block — logo picker,
+  status, role badges — plus details), Members, Interactions (a composer for
+  company-anchored interactions plus a merged feed of the members' own,
+  behind an All | Company | People filter), and Events always; Catalogue when
+  the catalogue module is enabled; Files + Images when core Storage is
+  enabled; Comments when the comments module is enabled. There is no in-body
+  header band: the name lives in the layout header and Edit rides its
+  `page_action` chip.
   """
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitCRM.Gettext
@@ -28,10 +32,15 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   alias PhoenixKitCRM.{Activity, Attachments, Companies, PartyRoles, Paths}
   alias PhoenixKitCRM.PubSub, as: CRMPubSub
   alias PhoenixKitCRM.Schemas.{Company, Contact}
-  alias PhoenixKitCRM.Web.{CompanyInteractionsComponent, EventsComponent, MediaComponent}
   alias PhoenixKitCRM.Web.Components.MirrorPanel
+  alias PhoenixKitCRM.Web.{EventsComponent, InteractionsComponent, MediaComponent}
 
   import PhoenixKitCRM.Web.Components.TabIntro, only: [tab_intro: 1]
+
+  import PhoenixKitCRM.Web.InteractionHelpers,
+    only: [tz_offset: 1, current_user_uuid: 1, current_user_name: 1]
+
+  import PhoenixKitCRM.Web.PartyRoleHelpers, only: [role_label: 1, role_badge_class: 1]
   alias PhoenixKitWeb.Live.Components.MediaSelectorModal
 
   # `PhoenixKitCatalogue.Catalogue.PubSub`'s topic — a string contract, so no
@@ -90,9 +99,21 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
          |> assign_catalogue(catalogue_enabled, company)
          |> assign(:avatar_url, Attachments.avatar_url(company))
          |> assign(:tz_offset, tz_offset(socket.assigns[:phoenix_kit_current_user]))
+         |> assign(
+           :company_roles,
+           Map.get(PartyRoles.active_roles_map("company", [company.uuid]), company.uuid, [])
+         )
          |> assign(:page_title, Company.display_name(company))
          |> assign(:page_section, gettext("Companies"))
          |> assign(:page_section_path, Paths.companies())
+         # Edit lives in the layout's breadcrumb action chip — the in-body
+         # header band it used to occupy is gone (it held only the logo, the
+         # status badge and this button once the name moved into the header).
+         |> assign(:page_action, %{
+           icon: "hero-pencil-square",
+           label: gettext("Edit company"),
+           navigate: Paths.company_edit(company.uuid)
+         })
          |> assign(:mirror_user, mirror_user(company))}
     end
   end
@@ -124,8 +145,15 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     previous = socket.assigns.subscribed_company
 
     if previous != company.uuid do
-      if previous, do: CRMPubSub.unsubscribe(CRMPubSub.topic_company(previous))
+      if previous do
+        CRMPubSub.unsubscribe(CRMPubSub.topic_company(previous))
+        CRMPubSub.unsubscribe(CRMPubSub.topic_company_interactions(previous))
+      end
+
       CRMPubSub.subscribe(CRMPubSub.topic_company(company.uuid))
+      # The company's OWN interaction feed (company-anchored writes) — member
+      # interactions arrive on the per-member topics synced below.
+      CRMPubSub.subscribe(CRMPubSub.topic_company_interactions(company.uuid))
       assign(socket, :subscribed_company, company.uuid)
     else
       socket
@@ -188,7 +216,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
     case socket.assigns.tab do
       "interactions" ->
-        send_update(CompanyInteractionsComponent,
+        send_update(InteractionsComponent,
           id: "crm-company-interactions-#{uuid}",
           refresh_token: System.unique_integer([:monotonic])
         )
@@ -578,16 +606,10 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   def render(assigns) do
     ~H"""
     <div class="flex flex-col px-4 py-6 gap-6">
-      <div class="flex items-center justify-between flex-wrap gap-2">
-        <div class="flex items-center gap-3">
-          <.company_logo url={@avatar_url} storage_enabled={@storage_enabled} />
-          <.status_badge status={@company.status} size={:sm} />
-        </div>
-        <.link navigate={Paths.company_edit(@company.uuid)} class="btn btn-outline btn-sm">
-          <.icon name="hero-pencil-square" class="w-4 h-4" /> {gettext("Edit")}
-        </.link>
-      </div>
-
+      <%!-- No in-body header band (boss, via the todo): the name lives in the
+           layout header, Edit in its breadcrumb action chip, and the identity
+           block (logo / status / roles) opens the Overview tab. The page
+           starts at the tabs. --%>
       <%!-- Core's <.nav_tabs> border variant. patch URLs are built by
            tab_path/2 (already prefixed) — nav_tabs passes them verbatim. --%>
       <.nav_tabs
@@ -598,6 +620,16 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
       <div :if={@tab == "overview"} class="card bg-base-100 shadow-sm">
         <div class="card-body grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+          <div class="sm:col-span-2 flex items-center gap-3 flex-wrap">
+            <.company_logo url={@avatar_url} storage_enabled={@storage_enabled} />
+            <.status_badge status={@company.status} size={:sm} />
+            <span
+              :for={role <- @company_roles}
+              class={["badge badge-sm", role_badge_class(role)]}
+            >
+              {role_label(role)}
+            </span>
+          </div>
           <.field label={gettext("Website")} value={@company.website} />
           <.field label={gettext("Email")} value={@company.email} />
           <.field label={gettext("Phone")} value={@company.phone} />
@@ -676,12 +708,19 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
         </div>
       </div>
 
-      <div :if={@tab == "interactions"}>
+      <div :if={@tab == "interactions"} class="flex flex-col gap-3">
+        <.tab_intro text={
+          gettext(
+            "Interactions with this company itself, and — under People — everything logged on its contacts. Log company-level ones here; a person's own are logged on their page."
+          )
+        } />
         <.live_component
-          module={CompanyInteractionsComponent}
+          module={InteractionsComponent}
           id={"crm-company-interactions-#{@company.uuid}"}
           company={@company}
-          members={@memberships}
+          current_user_uuid={current_user_uuid(assigns)}
+          current_user_name={current_user_name(assigns)}
+          phoenix_kit_current_user={@phoenix_kit_current_user}
           tz_offset={@tz_offset}
         />
       </div>
@@ -885,6 +924,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
         :if={@storage_enabled and @url}
         type="button"
         phx-click="remove_avatar"
+        phx-disable-with="…"
         data-confirm={gettext("Remove this logo?")}
         class="absolute -top-1 -right-1 btn btn-xs btn-circle btn-error opacity-0 group-hover:opacity-100 transition"
         aria-label={gettext("Remove logo")}
@@ -942,21 +982,4 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
   defp member_role(m),
     do: [m.role_in_company, m.department] |> Enum.reject(&(&1 in [nil, ""])) |> Enum.join(" · ")
-
-  defp tz_offset(%{} = user) do
-    case PhoenixKit.Utils.Date.get_user_timezone(user) do
-      off when is_binary(off) ->
-        case Integer.parse(off) do
-          {hours, _} -> hours
-          _ -> 0
-        end
-
-      _ ->
-        0
-    end
-  rescue
-    _ -> 0
-  end
-
-  defp tz_offset(_), do: 0
 end

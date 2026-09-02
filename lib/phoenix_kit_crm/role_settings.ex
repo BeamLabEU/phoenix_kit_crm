@@ -104,18 +104,23 @@ defmodule PhoenixKitCRM.RoleSettings do
   @doc """
   Enables or disables CRM access for a role.
 
-  Upserts the setting row and triggers a sidebar refresh.
+  Upserts the setting row, logs the change (this grants or revokes CRM access
+  for everyone holding the role — the one mutation on the settings page, and
+  it was the module's only unlogged one), and triggers a sidebar refresh.
+  Pass `:actor_uuid` in `opts` so the audit entry records who flipped it.
 
   ## Examples
 
       iex> set_enabled("some-uuid", true)
       {:ok, %RoleSetting{}}
 
-      iex> set_enabled("some-uuid", false)
+      iex> set_enabled("some-uuid", false, actor_uuid: admin.uuid)
       {:ok, %RoleSetting{}}
   """
-  @spec set_enabled(binary(), boolean()) :: {:ok, RoleSetting.t()} | {:error, Ecto.Changeset.t()}
-  def set_enabled(role_uuid, enabled?) when is_binary(role_uuid) and is_boolean(enabled?) do
+  @spec set_enabled(binary(), boolean(), keyword()) ::
+          {:ok, RoleSetting.t()} | {:error, Ecto.Changeset.t()}
+  def set_enabled(role_uuid, enabled?, opts \\ [])
+      when is_binary(role_uuid) and is_boolean(enabled?) do
     repo = RepoHelper.repo()
 
     result =
@@ -128,6 +133,13 @@ defmodule PhoenixKitCRM.RoleSettings do
 
     case result do
       {:ok, setting} ->
+        PhoenixKitCRM.Activity.log(
+          if(enabled?, do: "crm.role_access_enabled", else: "crm.role_access_disabled"),
+          actor_uuid: Keyword.get(opts, :actor_uuid),
+          resource_type: "crm_role_setting",
+          resource_uuid: role_uuid
+        )
+
         PhoenixKitCRM.refresh_sidebar()
         {:ok, setting}
 

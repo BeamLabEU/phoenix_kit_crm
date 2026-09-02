@@ -18,7 +18,8 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
        page_title: gettext("CRM settings"),
        enabled: PhoenixKitCRM.enabled?(),
        eligible_roles: eligible_roles,
-       enabled_role_uuids: enabled_role_uuids
+       enabled_role_uuids: enabled_role_uuids,
+       role_user_counts: role_user_counts()
      )}
   end
 
@@ -45,7 +46,7 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
   def handle_event("toggle_role", %{"role_uuid" => uuid, "value" => v}, socket) do
     enabled? = v == "on" or v == "true"
 
-    case RoleSettings.set_enabled(uuid, enabled?) do
+    case RoleSettings.set_enabled(uuid, enabled?, actor_opts(socket)) do
       {:ok, _} ->
         # set_enabled/2 re-registers the role tabs in core's dashboard
         # registry, but the sidebar in this page's layout reads the registry
@@ -107,17 +108,37 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
             <div :if={@eligible_roles == []} class="text-base-content/50 text-sm">
               {gettext("No eligible roles found.")}
             </div>
-            <.checkbox
+            <%!-- Enabled roles carry the portal info the overview used to
+                 show — how many users hold the role, and the way into its
+                 portal view. This page is where portal access lives now. --%>
+            <div
               :for={role <- @eligible_roles}
-              name={"role_#{role.uuid}_enabled"}
-              checked={MapSet.member?(@enabled_role_uuids, role.uuid)}
-              label={role.name}
-              phx-click="toggle_role"
-              phx-value-role_uuid={role.uuid}
-              phx-value-value={if MapSet.member?(@enabled_role_uuids, role.uuid), do: "false", else: "true"}
+              class="flex items-start justify-between gap-3 flex-wrap"
             >
-              <:description :if={Map.get(role, :description)}>{role.description}</:description>
-            </.checkbox>
+              <.checkbox
+                name={"role_#{role.uuid}_enabled"}
+                checked={MapSet.member?(@enabled_role_uuids, role.uuid)}
+                label={role.name}
+                phx-click="toggle_role"
+                phx-value-role_uuid={role.uuid}
+                phx-value-value={if MapSet.member?(@enabled_role_uuids, role.uuid), do: "false", else: "true"}
+              >
+                <:description :if={Map.get(role, :description)}>{role.description}</:description>
+              </.checkbox>
+              <div
+                :if={MapSet.member?(@enabled_role_uuids, role.uuid)}
+                class="text-sm text-base-content/60 shrink-0"
+              >
+                {ngettext("%{count} user", "%{count} users",
+                  Map.get(@role_user_counts, role.uuid, 0),
+                  count: Map.get(@role_user_counts, role.uuid, 0)
+                )}
+                &middot;
+                <.link navigate={Paths.role(role.uuid)} class="link link-hover">
+                  {gettext("Open portal view")}
+                </.link>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -126,9 +147,23 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
     """
   end
 
+  defp actor_opts(socket) do
+    case socket.assigns[:phoenix_kit_current_user] do
+      %{uuid: uuid} -> [actor_uuid: uuid]
+      _ -> []
+    end
+  end
+
   defp enabled_role_uuids do
     RoleSettings.list_enabled()
     |> Enum.map(& &1.uuid)
     |> MapSet.new()
+  end
+
+  # Only enabled roles come back, which is all the template links to — a
+  # disabled role has no portal view to open.
+  defp role_user_counts do
+    RoleSettings.list_enabled_with_user_counts()
+    |> Map.new(&{&1.uuid, &1.count})
   end
 end

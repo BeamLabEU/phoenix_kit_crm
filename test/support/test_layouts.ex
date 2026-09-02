@@ -54,6 +54,11 @@ defmodule PhoenixKitCRM.Test.Layouts do
     <a :if={assigns[:page_section]} id="test-page-section" href={@page_section_path}>
       {@page_section}
     </a>
+    <%!-- Stand-in for the breadcrumb action chip (`page_action` map) the real
+         layout renders next to the title — same reason as above. --%>
+    <a :if={assigns[:page_action]} id="test-page-action" href={@page_action[:navigate]}>
+      {@page_action[:label]}
+    </a>
     {@inner_content}
     """
   end

@@ -38,23 +38,69 @@ defmodule PhoenixKitCRM.Web.ContactsLiveTest do
     assert has_element?(view, ~s{a[href="/en/admin/crm/contacts/new"]}, "New contact")
   end
 
-  test "the filter strip is core nav_tabs (border) with prefixed patch hrefs", %{conn: conn} do
+  test "the filter strip is core nav_tabs (border) offering only filters with results", %{
+    conn: conn
+  } do
+    {:ok, supplier} = Contacts.create_contact(%{"name" => "Supplier Sam"})
+    {:ok, _} = PhoenixKitCRM.PartyRoles.grant_role(supplier, "supplier")
+    {:ok, _} = Contacts.create_contact(%{"name" => "Plain Pam"})
+
     {:ok, view, html} = live(conn, "/en/admin/crm/contacts")
 
     assert html =~ ~s(role="tablist")
     assert html =~ "tabs-border"
-    assert has_element?(view, "a.tab-active", "Active")
-    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=supplier"]}, "Suppliers")
-    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=customer"]}, "Customers")
+    # Same strip rules as the companies index: honest "All" default,
+    # counts on every label, no dead filters.
+    assert has_element?(view, "a.tab-active", "All (2)")
 
     assert has_element?(
              view,
-             ~s{a[href="/en/admin/crm/contacts?filter=manufacturer"]},
-             "Manufacturers"
+             ~s{a[href="/en/admin/crm/contacts?filter=supplier"]},
+             "Suppliers (1)"
            )
 
-    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=partner"]}, "Partners")
+    refute has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=customer"]})
+    refute has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=manufacturer"]})
+    refute has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=partner"]})
     refute has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=trashed"]})
+    refute has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=active"]})
+  end
+
+  test "the Active/Inactive pair appears once an inactive contact exists, and Inactive scopes by status",
+       %{conn: conn} do
+    {:ok, _} = Contacts.create_contact(%{"name" => "Awake Anna"})
+    {:ok, _} = Contacts.create_contact(%{"name" => "Dormant Dora", "status" => "inactive"})
+
+    {:ok, view, html} = live(conn, "/en/admin/crm/contacts")
+
+    assert html =~ "Awake Anna"
+    assert html =~ "Dormant Dora"
+    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=active"]}, "Active (1)")
+
+    assert has_element?(
+             view,
+             ~s{a[href="/en/admin/crm/contacts?filter=inactive"]},
+             "Inactive (1)"
+           )
+
+    {:ok, _view, html} = live(conn, "/en/admin/crm/contacts?filter=inactive")
+    assert html =~ "Dormant Dora"
+    refute html =~ "Awake Anna"
+    assert html =~ "1 inactive contact"
+  end
+
+  test "a lone inactive population doesn't drag a dead Active (0) tab along", %{conn: conn} do
+    {:ok, _} = Contacts.create_contact(%{"name" => "Dormant Dana", "status" => "inactive"})
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/contacts")
+
+    assert has_element?(
+             view,
+             ~s{a[href="/en/admin/crm/contacts?filter=inactive"]},
+             "Inactive (1)"
+           )
+
+    refute has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=active"]})
   end
 
   test "the Trashed tab appears once a contact is in the trash", %{conn: conn} do

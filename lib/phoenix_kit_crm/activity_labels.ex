@@ -83,6 +83,12 @@ defmodule PhoenixKitCRM.ActivityLabels do
 
   def describe("crm.company_avatar_removed", _), do: {"hero-photo", gettext("Logo removed")}
 
+  def describe("crm.role_access_enabled", _),
+    do: {"hero-user-group", gettext("CRM access enabled for a role")}
+
+  def describe("crm.role_access_disabled", _),
+    do: {"hero-user-group", gettext("CRM access disabled for a role")}
+
   def describe(action, _), do: {"hero-bolt", humanize(action)}
 
   @doc "Optional secondary line for an entry (e.g. an interaction's subject)."
