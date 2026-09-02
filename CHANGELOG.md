@@ -4,6 +4,101 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.10.0 - 2026-09-02
+
+### Added
+
+- **Company-anchored interactions — schema V05** (#32). An interaction now
+  anchors to exactly one record: `contact_uuid` XOR `company_uuid`, both hard
+  FKs, pinned by a DB CHECK (`num_nonnulls(...) = 1`) added `NOT VALID` and
+  validated separately. "Anchor" is the deliberate word — `subject` is the
+  title column. The anchor is immutable after create:
+  `Interaction.changeset/2` is now create-only (the only changeset that casts
+  anchor fields) and `Interaction.update_changeset/2` is its edit twin, so an
+  edit can never move a row between feeds, activity ownership and broadcasts.
+  No data migration — every existing row has a contact and no company.
+- **A dual-anchor interactions component** (#32). `InteractionsComponent`
+  serves the contact page and the company page from one module;
+  `CompanyInteractionsComponent` (a read-only member rollup) is removed. In
+  company mode it composes company-anchored interactions and merges the
+  members' own behind an `All | Company | People` filter, with
+  `Interactions.list_for_company/2` combining both arms in one query so
+  ordering and `:limit` apply to the merged window.
+- **`crm:company:<uuid>:interactions`** (#32) — a company interaction-feed
+  PubSub topic, the symmetric twin of the contact one, deliberately separate
+  from `topic_company/1` (which signals record/roster changes and triggers
+  heavier reloads than a feed refresh needs).
+- **Search-independent counts on every index tab** (#32).
+  `Contacts.status_counts/0`, `Companies.status_counts/0` and
+  `PartyRoles.role_counts/1` each answer in one grouped query, zeros included.
+- **`Companies.list_companies/1` `:without_contacts`** (#32) — companies with
+  no membership to a live contact, using the roster's own visibility rule, so
+  a company listed there really does have an empty Members tab.
+- **`Interactions.list_recent/1`** (#32) — the newest interactions across the
+  CRM with the anchor preloaded, excluding rows whose anchor is trashed.
+- **Role-access changes are logged** (#32). `RoleSettings.set_enabled/3` takes
+  `:actor_uuid` and writes `crm.role_access_enabled` / `crm.role_access_disabled`
+  — this grants or revokes CRM access for everyone holding the role and was the
+  module's only unlogged mutation.
+
+### Changed
+
+- **The overview is a front door, not a count strip** (#32). Companies and
+  contacts hero cards, a by-role band whose counts deep-link the pre-filtered
+  index, a conditional needs-attention row (companies with no live contacts →
+  `?filter=no-contacts`), the newest interactions, and a demoted Lists row.
+  Portal access moved to the CRM settings page, where each enabled role now
+  shows its user count and a link into its portal view.
+- **Honest filter strips on both index pages** (#32). The default tab is now
+  **All** — everything not trashed, exactly the scope it always was but no
+  longer mislabelled "Active". The Active/Inactive pair appears only once
+  inactive records exist, role and status tabs render only with results (or
+  while active), every label carries its count, the toolbar count names what
+  the filter shows, and a tab click resets search.
+- **The company page starts at its tabs** (#32). The in-body header band is
+  gone — the name lives in the layout header, Edit rides the layout's
+  `page_action` chip, and the identity block (logo, status, role badges) opens
+  the Overview tab.
+- **The project Client tab** reads `list_for_company/2` (#32), so "recent
+  interactions with this client" now includes the company's own, not only its
+  members'.
+- `tz_offset/1`, `format_local/2`, `current_user_uuid/1` and
+  `current_user_name/1` are single definitions in `InteractionHelpers` (#32) —
+  they were verbatim copies across the show LiveViews and the overview, so an
+  interaction now shows the same time on every page that renders one.
+
+### Fixed
+
+- **A hard-deleted parent's interactions vanished without cleanup** (#32). The
+  FK CASCADE bypasses `delete_interaction/2`, the only path that purges an
+  interaction's media folder and broadcasts its deletion. Both delete contexts
+  now collect the doomed rows inside their transaction and hand them to
+  `Interactions.cleanup_cascaded/1` after the commit.
+- **Trashing a company left open contact feeds stale** (#32). A trashed
+  company's anchored rows are hidden from every involving feed;
+  `notify_company_visibility/1` now tells each affected party contact's page so
+  it stops showing them without a reload. Restore does the mirror.
+- **One unknown extension cost every attachment its upload** (#32).
+  `allow_upload` refuses any `:accept` extension the mime library cannot name,
+  and the raise landed in a silent rescue that disabled the dropzone entirely
+  (`.m4a` / `.ogg` / `.mkv` are unknown to mime 2.0.7). The accept list is
+  filtered through `MIME.has_type?/1`, the rescue now logs, and a rejected
+  upload entry shows why instead of sitting at a frozen progress bar.
+- **A dropped attachment left no trace** (#32). `attach_files/3` swallowed a
+  missing-folder failure after the interaction had already saved and the
+  composer had cleared its staged list; it now logs what was lost.
+- **Deleting an interaction from a page that does not anchor it** (#32). The
+  feed's Delete had one gate (the row is in this feed); it now has two — the
+  row must also be anchored here, so a row that merely spills in via party
+  involvement or the member rollup is read-only and managed from its own page.
+  A concurrent delete's `Ecto.StaleEntryError` refreshes instead of crashing
+  the LiveView into a reconnect.
+- **Role-checkbox alignment** on the contact and company forms (#32) — daisyUI's
+  `label` + `fieldset-legend` classes carry their own block spacing and sat the
+  text visibly off the checkbox.
+- The migration prefix guard used `~r/^...$/`, which PCRE also matches before a
+  trailing newline; it is now anchored with `\A` / `\z` (#32).
+
 ## 0.9.0 - 2026-08-31
 
 ### Added
