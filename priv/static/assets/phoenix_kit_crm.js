@@ -49,19 +49,37 @@ window.PhoenixKitCRMHooks = window.PhoenixKitCRMHooks || {};
       return null;
     }
   }
-  // A wall clock in the profile zone → its UTC instant. With an id, resolve
-  // the offset for that date (twice: the first guess uses the offset at the
-  // wall clock read as UTC, the second corrects it near a switch). Without
-  // one, the fixed offset applies.
+  // A wall clock in the profile zone → its UTC instant, by the server's
+  // rules: a wall clock that happens twice (fall-back) is its FIRST
+  // occurrence, one that never happens (spring-forward gap) is the instant
+  // the clocks jump to. Without an id the fixed offset applies.
   function wallToUtc(wall, zoneId, fixedOffsetMinutes) {
     var asUtc = Date.parse(wall + ":00Z");
     if (isNaN(asUtc)) return NaN;
     if (!zoneId) return asUtc - fixedOffsetMinutes * 60 * 1000;
-    var guess = zoneOffsetAt(zoneId, asUtc);
-    if (guess === null) return asUtc - fixedOffsetMinutes * 60 * 1000;
-    var utc = asUtc - guess * 60 * 1000;
-    var again = zoneOffsetAt(zoneId, utc);
-    return again === null ? utc : asUtc - again * 60 * 1000;
+    var day = 24 * 60 * 60 * 1000;
+    var before = zoneOffsetAt(zoneId, asUtc - day);
+    var after = zoneOffsetAt(zoneId, asUtc + day);
+    if (before === null || after === null) return asUtc - fixedOffsetMinutes * 60 * 1000;
+    // Candidates under each offset in force around that day; keep the ones
+    // that read back as the same wall clock.
+    var valid = [];
+    [before, after].forEach(function (o) {
+      var utc = asUtc - o * 60 * 1000;
+      if (zoneOffsetAt(zoneId, utc) === o && valid.indexOf(utc) < 0) valid.push(utc);
+    });
+    if (valid.length) return Math.min.apply(null, valid);
+    // A gap: bisect the switch between the two candidates for the instant
+    // the new offset takes over.
+    var lo = asUtc - before * 60 * 1000;
+    var hi = asUtc - after * 60 * 1000;
+    if (lo > hi) { var t = lo; lo = hi; hi = t; }
+    var loOffset = zoneOffsetAt(zoneId, lo);
+    for (var i = 0; i < 24 && hi - lo > 60 * 1000; i++) {
+      var mid = lo + Math.floor((hi - lo) / 2);
+      if (zoneOffsetAt(zoneId, mid) === loOffset) lo = mid; else hi = mid;
+    }
+    return hi;
   }
   function esc(s) {
     var d = document.createElement("div");

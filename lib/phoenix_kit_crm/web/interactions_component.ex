@@ -605,6 +605,15 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   # ── Timezone helpers (storage is always UTC; UI is in the user's profile tz) ──
 
   # "Now" in the user's timezone, formatted for a datetime-local input.
+  # The zone id the browser hook may resolve dates in: anything that is not
+  # a legacy numeric offset. An id the browser does not know falls back to
+  # the offset-now minutes there.
+  defp zone_id(tz) when is_binary(tz) do
+    if Regex.match?(~r/^[+-]?\d+(\.\d+)?$/, tz), do: "", else: tz
+  end
+
+  defp zone_id(_tz), do: ""
+
   # "Now" as a datetime-local value in the viewer's zone.
   defp local_now_str(tz), do: DateUtils.format_datetime_local(DateTime.utc_now(), tz)
 
@@ -684,7 +693,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                 phx-hook="CrmWhenWarnings"
                 data-profile-offset-minutes={offset_minutes_now(@tz)}
                 data-profile-zone={PhoenixKit.Settings.get_timezone_label(@tz)}
-                data-profile-zone-id={if String.contains?(@tz, "/"), do: @tz, else: ""}
+                data-profile-zone-id={zone_id(@tz)}
                 data-warning-target="crm-when-warning"
                 data-setnow-target="crm-set-now"
               />
