@@ -241,6 +241,26 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     end
   end
 
+  test "a When value that cannot be read is a save error, not a silent now", %{conn: conn} do
+    {:ok, company} = Companies.create_company(%{"name" => "Initech"})
+    user = org_user_fixture(%{})
+    conn = put_test_scope(conn, fake_scope(user_uuid: user.uuid, user_timezone: "Europe/Tallinn"))
+
+    {:ok, view, _html} =
+      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+
+    view
+    |> element("form[phx-change=composer_change]")
+    |> render_change(%{
+      "interaction" => %{"subject" => "Typed junk", "occurred_at" => "yesterday"}
+    })
+
+    html = view |> element("button[phx-click=save_interaction]") |> render_click()
+
+    assert html =~ "The time could not be read."
+    assert Interactions.list_for_company(company.uuid) == []
+  end
+
   test "the Interactions tab merges company and member rows with provenance, scope filter splits them",
        %{conn: conn} do
     {:ok, company} = Companies.create_company(%{"name" => "Initech"})

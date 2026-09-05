@@ -212,8 +212,70 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   def handle_event("save_interaction", _params, socket) do
     # `c_occurred_at` is the user's LOCAL time (profile tz); store true UTC.
-    occurred_at = local_to_utc(socket.assigns.c_occurred_at, socket.assigns[:tz] || "0")
+    case local_to_utc(socket.assigns.c_occurred_at, socket.assigns[:tz] || "0") do
+      # A typed value that cannot be read must not become "now" behind the
+      # user's back: a browser without a real datetime-local widget sends
+      # free text, and the schema's default would silently stamp the save.
+      :error ->
+        {:noreply, assign(socket, :save_error, gettext("The time could not be read."))}
 
+      occurred_at ->
+        save_interaction(socket, occurred_at)
+    end
+  end
+
+  def handle_event("set_feed_scope", %{"scope" => scope}, socket)
+      when scope in ~w(all company members) do
+    {:noreply,
+     socket
+     |> assign(:feed_scope, String.to_existing_atom(scope))
+     |> maybe_reload_interactions()}
+  end
+
+  def handle_event("delete_interaction", %{"uuid" => uuid}, socket) do
+    # Two gates: the row must actually be in this feed (a forged event must
+    # not delete an unrelated interaction by uuid), AND this page must be its
+    # ANCHOR — a row that merely spills in (party involvement, the member
+    # rollup) is managed from its own page, not deleted from someone else's.
+    row = Enum.find(socket.assigns.interactions, &(&1.uuid == uuid))
+
+    with %Interaction{} = row <- row,
+         true <- owns_row?(socket, row),
+         %Interaction{} = i <- Interactions.get_interaction(uuid) do
+      case Interactions.delete_interaction(i, actor_uuid: socket.assigns[:current_user_uuid]) do
+        {:ok, _} ->
+          {:noreply, socket |> assign(:save_error, nil) |> load_interactions()}
+
+        {:error, _changeset} ->
+          # The row stays; say so instead of reloading it back in silence.
+          {:noreply, assign(socket, :save_error, gettext("Could not delete this interaction."))}
+      end
+    else
+      _ -> {:noreply, socket}
+    end
+  rescue
+    # Two sessions deleting the same row race get/delete: the loser's
+    # repo.delete raises StaleEntryError. The row is gone either way — just
+    # refresh rather than crashing this LiveView into a reconnect.
+    _e in Ecto.StaleEntryError -> {:noreply, load_interactions(socket)}
+  end
+
+  # The dropzone form's phx-change (auto_upload does the actual work via the
+  # progress callback) — just acknowledge it.
+  def handle_event("validate_attachment", _params, socket), do: {:noreply, socket}
+
+  def handle_event("cancel_attachment", %{"ref" => ref}, socket),
+    do: {:noreply, cancel_upload(socket, :attachments, ref)}
+
+  def handle_event("remove_staged_file", %{"uuid" => uuid}, socket) do
+    {:noreply,
+     assign(socket, :staged_files, Enum.reject(socket.assigns.staged_files, &(&1.uuid == uuid)))}
+  end
+
+  # Ignore any unexpected/forged event rather than crashing the LiveView.
+  def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  defp save_interaction(socket, occurred_at) do
     anchor_key =
       case socket.assigns.anchor_kind do
         :contact -> "contact_uuid"
@@ -278,57 +340,6 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
       {:noreply, assign(socket, :save_error, default_save_error())}
   end
-
-  def handle_event("set_feed_scope", %{"scope" => scope}, socket)
-      when scope in ~w(all company members) do
-    {:noreply,
-     socket
-     |> assign(:feed_scope, String.to_existing_atom(scope))
-     |> maybe_reload_interactions()}
-  end
-
-  def handle_event("delete_interaction", %{"uuid" => uuid}, socket) do
-    # Two gates: the row must actually be in this feed (a forged event must
-    # not delete an unrelated interaction by uuid), AND this page must be its
-    # ANCHOR — a row that merely spills in (party involvement, the member
-    # rollup) is managed from its own page, not deleted from someone else's.
-    row = Enum.find(socket.assigns.interactions, &(&1.uuid == uuid))
-
-    with %Interaction{} = row <- row,
-         true <- owns_row?(socket, row),
-         %Interaction{} = i <- Interactions.get_interaction(uuid) do
-      case Interactions.delete_interaction(i, actor_uuid: socket.assigns[:current_user_uuid]) do
-        {:ok, _} ->
-          {:noreply, socket |> assign(:save_error, nil) |> load_interactions()}
-
-        {:error, _changeset} ->
-          # The row stays; say so instead of reloading it back in silence.
-          {:noreply, assign(socket, :save_error, gettext("Could not delete this interaction."))}
-      end
-    else
-      _ -> {:noreply, socket}
-    end
-  rescue
-    # Two sessions deleting the same row race get/delete: the loser's
-    # repo.delete raises StaleEntryError. The row is gone either way — just
-    # refresh rather than crashing this LiveView into a reconnect.
-    _e in Ecto.StaleEntryError -> {:noreply, load_interactions(socket)}
-  end
-
-  # The dropzone form's phx-change (auto_upload does the actual work via the
-  # progress callback) — just acknowledge it.
-  def handle_event("validate_attachment", _params, socket), do: {:noreply, socket}
-
-  def handle_event("cancel_attachment", %{"ref" => ref}, socket),
-    do: {:noreply, cancel_upload(socket, :attachments, ref)}
-
-  def handle_event("remove_staged_file", %{"uuid" => uuid}, socket) do
-    {:noreply,
-     assign(socket, :staged_files, Enum.reject(socket.assigns.staged_files, &(&1.uuid == uuid)))}
-  end
-
-  # Ignore any unexpected/forged event rather than crashing the LiveView.
-  def handle_event(_event, _params, socket), do: {:noreply, socket}
 
   # ── Inline upload (drag-drop / click) ──────────────────────────────
   #
@@ -599,11 +610,12 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   # A local datetime-local string (in the user's tz) → the true UTC instant,
   # resolved for the date typed (core's `parse_datetime_local/2`, per
-  # instant — a named zone follows daylight saving on that date).
+  # instant — a named zone follows daylight saving on that date). Blank
+  # means "let the schema default to now"; unreadable is `:error`.
   defp local_to_utc(value, tz) when is_binary(value) and value != "" do
     case DateUtils.parse_datetime_local(value, tz) do
       {:ok, utc} -> utc
-      _ -> nil
+      _ -> :error
     end
   end
 
@@ -672,6 +684,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                 phx-hook="CrmWhenWarnings"
                 data-profile-offset-minutes={offset_minutes_now(@tz)}
                 data-profile-zone={PhoenixKit.Settings.get_timezone_label(@tz)}
+                data-profile-zone-id={if String.contains?(@tz, "/"), do: @tz, else: ""}
                 data-warning-target="crm-when-warning"
                 data-setnow-target="crm-set-now"
               />

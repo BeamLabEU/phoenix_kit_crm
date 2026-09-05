@@ -94,11 +94,9 @@ defmodule PhoenixKitCRM.Web.InteractionHelpers do
 
   def viewer_tz(_), do: site_tz()
 
-  defp site_tz do
-    PhoenixKit.Settings.get_setting("time_zone", "0")
-  rescue
-    _ -> "0"
-  end
+  # `Settings.get_setting/2` already answers the default when the database
+  # is unreachable.
+  defp site_tz, do: PhoenixKit.Settings.get_setting("time_zone", "0")
 
   @doc "A stored UTC datetime → display string in the viewer's timezone."
   @spec format_local(DateTime.t() | nil, String.t()) :: String.t()

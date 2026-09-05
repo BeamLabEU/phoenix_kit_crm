@@ -13,9 +13,11 @@ window.PhoenixKitCRMHooks = window.PhoenixKitCRMHooks || {};
 //   • this device's timezone differs from the user's profile timezone.
 // The field's value is a wall-clock time in the user's PROFILE timezone. The
 // server passes that zone's offset RIGHT NOW in minutes (data-profile-offset-
-// minutes — the profile may be an IANA zone, so the offset is only meaningful
-// for an instant, and "now" is the instant these warnings are about) and its
-// label (data-profile-zone) for the message.
+// minutes), its label (data-profile-zone) for the message, and — when the
+// profile is an IANA zone — its id (data-profile-zone-id), so the field's
+// value can be read with the offset of ITS OWN date: a January time typed in
+// July is an hour off under today's offset in any zone with daylight saving.
+// A legacy fixed offset has no id and never moves, so the minutes are exact.
 (function () {
   function fmtOffset(minutes) {
     var sign = minutes >= 0 ? "+" : "-";
@@ -23,6 +25,43 @@ window.PhoenixKitCRMHooks = window.PhoenixKitCRMHooks || {};
     var h = Math.floor(abs / 60);
     var m = abs % 60;
     return "UTC" + sign + h + (m ? ":" + (m < 10 ? "0" : "") + m : "");
+  }
+  // Offset (minutes east of UTC) of an IANA zone at an instant, from the
+  // browser's own tz database. null when the zone is unknown here.
+  function zoneOffsetAt(zone, instantMs) {
+    try {
+      var parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: zone,
+        hourCycle: "h23",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }).formatToParts(new Date(instantMs));
+      var get = function (type) {
+        return parseInt(parts.find(function (p) { return p.type === type; }).value, 10);
+      };
+      var wallAsUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour") % 24, get("minute"), get("second"));
+      return Math.round((wallAsUtc - instantMs) / 60000);
+    } catch (e) {
+      return null;
+    }
+  }
+  // A wall clock in the profile zone → its UTC instant. With an id, resolve
+  // the offset for that date (twice: the first guess uses the offset at the
+  // wall clock read as UTC, the second corrects it near a switch). Without
+  // one, the fixed offset applies.
+  function wallToUtc(wall, zoneId, fixedOffsetMinutes) {
+    var asUtc = Date.parse(wall + ":00Z");
+    if (isNaN(asUtc)) return NaN;
+    if (!zoneId) return asUtc - fixedOffsetMinutes * 60 * 1000;
+    var guess = zoneOffsetAt(zoneId, asUtc);
+    if (guess === null) return asUtc - fixedOffsetMinutes * 60 * 1000;
+    var utc = asUtc - guess * 60 * 1000;
+    var again = zoneOffsetAt(zoneId, utc);
+    return again === null ? utc : asUtc - again * 60 * 1000;
   }
   function esc(s) {
     var d = document.createElement("div");
@@ -49,6 +88,7 @@ window.PhoenixKitCRMHooks = window.PhoenixKitCRMHooks || {};
     refresh() {
       var offset = parseInt(this.el.dataset.profileOffsetMinutes || "0", 10);
       var zone = this.el.dataset.profileZone || fmtOffset(offset);
+      var zoneId = this.el.dataset.profileZoneId || "";
       var warns = [];
 
       // getTimezoneOffset() is minutes WEST of UTC, hence the sign flip.
@@ -66,10 +106,9 @@ window.PhoenixKitCRMHooks = window.PhoenixKitCRMHooks || {};
       var val = this.el.value;
       var isNow = false;
       if (val) {
-        // Field is profile-local wall-clock → its true UTC instant (using the
-        // profile's offset now; the field is prefilled with "now", so this is
-        // right where it matters and advisory everywhere else).
-        var fieldUtc = Date.parse(val + ":00Z") - offset * 60 * 1000;
+        // Field is profile-local wall-clock → its true UTC instant, with the
+        // offset that applies on the field's own date.
+        var fieldUtc = wallToUtc(val, zoneId, offset);
         if (!isNaN(fieldUtc)) {
           // Round DOWN to whole minutes (the field has minute precision, so this
           // is the wall-clock minute difference — "4 min ago" until the 5th ticks).

@@ -332,14 +332,20 @@ the crm module's dep on the new core as a floating `~> minimum`.
 ## 8b. Timezone handling (interaction `occurred_at`)
 - **Storage is always true UTC** (`timestamptz`). Never store a local wall-clock
   time in the column — that makes the stored instant ambiguous/wrong.
-- **The UI uses the viewer's profile timezone**, resolved via core's
-  `PhoenixKit.Utils.Date.get_user_timezone/1` (per-user `user_timezone` → system
-  `time_zone` setting → `"0"`/UTC). `ContactShowLive` computes the offset (hours)
-  and passes `tz_offset` to the interactions component.
-- **Round-trip:** the "When" `datetime-local` prefills to `utc_now + offset`
-  (the user's local now); on save the entered local value is converted to UTC by
-  subtracting the offset (`local_to_utc/2`); the timeline shifts stored UTC back
-  to local for display (`format_local/2`).
+- **The UI uses the viewer's profile timezone**, resolved by
+  `InteractionHelpers.viewer_tz/1` (per-user `user_timezone` → system
+  `time_zone` setting → `"0"`/UTC — core's rule, tolerant of a partial user
+  map). The value is an IANA id (`Europe/Tallinn`) or a legacy fixed offset
+  (`"2"`), never a number; the show LiveViews pass it as `tz` to the
+  interactions and events components.
+- **Round-trip:** every conversion goes through core's per-instant helpers,
+  so a named zone follows daylight saving on the date typed: the "When"
+  `datetime-local` prefills with `format_datetime_local/2` (the user's local
+  now); on save the entered local value is read with `parse_datetime_local/2`
+  (`local_to_utc/2`; an unreadable value is a save error, never a silent
+  "now"); the timeline shows stored UTC with `shift_to_offset/2`
+  (`format_local/2`). Turning the value into one number and adding it — what
+  the first version did — read every IANA id as 0.
 - **Conflict policy (profile vs browser):** the **profile timezone wins** — it's
   the single authoritative source, consistent with how the rest of PhoenixKit
   formats dates. The browser's timezone is not used. (An earlier prototype used a
