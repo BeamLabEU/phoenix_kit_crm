@@ -10,6 +10,7 @@ defmodule PhoenixKitCRM.Web.InteractionHelpers do
   use Gettext, backend: PhoenixKitCRM.Gettext
 
   alias PhoenixKit.Users.Auth.User
+  alias PhoenixKit.Utils.Date, as: DateUtils
   alias PhoenixKitCRM.{Paths, StaffLink}
 
   @doc "An involved-party badge — links to the contact/staff page when resolvable."
@@ -71,36 +72,52 @@ defmodule PhoenixKitCRM.Web.InteractionHelpers do
   def snapshot_title(_), do: nil
 
   @doc """
-  The viewer's timezone offset in hours — user profile → system setting → UTC,
-  via core's `PhoenixKit.Utils.Date.get_user_timezone/1` (which stores offset
-  strings like `"0"` / `"+5"`). One definition, so the same interaction shows
-  the same time on every page that renders one — this used to live as three
-  private copies across the show LiveViews and the overview.
-  """
-  @spec tz_offset(map() | nil) :: integer()
-  def tz_offset(%{} = user) do
-    case PhoenixKit.Utils.Date.get_user_timezone(user) do
-      off when is_binary(off) ->
-        case Integer.parse(off) do
-          {hours, _} -> hours
-          _ -> 0
-        end
+  The viewer's timezone value — user profile → site `time_zone` setting →
+  `"0"` — core's precedence (`PhoenixKit.Utils.Date.get_user_timezone/1`),
+  written out because the page's user may be a partial map without the
+  column. An IANA id (`Europe/Tallinn`) or a legacy fixed offset (`"2"`);
+  never a number. One definition, so the same interaction shows the same
+  time on every page that renders one.
 
-      _ ->
-        0
+  This used to be `Integer.parse/1` of that value, in hours: since core
+  2.13.9 the value is an IANA id on any account that touched the picker,
+  which parsed to 0 — every interaction rendered in UTC, the composer's
+  "now" prefill was UTC, and a hand-typed local time was stored hours off.
+  """
+  @spec viewer_tz(map() | nil) :: String.t()
+  def viewer_tz(%{} = user) do
+    case Map.get(user, :user_timezone) do
+      tz when is_binary(tz) and tz != "" -> tz
+      _ -> site_tz()
     end
-  rescue
-    _ -> 0
   end
 
-  def tz_offset(_), do: 0
+  def viewer_tz(_), do: site_tz()
+
+  defp site_tz do
+    PhoenixKit.Settings.get_setting("time_zone", "0")
+  rescue
+    _ -> "0"
+  end
 
   @doc "A stored UTC datetime → display string in the viewer's timezone."
-  @spec format_local(DateTime.t() | nil, integer()) :: String.t()
-  def format_local(nil, _offset), do: "—"
+  @spec format_local(DateTime.t() | nil, String.t()) :: String.t()
+  def format_local(nil, _tz), do: "—"
 
-  def format_local(%DateTime{} = utc, offset) do
-    utc |> DateTime.add(offset * 3600, :second) |> Calendar.strftime("%Y-%m-%d %H:%M")
+  def format_local(%DateTime{} = utc, tz) do
+    utc |> DateUtils.shift_to_offset(tz) |> Calendar.strftime("%Y-%m-%d %H:%M")
+  end
+
+  @doc """
+  The viewer's current offset from UTC in minutes, for the composer's
+  browser-side "this device is somewhere else" warning. A snapshot of NOW,
+  which is the only instant that warning is about; storage never uses it.
+  """
+  @spec offset_minutes_now(String.t()) :: integer()
+  def offset_minutes_now(tz) do
+    now = DateTime.utc_now()
+    local = now |> DateUtils.shift_to_offset(tz) |> DateTime.to_naive()
+    NaiveDateTime.diff(local, DateTime.to_naive(now), :minute)
   end
 
   @doc """

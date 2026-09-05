@@ -29,7 +29,7 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   import PhoenixKitCRM.Web.Components.TabIntro, only: [tab_intro: 1]
 
   import PhoenixKitCRM.Web.InteractionHelpers,
-    only: [tz_offset: 1, current_user_uuid: 1, current_user_name: 1]
+    only: [viewer_tz: 1, current_user_uuid: 1, current_user_name: 1]
 
   import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
 
@@ -76,7 +76,7 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
          |> assign(:contact_orders, contact_orders)
          |> assign(:avatar_url, Attachments.avatar_url(contact))
          |> assign(:membership, Contacts.primary_membership(contact))
-         |> assign(:tz_offset, tz_offset(socket.assigns[:phoenix_kit_current_user]))
+         |> assign(:tz, viewer_tz(socket.assigns[:phoenix_kit_current_user]))
          |> assign(:page_title, Contact.display_name(contact))
          |> assign(:page_section, gettext("Contacts"))
          |> assign(:page_section_path, Paths.contacts())}
@@ -390,7 +390,7 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
           current_user_uuid={current_user_uuid(assigns)}
           current_user_name={current_user_name(assigns)}
           phoenix_kit_current_user={@phoenix_kit_current_user}
-          tz_offset={@tz_offset}
+          tz={@tz}
         />
       </div>
 
@@ -442,7 +442,7 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
           id={"crm-events-#{@contact.uuid}"}
           resource_type="crm_contact"
           resource_uuid={@contact.uuid}
-          tz_offset={@tz_offset}
+          tz={@tz}
         />
       </div>
 

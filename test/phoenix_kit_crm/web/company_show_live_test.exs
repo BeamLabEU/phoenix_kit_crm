@@ -202,6 +202,45 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     assert render(view) =~ "Front desk call"
   end
 
+  test "the composer reads and shows times in the viewer's zone, per date, not today's offset",
+       %{conn: conn} do
+    {:ok, company} = Companies.create_company(%{"name" => "Initech"})
+    user = org_user_fixture(%{})
+    conn = put_test_scope(conn, fake_scope(user_uuid: user.uuid, user_timezone: "Europe/Tallinn"))
+
+    {:ok, view, html} =
+      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+
+    # The "When" prefill is now in Tallinn, not UTC — whichever season it is.
+    prefill =
+      DateTime.utc_now()
+      |> PhoenixKit.Utils.Date.format_datetime_local("Europe/Tallinn")
+      |> String.slice(0, 13)
+
+    assert html =~ ~s(value="#{prefill}), "prefill hour in the viewer's zone"
+
+    # Tallinn is UTC+2 in January and UTC+3 in July: a typed 10:00 must store
+    # the instant of ITS date. Whichever season the suite runs in, one of the
+    # two would be an hour off under a today's-offset conversion.
+    for {typed, stored} <- [
+          {"2026-01-15T10:00", ~U[2026-01-15 08:00:00Z]},
+          {"2026-07-15T10:00", ~U[2026-07-15 07:00:00Z]}
+        ] do
+      view
+      |> element("form[phx-change=composer_change]")
+      |> render_change(%{"interaction" => %{"subject" => typed, "occurred_at" => typed}})
+
+      view |> element("button[phx-click=save_interaction]") |> render_click()
+
+      assert [%{occurred_at: ^stored}] =
+               Enum.filter(Interactions.list_for_company(company.uuid), &(&1.subject == typed)),
+             "#{typed} stored as #{inspect(stored)}"
+
+      # ...and it renders back as the wall clock that was typed
+      assert render(view) =~ String.replace(typed, "T", " ")
+    end
+  end
+
   test "the Interactions tab merges company and member rows with provenance, scope filter splits them",
        %{conn: conn} do
     {:ok, company} = Companies.create_company(%{"name" => "Initech"})

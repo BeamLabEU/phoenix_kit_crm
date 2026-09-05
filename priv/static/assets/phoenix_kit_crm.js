@@ -11,11 +11,18 @@ window.PhoenixKitCRMHooks = window.PhoenixKitCRMHooks || {};
 //   • the time is in the past (the prefill went stale while the form sat open),
 //   • the time is in the future,
 //   • this device's timezone differs from the user's profile timezone.
-// The field's value is a wall-clock time in the user's PROFILE timezone, whose
-// offset (hours) is passed via data-profile-offset.
+// The field's value is a wall-clock time in the user's PROFILE timezone. The
+// server passes that zone's offset RIGHT NOW in minutes (data-profile-offset-
+// minutes — the profile may be an IANA zone, so the offset is only meaningful
+// for an instant, and "now" is the instant these warnings are about) and its
+// label (data-profile-zone) for the message.
 (function () {
-  function fmtOffset(h) {
-    return "UTC" + (h >= 0 ? "+" + h : h);
+  function fmtOffset(minutes) {
+    var sign = minutes >= 0 ? "+" : "-";
+    var abs = Math.abs(minutes);
+    var h = Math.floor(abs / 60);
+    var m = abs % 60;
+    return "UTC" + sign + h + (m ? ":" + (m < 10 ? "0" : "") + m : "");
   }
   function esc(s) {
     var d = document.createElement("div");
@@ -40,14 +47,16 @@ window.PhoenixKitCRMHooks = window.PhoenixKitCRMHooks || {};
       clearInterval(this.timer);
     },
     refresh() {
-      var offset = parseInt(this.el.dataset.profileOffset || "0", 10);
+      var offset = parseInt(this.el.dataset.profileOffsetMinutes || "0", 10);
+      var zone = this.el.dataset.profileZone || fmtOffset(offset);
       var warns = [];
 
-      var browserOffset = -new Date().getTimezoneOffset() / 60;
+      // getTimezoneOffset() is minutes WEST of UTC, hence the sign flip.
+      var browserOffset = -new Date().getTimezoneOffset();
       if (browserOffset !== offset) {
         warns.push(
           "Your timezone is set to " +
-            fmtOffset(offset) +
+            zone +
             ", but this device is " +
             fmtOffset(browserOffset) +
             ". Times are saved using your profile timezone."
@@ -57,8 +66,10 @@ window.PhoenixKitCRMHooks = window.PhoenixKitCRMHooks || {};
       var val = this.el.value;
       var isNow = false;
       if (val) {
-        // Field is profile-local wall-clock → its true UTC instant.
-        var fieldUtc = Date.parse(val + ":00Z") - offset * 3600 * 1000;
+        // Field is profile-local wall-clock → its true UTC instant (using the
+        // profile's offset now; the field is prefilled with "now", so this is
+        // right where it matters and advisory everywhere else).
+        var fieldUtc = Date.parse(val + ":00Z") - offset * 60 * 1000;
         if (!isNaN(fieldUtc)) {
           // Round DOWN to whole minutes (the field has minute precision, so this
           // is the wall-clock minute difference — "4 min ago" until the 5th ticks).

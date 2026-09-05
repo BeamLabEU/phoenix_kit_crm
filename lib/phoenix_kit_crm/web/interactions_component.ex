@@ -18,7 +18,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   require Logger
 
-  import PhoenixKitCRM.Web.InteractionHelpers, only: [party_badge: 1, format_local: 2]
+  alias PhoenixKit.Utils.Date, as: DateUtils
+
+  import PhoenixKitCRM.Web.InteractionHelpers,
+    only: [party_badge: 1, format_local: 2, offset_minutes_now: 1]
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Users.Auth
@@ -43,7 +46,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   @impl true
   def update(assigns, socket) do
     socket = assign(socket, assigns)
-    offset = socket.assigns[:tz_offset] || 0
+    tz = socket.assigns[:tz] || "0"
 
     {:ok,
      socket
@@ -59,7 +62,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      |> assign_new(:c_type, fn -> "note" end)
      |> assign_new(:c_subject, fn -> "" end)
      |> assign_new(:c_body, fn -> "" end)
-     |> assign_new(:c_occurred_at, fn -> local_now_str(offset) end)
+     |> assign_new(:c_occurred_at, fn -> local_now_str(tz) end)
      |> assign_new(:save_error, fn -> nil end)
      |> assign(:staff_enabled, StaffLink.enabled?())
      |> assign(:storage_enabled, storage_enabled?())
@@ -204,12 +207,12 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   def handle_event("composer_change", _params, socket), do: {:noreply, socket}
 
   def handle_event("set_now", _params, socket) do
-    {:noreply, assign(socket, :c_occurred_at, local_now_str(socket.assigns[:tz_offset] || 0))}
+    {:noreply, assign(socket, :c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))}
   end
 
   def handle_event("save_interaction", _params, socket) do
     # `c_occurred_at` is the user's LOCAL time (profile tz); store true UTC.
-    occurred_at = local_to_utc(socket.assigns.c_occurred_at, socket.assigns[:tz_offset] || 0)
+    occurred_at = local_to_utc(socket.assigns.c_occurred_at, socket.assigns[:tz] || "0")
 
     anchor_key =
       case socket.assigns.anchor_kind do
@@ -250,7 +253,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
          |> assign(:c_type, "note")
          |> assign(:c_subject, "")
          |> assign(:c_body, "")
-         |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz_offset] || 0))
+         |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))
          |> assign(:save_error, nil)
          # A company-anchored save under the People scope would be invisible —
          # the row is excluded by construction, so the composer clears and
@@ -591,21 +594,16 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   # ── Timezone helpers (storage is always UTC; UI is in the user's profile tz) ──
 
   # "Now" in the user's timezone, formatted for a datetime-local input.
-  defp local_now_str(offset) do
-    DateTime.utc_now()
-    |> DateTime.add(offset * 3600, :second)
-    |> DateTime.truncate(:second)
-    |> Calendar.strftime("%Y-%m-%dT%H:%M")
-  end
+  # "Now" as a datetime-local value in the viewer's zone.
+  defp local_now_str(tz), do: DateUtils.format_datetime_local(DateTime.utc_now(), tz)
 
-  # A local datetime-local string (in the user's tz) → the true UTC instant.
-  defp local_to_utc(value, offset) when is_binary(value) and value != "" do
-    case NaiveDateTime.from_iso8601(value <> ":00") do
-      {:ok, naive} ->
-        naive |> DateTime.from_naive!("Etc/UTC") |> DateTime.add(-offset * 3600, :second)
-
-      _ ->
-        nil
+  # A local datetime-local string (in the user's tz) → the true UTC instant,
+  # resolved for the date typed (core's `parse_datetime_local/2`, per
+  # instant — a named zone follows daylight saving on that date).
+  defp local_to_utc(value, tz) when is_binary(value) and value != "" do
+    case DateUtils.parse_datetime_local(value, tz) do
+      {:ok, utc} -> utc
+      _ -> nil
     end
   end
 
@@ -638,7 +636,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   attr(:current_user_uuid, :string, default: nil)
   attr(:current_user_name, :string, default: nil)
   attr(:phoenix_kit_current_user, :map, default: nil)
-  attr(:tz_offset, :integer, default: 0)
+  attr(:tz, :string, default: "0")
 
   @impl true
   def render(assigns) do
@@ -672,7 +670,8 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                 value={@c_occurred_at}
                 label={gettext("When")}
                 phx-hook="CrmWhenWarnings"
-                data-profile-offset={@tz_offset}
+                data-profile-offset-minutes={offset_minutes_now(@tz)}
+                data-profile-zone={PhoenixKit.Settings.get_timezone_label(@tz)}
                 data-warning-target="crm-when-warning"
                 data-setnow-target="crm-set-now"
               />
@@ -942,7 +941,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                     i.company
                   )}
                 </.link>
-                <span class="text-xs text-base-content/60">{format_local(i.occurred_at, @tz_offset)}</span>
+                <span class="text-xs text-base-content/60">{format_local(i.occurred_at, @tz)}</span>
               </div>
               <button
                 :if={owns_row?(assigns, i)}

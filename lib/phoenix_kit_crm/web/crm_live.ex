@@ -27,7 +27,7 @@ defmodule PhoenixKitCRM.Web.CRMLive do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitCRM.Gettext
 
-  import PhoenixKitCRM.Web.InteractionHelpers, only: [format_local: 2, tz_offset: 1]
+  import PhoenixKitCRM.Web.InteractionHelpers, only: [format_local: 2, viewer_tz: 1]
   # Core's stretched-link overlay (whole row/card clickable via one real <a>);
   # deliberately not auto-imported by `use PhoenixKitWeb` — see its moduledoc.
   import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
@@ -45,7 +45,7 @@ defmodule PhoenixKitCRM.Web.CRMLive do
        # supplier/manufacturer vocabulary; the subtitle doesn't have to.
        page_subtitle: gettext("Companies, people and the interactions between them"),
        enabled: PhoenixKitCRM.enabled?(),
-       tz_offset: tz_offset(socket.assigns[:phoenix_kit_current_user]),
+       tz: viewer_tz(socket.assigns[:phoenix_kit_current_user]),
        counts: nil,
        company_roles: nil,
        contact_roles: nil,
@@ -274,7 +274,7 @@ defmodule PhoenixKitCRM.Web.CRMLive do
               </span>
             </div>
             <span class="text-xs text-base-content/60 shrink-0">
-              {format_local(i.occurred_at, @tz_offset)}
+              {format_local(i.occurred_at, @tz)}
             </span>
           </li>
         </ol>
