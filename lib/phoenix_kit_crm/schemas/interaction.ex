@@ -33,6 +33,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
           company: Company.t() | Ecto.Association.NotLoaded.t() | nil,
           interaction_type: String.t() | nil,
           occurred_at: DateTime.t() | nil,
+          time_zone: String.t() | nil,
           subject: String.t() | nil,
           body: String.t() | nil,
           owner_user_uuid: UUIDv7.t() | nil,
@@ -46,6 +47,10 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
   schema "phoenix_kit_crm_interactions" do
     field(:interaction_type, :string, default: "note")
     field(:occurred_at, :utc_datetime)
+    # The zone `occurred_at` was typed in — an IANA id or a legacy offset, the
+    # value as core keeps it — so the wall clock the person meant can be
+    # re-resolved on its own. Nil on rows written before the column existed.
+    field(:time_zone, :string)
     field(:subject, :string)
     field(:body, :string)
     field(:metadata, :map, default: %{})
@@ -63,7 +68,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
     timestamps(type: :utc_datetime)
   end
 
-  @castable ~w(contact_uuid company_uuid interaction_type occurred_at subject body owner_user_uuid metadata)a
+  @castable ~w(contact_uuid company_uuid interaction_type occurred_at time_zone subject body owner_user_uuid metadata)a
   @anchor_fields ~w(contact_uuid company_uuid)a
 
   @doc """
@@ -85,6 +90,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
       message: "must be one of: #{Enum.join(@types, ", ")}"
     )
     |> validate_length(:subject, max: 255)
+    |> validate_length(:time_zone, max: 64)
     |> assoc_constraint(:contact)
     |> assoc_constraint(:company)
     |> assoc_constraint(:owner_user)
@@ -109,6 +115,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
       message: "must be one of: #{Enum.join(@types, ", ")}"
     )
     |> validate_length(:subject, max: 255)
+    |> validate_length(:time_zone, max: 64)
     |> assoc_constraint(:owner_user)
   end
 

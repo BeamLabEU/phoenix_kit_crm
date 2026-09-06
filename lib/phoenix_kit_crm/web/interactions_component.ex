@@ -18,7 +18,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   require Logger
 
-  import PhoenixKitCRM.Web.InteractionHelpers, only: [party_badge: 1, format_local: 2]
+  alias PhoenixKit.Utils.Date, as: DateUtils
+
+  import PhoenixKitCRM.Web.InteractionHelpers,
+    only: [party_badge: 1, format_local: 2, offset_minutes_now: 1]
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Users.Auth
@@ -43,7 +46,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   @impl true
   def update(assigns, socket) do
     socket = assign(socket, assigns)
-    offset = socket.assigns[:tz_offset] || 0
+    tz = socket.assigns[:tz] || "0"
 
     {:ok,
      socket
@@ -59,7 +62,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      |> assign_new(:c_type, fn -> "note" end)
      |> assign_new(:c_subject, fn -> "" end)
      |> assign_new(:c_body, fn -> "" end)
-     |> assign_new(:c_occurred_at, fn -> local_now_str(offset) end)
+     |> assign_new(:c_occurred_at, fn -> local_now_str(tz) end)
      |> assign_new(:save_error, fn -> nil end)
      |> assign(:staff_enabled, StaffLink.enabled?())
      |> assign(:storage_enabled, storage_enabled?())
@@ -204,76 +207,21 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   def handle_event("composer_change", _params, socket), do: {:noreply, socket}
 
   def handle_event("set_now", _params, socket) do
-    {:noreply, assign(socket, :c_occurred_at, local_now_str(socket.assigns[:tz_offset] || 0))}
+    {:noreply, assign(socket, :c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))}
   end
 
   def handle_event("save_interaction", _params, socket) do
     # `c_occurred_at` is the user's LOCAL time (profile tz); store true UTC.
-    occurred_at = local_to_utc(socket.assigns.c_occurred_at, socket.assigns[:tz_offset] || 0)
+    case local_to_utc(socket.assigns.c_occurred_at, socket.assigns[:tz] || "0") do
+      # A typed value that cannot be read must not become "now" behind the
+      # user's back: a browser without a real datetime-local widget sends
+      # free text, and the schema's default would silently stamp the save.
+      :error ->
+        {:noreply, assign(socket, :save_error, gettext("The time could not be read."))}
 
-    anchor_key =
-      case socket.assigns.anchor_kind do
-        :contact -> "contact_uuid"
-        :company -> "company_uuid"
-      end
-
-    attrs =
-      %{
-        anchor_key => socket.assigns.anchor.uuid,
-        "interaction_type" => socket.assigns.c_type,
-        "subject" => socket.assigns.c_subject,
-        "body" => socket.assigns.c_body,
-        "owner_user_uuid" => socket.assigns[:current_user_uuid]
-      }
-      |> maybe_put_occurred_at(occurred_at)
-
-    party_inputs =
-      Enum.map(socket.assigns.staged_parties, fn p ->
-        %{
-          raw_name: p.raw_name,
-          contact_uuid: p[:contact_uuid],
-          staff_person_uuid: p[:staff_person_uuid]
-        }
-      end)
-
-    file_uuids = Enum.map(socket.assigns.staged_files, & &1.uuid)
-
-    case Interactions.create_interaction(attrs, party_inputs, file_uuids) do
-      {:ok, _interaction} ->
-        # (The audit-log entry, file attach, + realtime broadcast are emitted by
-        # the context.) Reset the composer ONLY on success — every failure path
-        # below leaves the typed fields + staged parties + files untouched.
-        {:noreply,
-         socket
-         |> assign(:staged_parties, [])
-         |> assign(:staged_files, [])
-         |> assign(:c_type, "note")
-         |> assign(:c_subject, "")
-         |> assign(:c_body, "")
-         |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz_offset] || 0))
-         |> assign(:save_error, nil)
-         # A company-anchored save under the People scope would be invisible —
-         # the row is excluded by construction, so the composer clears and
-         # nothing appears, indistinguishable from a failed save. Jump to All
-         # so the just-logged row is on screen.
-         |> then(fn s ->
-           if s.assigns.anchor_kind == :company and s.assigns.feed_scope == :members,
-             do: assign(s, :feed_scope, :all),
-             else: s
-         end)
-         |> load_interactions()}
-
-      {:error, changeset} ->
-        {:noreply, assign(socket, :save_error, changeset_message(changeset))}
+      occurred_at ->
+        save_interaction(socket, occurred_at)
     end
-  rescue
-    e ->
-      Logger.error(
-        "[CRM] save_interaction crashed (#{socket.assigns.anchor_kind}=#{inspect(socket.assigns.anchor.uuid)}): " <>
-          Exception.format(:error, e, __STACKTRACE__)
-      )
-
-      {:noreply, assign(socket, :save_error, default_save_error())}
   end
 
   def handle_event("set_feed_scope", %{"scope" => scope}, socket)
@@ -326,6 +274,72 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   # Ignore any unexpected/forged event rather than crashing the LiveView.
   def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  defp save_interaction(socket, occurred_at) do
+    anchor_key =
+      case socket.assigns.anchor_kind do
+        :contact -> "contact_uuid"
+        :company -> "company_uuid"
+      end
+
+    attrs =
+      %{
+        anchor_key => socket.assigns.anchor.uuid,
+        "interaction_type" => socket.assigns.c_type,
+        "subject" => socket.assigns.c_subject,
+        "body" => socket.assigns.c_body,
+        "owner_user_uuid" => socket.assigns[:current_user_uuid]
+      }
+      |> maybe_put_occurred_at(occurred_at, socket.assigns[:tz] || "0")
+
+    party_inputs =
+      Enum.map(socket.assigns.staged_parties, fn p ->
+        %{
+          raw_name: p.raw_name,
+          contact_uuid: p[:contact_uuid],
+          staff_person_uuid: p[:staff_person_uuid]
+        }
+      end)
+
+    file_uuids = Enum.map(socket.assigns.staged_files, & &1.uuid)
+
+    case Interactions.create_interaction(attrs, party_inputs, file_uuids) do
+      {:ok, _interaction} ->
+        # (The audit-log entry, file attach, + realtime broadcast are emitted by
+        # the context.) Reset the composer ONLY on success — every failure path
+        # below leaves the typed fields + staged parties + files untouched.
+        {:noreply,
+         socket
+         |> assign(:staged_parties, [])
+         |> assign(:staged_files, [])
+         |> assign(:c_type, "note")
+         |> assign(:c_subject, "")
+         |> assign(:c_body, "")
+         |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))
+         |> assign(:save_error, nil)
+         # A company-anchored save under the People scope would be invisible —
+         # the row is excluded by construction, so the composer clears and
+         # nothing appears, indistinguishable from a failed save. Jump to All
+         # so the just-logged row is on screen.
+         |> then(fn s ->
+           if s.assigns.anchor_kind == :company and s.assigns.feed_scope == :members,
+             do: assign(s, :feed_scope, :all),
+             else: s
+         end)
+         |> load_interactions()}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, :save_error, changeset_message(changeset))}
+    end
+  rescue
+    e ->
+      Logger.error(
+        "[CRM] save_interaction crashed (#{socket.assigns.anchor_kind}=#{inspect(socket.assigns.anchor.uuid)}): " <>
+          Exception.format(:error, e, __STACKTRACE__)
+      )
+
+      {:noreply, assign(socket, :save_error, default_save_error())}
+  end
 
   # ── Inline upload (drag-drop / click) ──────────────────────────────
   #
@@ -585,27 +599,38 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   defp parse_limit(_), do: @default_limit
 
-  defp maybe_put_occurred_at(attrs, nil), do: attrs
-  defp maybe_put_occurred_at(attrs, %DateTime{} = dt), do: Map.put(attrs, "occurred_at", dt)
+  # The instant AND the zone it was typed in: a row can be re-resolved on
+  # its own later, whatever the profile or the site setting becomes. A blank
+  # When leaves the instant to the schema's default ("now") — in the same
+  # zone, which is stamped either way.
+  defp maybe_put_occurred_at(attrs, nil, tz), do: Map.put(attrs, "time_zone", tz)
+
+  defp maybe_put_occurred_at(attrs, %DateTime{} = dt, tz),
+    do: attrs |> Map.put("occurred_at", dt) |> Map.put("time_zone", tz)
 
   # ── Timezone helpers (storage is always UTC; UI is in the user's profile tz) ──
 
   # "Now" in the user's timezone, formatted for a datetime-local input.
-  defp local_now_str(offset) do
-    DateTime.utc_now()
-    |> DateTime.add(offset * 3600, :second)
-    |> DateTime.truncate(:second)
-    |> Calendar.strftime("%Y-%m-%dT%H:%M")
+  # The zone id the browser hook may resolve dates in: anything that is not
+  # a legacy numeric offset. An id the browser does not know falls back to
+  # the offset-now minutes there.
+  defp zone_id(tz) when is_binary(tz) do
+    if Regex.match?(~r/^[+-]?\d+(\.\d+)?$/, tz), do: "", else: tz
   end
 
-  # A local datetime-local string (in the user's tz) → the true UTC instant.
-  defp local_to_utc(value, offset) when is_binary(value) and value != "" do
-    case NaiveDateTime.from_iso8601(value <> ":00") do
-      {:ok, naive} ->
-        naive |> DateTime.from_naive!("Etc/UTC") |> DateTime.add(-offset * 3600, :second)
+  defp zone_id(_tz), do: ""
 
-      _ ->
-        nil
+  # "Now" as a datetime-local value in the viewer's zone.
+  defp local_now_str(tz), do: DateUtils.format_datetime_local(DateTime.utc_now(), tz)
+
+  # A local datetime-local string (in the user's tz) → the true UTC instant,
+  # resolved for the date typed (core's `parse_datetime_local/2`, per
+  # instant — a named zone follows daylight saving on that date). Blank
+  # means "let the schema default to now"; unreadable is `:error`.
+  defp local_to_utc(value, tz) when is_binary(value) and value != "" do
+    case DateUtils.parse_datetime_local(value, tz) do
+      {:ok, utc} -> utc
+      _ -> :error
     end
   end
 
@@ -638,7 +663,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   attr(:current_user_uuid, :string, default: nil)
   attr(:current_user_name, :string, default: nil)
   attr(:phoenix_kit_current_user, :map, default: nil)
-  attr(:tz_offset, :integer, default: 0)
+  attr(:tz, :string, default: "0")
 
   @impl true
   def render(assigns) do
@@ -672,7 +697,9 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                 value={@c_occurred_at}
                 label={gettext("When")}
                 phx-hook="CrmWhenWarnings"
-                data-profile-offset={@tz_offset}
+                data-profile-offset-minutes={offset_minutes_now(@tz)}
+                data-profile-zone={PhoenixKit.Settings.get_timezone_label(@tz)}
+                data-profile-zone-id={zone_id(@tz)}
                 data-warning-target="crm-when-warning"
                 data-setnow-target="crm-set-now"
               />
@@ -942,7 +969,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                     i.company
                   )}
                 </.link>
-                <span class="text-xs text-base-content/60">{format_local(i.occurred_at, @tz_offset)}</span>
+                <span class="text-xs text-base-content/60">{format_local(i.occurred_at, @tz)}</span>
               </div>
               <button
                 :if={owns_row?(assigns, i)}

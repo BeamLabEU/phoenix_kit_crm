@@ -38,7 +38,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   import PhoenixKitCRM.Web.Components.TabIntro, only: [tab_intro: 1]
 
   import PhoenixKitCRM.Web.InteractionHelpers,
-    only: [tz_offset: 1, current_user_uuid: 1, current_user_name: 1]
+    only: [viewer_tz: 1, current_user_uuid: 1, current_user_name: 1]
 
   import PhoenixKitCRM.Web.PartyRoleHelpers, only: [role_label: 1, role_badge_class: 1]
   alias PhoenixKitWeb.Live.Components.MediaSelectorModal
@@ -98,7 +98,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
          |> assign_new(:column_picker_available, fn -> column_picker_available?() end)
          |> assign_catalogue(catalogue_enabled, company)
          |> assign(:avatar_url, Attachments.avatar_url(company))
-         |> assign(:tz_offset, tz_offset(socket.assigns[:phoenix_kit_current_user]))
+         |> assign(:tz, viewer_tz(socket.assigns[:phoenix_kit_current_user]))
          |> assign(
            :company_roles,
            Map.get(PartyRoles.active_roles_map("company", [company.uuid]), company.uuid, [])
@@ -721,7 +721,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
           current_user_uuid={current_user_uuid(assigns)}
           current_user_name={current_user_name(assigns)}
           phoenix_kit_current_user={@phoenix_kit_current_user}
-          tz_offset={@tz_offset}
+          tz={@tz}
         />
       </div>
 
@@ -832,7 +832,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
           id={"crm-company-events-#{@company.uuid}"}
           resource_type="crm_company"
           resource_uuid={@company.uuid}
-          tz_offset={@tz_offset}
+          tz={@tz}
         />
       </div>
 

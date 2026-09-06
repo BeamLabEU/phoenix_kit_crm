@@ -7,11 +7,13 @@ defmodule PhoenixKitCRM.Web.EventsComponent do
 
   Labels/icons come from `PhoenixKitCRM.ActivityLabels`; the badge colour reuses
   core `PhoenixKit.Activity.action_badge_color/1`. Absolute timestamps render in
-  the viewer's timezone (the `tz_offset` assign, in hours).
+  the viewer's timezone (the `tz` assign — an IANA id or a legacy offset).
   """
 
   use PhoenixKitWeb, :live_component
   use Gettext, backend: PhoenixKitCRM.Gettext
+
+  import PhoenixKitCRM.Web.InteractionHelpers, only: [format_local: 2]
 
   alias PhoenixKit.Activity
   alias PhoenixKit.Utils.Routes
@@ -26,7 +28,7 @@ defmodule PhoenixKitCRM.Web.EventsComponent do
     {:ok,
      socket
      |> assign_new(:page, fn -> 1 end)
-     |> assign_new(:tz_offset, fn -> 0 end)
+     |> assign_new(:tz, fn -> "0" end)
      |> load_events()}
   end
 
@@ -95,13 +97,11 @@ defmodule PhoenixKitCRM.Web.EventsComponent do
     Routes.path("/admin/activity?#{query}")
   end
 
-  defp format_at(%DateTime{} = dt, offset) when is_integer(offset),
-    do: dt |> DateTime.add(offset * 3600, :second) |> Calendar.strftime("%Y-%m-%d %H:%M")
-
+  defp format_at(%DateTime{} = dt, tz) when is_binary(tz), do: format_local(dt, tz)
   defp format_at(_, _), do: ""
 
   # Friendly "2 hours ago"; the absolute timestamp stays on the row title.
-  defp relative_time(%DateTime{} = dt, offset) do
+  defp relative_time(%DateTime{} = dt, tz) do
     case DateTime.diff(DateTime.utc_now(), dt, :second) do
       d when d < 45 ->
         gettext("just now")
@@ -116,7 +116,7 @@ defmodule PhoenixKitCRM.Web.EventsComponent do
         ngettext("%{count} day ago", "%{count} days ago", div(d, 86_400))
 
       _ ->
-        format_at(dt, offset)
+        format_at(dt, tz)
     end
   end
 
@@ -158,8 +158,8 @@ defmodule PhoenixKitCRM.Web.EventsComponent do
                 <span class="font-medium">{label}</span>
                 <span :if={detail} class="text-base-content/60">— {detail}</span>
               </div>
-              <div class="text-xs text-base-content/50" title={format_at(e.inserted_at, @tz_offset)}>
-                <.actor_name entry={e} /> · {relative_time(e.inserted_at, @tz_offset)}
+              <div class="text-xs text-base-content/50" title={format_at(e.inserted_at, @tz)}>
+                <.actor_name entry={e} /> · {relative_time(e.inserted_at, @tz)}
               </div>
             </div>
           </li>

@@ -61,6 +61,8 @@ defmodule PhoenixKitCRM.LiveCase do
     * `:roles` — role-name strings; defaults to `["Owner"]`
     * `:permissions` — module-key strings; defaults to `["crm"]`
     * `:authenticated?` — defaults to `true`
+    * `:user_timezone` — the profile timezone value (an IANA id or a legacy
+      offset); absent by default, so the user map has no such key
   """
   def fake_scope(opts \\ []) do
     user_uuid = Keyword.get(opts, :user_uuid, Ecto.UUID.generate())
@@ -69,7 +71,14 @@ defmodule PhoenixKitCRM.LiveCase do
     permissions = Keyword.get(opts, :permissions, ["crm"])
     authenticated? = Keyword.get(opts, :authenticated?, true)
 
-    user = %{uuid: user_uuid, email: email}
+    # A bare map, deliberately — the pages must cope with a user that is not
+    # a full `%User{}`. `:user_timezone` is only present when given, so the
+    # default scope also exercises the "column missing" path.
+    user =
+      case Keyword.fetch(opts, :user_timezone) do
+        {:ok, tz} -> %{uuid: user_uuid, email: email, user_timezone: tz}
+        :error -> %{uuid: user_uuid, email: email}
+      end
 
     %PhoenixKit.Users.Auth.Scope{
       user: user,
