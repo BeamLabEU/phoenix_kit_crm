@@ -54,7 +54,10 @@ window.PhoenixKitCRMHooks = window.PhoenixKitCRMHooks || {};
   // occurrence, one that never happens (spring-forward gap) is the instant
   // the clocks jump to. Without an id the fixed offset applies.
   function wallToUtc(wall, zoneId, fixedOffsetMinutes) {
-    var asUtc = Date.parse(wall + ":00Z");
+    // datetime-local is normally minute precision, but a browser (or a
+    // non-zero step) can hand back seconds — the server's reader tolerates
+    // both, so this one must too, or the warnings just vanish.
+    var asUtc = Date.parse(wall + (/:\d\d:\d\d$/.test(wall) ? "" : ":00") + "Z");
     if (isNaN(asUtc)) return NaN;
     if (!zoneId) return asUtc - fixedOffsetMinutes * 60 * 1000;
     var day = 24 * 60 * 60 * 1000;

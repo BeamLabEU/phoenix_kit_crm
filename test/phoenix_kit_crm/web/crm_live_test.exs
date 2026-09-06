@@ -111,6 +111,34 @@ defmodule PhoenixKitCRM.Web.CRMLiveTest do
     assert has_element?(view, ~s{a[href="/en/admin/crm/contacts/#{anna.uuid}"]}, "Anna Subject")
   end
 
+  test "the recent feed renders each interaction in the viewer's zone, per its own date",
+       %{conn: conn} do
+    anna = contact_fixture("Anna Subject")
+
+    # January is UTC+2 in Tallinn and July is UTC+3: a single offset applied to
+    # both would put one of them an hour out, and the pre-2026-09 code — which
+    # read the zone as a number — rendered both in UTC.
+    for {stored, shown} <- [
+          {~U[2026-01-15 08:00:00Z], "2026-01-15 10:00"},
+          {~U[2026-07-15 08:00:00Z], "2026-07-15 11:00"}
+        ] do
+      {:ok, _} =
+        Interactions.create_interaction(%{
+          "contact_uuid" => anna.uuid,
+          "interaction_type" => "call",
+          "subject" => "Winter and summer",
+          "occurred_at" => stored
+        })
+
+      conn =
+        put_test_scope(conn, fake_scope(user_timezone: "Europe/Tallinn"))
+
+      {:ok, _view, html} = live(conn, "/en/admin/crm")
+
+      assert html =~ shown, "#{inspect(stored)} shown as #{shown} in the viewer's zone"
+    end
+  end
+
   test "with contacts but no interactions the empty state points at contacts — there is no interactions index",
        %{conn: conn} do
     contact_fixture("Lonely Contact")

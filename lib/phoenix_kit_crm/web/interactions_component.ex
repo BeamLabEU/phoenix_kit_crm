@@ -610,7 +610,6 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   # ── Timezone helpers (storage is always UTC; UI is in the user's profile tz) ──
 
-  # "Now" in the user's timezone, formatted for a datetime-local input.
   # The zone id the browser hook may resolve dates in: anything that is not
   # a legacy numeric offset. An id the browser does not know falls back to
   # the offset-now minutes there.

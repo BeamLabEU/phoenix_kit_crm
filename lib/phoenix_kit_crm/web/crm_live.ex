@@ -45,7 +45,9 @@ defmodule PhoenixKitCRM.Web.CRMLive do
        # supplier/manufacturer vocabulary; the subtitle doesn't have to.
        page_subtitle: gettext("Companies, people and the interactions between them"),
        enabled: PhoenixKitCRM.enabled?(),
-       tz: viewer_tz(socket.assigns[:phoenix_kit_current_user]),
+       # Resolved in handle_params with the rest of the reads — the site
+       # `time_zone` fallback is a settings query, and mount runs twice.
+       tz: "0",
        counts: nil,
        company_roles: nil,
        contact_roles: nil,
@@ -61,6 +63,7 @@ defmodule PhoenixKitCRM.Web.CRMLive do
     if connected?(socket) and socket.assigns.enabled do
       {:noreply,
        socket
+       |> assign(:tz, viewer_tz(socket.assigns[:phoenix_kit_current_user]))
        |> assign(:counts, load_counts())
        |> assign(:company_roles, PartyRoles.role_counts("company"))
        |> assign(:contact_roles, PartyRoles.role_counts("contact"))

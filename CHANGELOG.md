@@ -4,6 +4,50 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.11.0 - 2026-09-06
+
+### Fixed
+
+- **Interaction times are the viewer's time again** (#33). The viewer's
+  timezone was turned into an integer number of hours with `Integer.parse/1`.
+  Since core moved the setting to IANA identifiers, `Integer.parse("Europe/Tallinn")`
+  is `:error` → `0`, so on every account that had touched the timezone picker
+  the timeline rendered UTC, the composer's "When" prefill was UTC, and a
+  hand-typed local time was stored hours off. `InteractionHelpers.tz_offset/1`
+  is replaced by `viewer_tz/1`, which returns the stored value itself — an
+  IANA id or a legacy fixed offset, never a number — and every conversion now
+  goes through core's per-instant helpers (`shift_to_offset/2`,
+  `parse_datetime_local/2`, `format_datetime_local/2`), so a named zone
+  follows daylight saving on the date typed rather than on today's offset. The
+  assign is `tz` throughout: `CRMLive`, both show LiveViews,
+  `InteractionsComponent`, `EventsComponent`.
+- **Half-hour zones no longer warn on a correct machine** (#33). The composer's
+  "this device is somewhere else" check compared whole hours, so every account
+  on UTC+5:30 (Mumbai, Delhi, Kolkata, Colombo) or UTC+9:30 (Adelaide, Darwin)
+  saw the warning permanently. It compares minutes now.
+- **An unreadable "When" is a save error, not a silent "now"** (#33). A browser
+  without a real `datetime-local` widget posts free text; the schema's default
+  would have stamped the save with the current time behind the user's back.
+- **The `CrmWhenWarnings` hook resolves the field's own date** (#33). It
+  re-derives the instant from the browser's timezone database at the date in
+  the field, resolving a repeated or skipped wall clock the way the server
+  does — the first occurrence for a fall-back hour, the jump instant for a
+  spring-forward gap — instead of adding one fixed offset to everything.
+- **The CRM Overview no longer reads the site timezone twice per page load**
+  (#33 review). `CRMLive` resolved the viewer's zone in `mount/3`, which runs
+  twice, and the site fallback is an uncached settings query; it now resolves
+  in the connected branch of `handle_params/3`, like both show LiveViews.
+
+### Added
+
+- **Schema V6 — `phoenix_kit_crm_interactions.time_zone`** (#33). The zone an
+  interaction's wall clock was typed in (an IANA id or a legacy offset,
+  `varchar(64)`, nullable), stamped by the composer on save — including the
+  blank-When path that lets the schema default `occurred_at` to now. When the
+  timezone value moved to IANA ids and the composer turned out to read it as
+  `0`, the affected rows could not be repaired, because nothing recorded which
+  zone each one was entered in. Rows written before this column are `nil`.
+
 ## 0.10.0 - 2026-09-02
 
 ### Added
