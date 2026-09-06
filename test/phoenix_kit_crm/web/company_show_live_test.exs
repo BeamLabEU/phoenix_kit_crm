@@ -3,6 +3,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
 
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.{Companies, Contacts, Interactions}
+  alias PhoenixKitCRM.Web.InteractionHelpers
 
   setup %{conn: conn} do
     {:ok, conn: put_test_scope(conn, fake_scope())}
@@ -199,6 +200,8 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     assert interaction.contact_uuid == nil
     assert interaction.subject == "Front desk call"
     assert interaction.owner_user_uuid == user.uuid
+    # the prefilled "now" carries the viewer's zone too
+    assert interaction.time_zone == InteractionHelpers.viewer_tz(user)
     assert render(view) =~ "Front desk call"
   end
 

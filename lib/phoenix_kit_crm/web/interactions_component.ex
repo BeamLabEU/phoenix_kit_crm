@@ -600,8 +600,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   defp parse_limit(_), do: @default_limit
 
   # The instant AND the zone it was typed in: a row can be re-resolved on
-  # its own later, whatever the profile or the site setting becomes.
-  defp maybe_put_occurred_at(attrs, nil, _tz), do: attrs
+  # its own later, whatever the profile or the site setting becomes. A blank
+  # When leaves the instant to the schema's default ("now") — in the same
+  # zone, which is stamped either way.
+  defp maybe_put_occurred_at(attrs, nil, tz), do: Map.put(attrs, "time_zone", tz)
 
   defp maybe_put_occurred_at(attrs, %DateTime{} = dt, tz),
     do: attrs |> Map.put("occurred_at", dt) |> Map.put("time_zone", tz)
