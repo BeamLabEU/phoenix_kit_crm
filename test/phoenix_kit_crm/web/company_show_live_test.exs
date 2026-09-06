@@ -232,9 +232,9 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
 
       view |> element("button[phx-click=save_interaction]") |> render_click()
 
-      assert [%{occurred_at: ^stored}] =
+      assert [%{occurred_at: ^stored, time_zone: "Europe/Tallinn"}] =
                Enum.filter(Interactions.list_for_company(company.uuid), &(&1.subject == typed)),
-             "#{typed} stored as #{inspect(stored)}"
+             "#{typed} stored as #{inspect(stored)} in the viewer's zone"
 
       # ...and it renders back as the wall clock that was typed
       assert render(view) =~ String.replace(typed, "T", " ")

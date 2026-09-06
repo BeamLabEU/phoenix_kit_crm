@@ -30,8 +30,8 @@ defmodule PhoenixKitCRM.MigrationsTest do
   alias PhoenixKitCRM.Migrations
 
   describe "current_version/0 and version_table/0" do
-    test "current_version is 5" do
-      assert Migrations.current_version() == 5
+    test "current_version is 6" do
+      assert Migrations.current_version() == 6
     end
 
     test "version_table is the contacts table (the marker carrier)" do
@@ -105,7 +105,7 @@ defmodule PhoenixKitCRM.MigrationsTest do
       statements = Migrations.up_statements()
 
       assert List.last(statements) ==
-               "COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:5'"
+               "COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:6'"
     end
 
     test "the extension guard runs first, before any citext column is created" do
@@ -160,6 +160,22 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
   alias PhoenixKitCRM.Migrations
   alias PhoenixKitCRM.Test.SchemaMigration
 
+  describe "interactions.time_zone (V6: the zone a time was typed in)" do
+    test "the column exists, nullable, varchar(64), and V6 is idempotent on replay" do
+      %{rows: [[data_type, max_len, is_nullable]]} =
+        Repo.query!("""
+        SELECT data_type, character_maximum_length, is_nullable FROM information_schema.columns
+        WHERE table_name = 'phoenix_kit_crm_interactions' AND column_name = 'time_zone'
+        """)
+
+      assert data_type == "character varying"
+      assert max_len == 64
+      assert is_nullable == "YES"
+
+      assert Enum.any?(Migrations.up_statements(), &(&1 =~ "ADD COLUMN IF NOT EXISTS time_zone"))
+    end
+  end
+
   describe "companies.user_uuid (the new mirror link)" do
     test "the column exists, nullable, uuid" do
       %{rows: [[data_type, is_nullable]]} =
@@ -199,8 +215,8 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
   end
 
   describe "migrated_version_runtime/1" do
-    test "reads back 5 after the chain has applied" do
-      assert Migrations.migrated_version_runtime(prefix: "public") == 5
+    test "reads back 6 after the chain has applied" do
+      assert Migrations.migrated_version_runtime(prefix: "public") == 6
     end
 
     test "an unsafe prefix reads as 0, not raised — the function guards its own boundary" do
@@ -232,7 +248,7 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
       assert result in [:already_up, :ok]
 
       # And the effects are unchanged.
-      assert Migrations.migrated_version_runtime(prefix: "public") == 5
+      assert Migrations.migrated_version_runtime(prefix: "public") == 6
     end
   end
 

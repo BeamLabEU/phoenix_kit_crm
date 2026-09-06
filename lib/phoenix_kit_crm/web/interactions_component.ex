@@ -290,7 +290,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
         "body" => socket.assigns.c_body,
         "owner_user_uuid" => socket.assigns[:current_user_uuid]
       }
-      |> maybe_put_occurred_at(occurred_at)
+      |> maybe_put_occurred_at(occurred_at, socket.assigns[:tz] || "0")
 
     party_inputs =
       Enum.map(socket.assigns.staged_parties, fn p ->
@@ -599,8 +599,12 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   defp parse_limit(_), do: @default_limit
 
-  defp maybe_put_occurred_at(attrs, nil), do: attrs
-  defp maybe_put_occurred_at(attrs, %DateTime{} = dt), do: Map.put(attrs, "occurred_at", dt)
+  # The instant AND the zone it was typed in: a row can be re-resolved on
+  # its own later, whatever the profile or the site setting becomes.
+  defp maybe_put_occurred_at(attrs, nil, _tz), do: attrs
+
+  defp maybe_put_occurred_at(attrs, %DateTime{} = dt, tz),
+    do: attrs |> Map.put("occurred_at", dt) |> Map.put("time_zone", tz)
 
   # ── Timezone helpers (storage is always UTC; UI is in the user's profile tz) ──
 

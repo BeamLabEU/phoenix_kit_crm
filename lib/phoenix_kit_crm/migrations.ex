@@ -64,7 +64,7 @@ defmodule PhoenixKitCRM.Migrations do
 
   use Ecto.Migration
 
-  @current_version 5
+  @current_version 6
   @marker_prefix "crm_schema:"
   @version_table "phoenix_kit_crm_contacts"
 
@@ -150,6 +150,7 @@ defmodule PhoenixKitCRM.Migrations do
       v3_statements(p),
       v4_statements(prefix, p),
       v5_statements(prefix, p),
+      v6_statements(p),
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{@current_version}'"
     ])
   end
@@ -503,6 +504,20 @@ defmodule PhoenixKitCRM.Migrations do
         ON #{p}phoenix_kit_crm_interactions (company_uuid, occurred_at DESC, inserted_at DESC)
         WHERE company_uuid IS NOT NULL
       """
+    ]
+  end
+
+  # ── V6: the zone an interaction time was typed in ─────────────────────
+  #
+  # `occurred_at` is a UTC instant; the wall clock the person typed lived
+  # only in their profile's timezone AT THAT MOMENT. When that value moved to
+  # IANA ids and the composer turned out to have read it as 0, the rows could
+  # not be repaired — nothing said which zone each one was entered in. The
+  # column carries it from now on (an IANA id or a legacy offset, the value as
+  # core keeps it); nullable, because rows written before it hold no answer.
+  defp v6_statements(p) do
+    [
+      "ALTER TABLE #{p}phoenix_kit_crm_interactions ADD COLUMN IF NOT EXISTS time_zone character varying(64)"
     ]
   end
 
