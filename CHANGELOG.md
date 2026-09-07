@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.12.0 - 2026-09-07
+
+### Added
+
+- Tabs on the CRM settings page — General / Role Access — matching the
+  tabbed treatment core applies to its own Settings pages.
+
+### Fixed
+
+- CRM settings page's breadcrumb was missing entirely (no `page_section`
+  assign), so it showed bare "CRM settings" instead of "Settings / CRM".
+  Page title also shortened from "CRM settings" to "CRM" to match the
+  sidebar.
+
 ## 0.11.0 - 2026-09-06
 
 ### Fixed

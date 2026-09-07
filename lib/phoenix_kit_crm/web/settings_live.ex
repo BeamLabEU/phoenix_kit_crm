@@ -5,6 +5,7 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitCRM.Gettext
 
+  alias PhoenixKit.Utils.Routes
   alias PhoenixKitCRM.Paths
   alias PhoenixKitCRM.RoleSettings
 
@@ -15,12 +16,20 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
 
     {:ok,
      assign(socket,
-       page_title: gettext("CRM settings"),
+       page_title: gettext("CRM"),
+       page_section: gettext("Settings"),
+       page_section_path: Routes.path("/admin/settings"),
+       active_tab: "general",
        enabled: PhoenixKitCRM.enabled?(),
        eligible_roles: eligible_roles,
        enabled_role_uuids: enabled_role_uuids,
        role_user_counts: role_user_counts()
      )}
+  end
+
+  @impl true
+  def handle_event("switch_settings_tab", %{"tab" => tab}, socket) do
+    {:noreply, assign(socket, :active_tab, tab)}
   end
 
   @impl true
@@ -69,6 +78,17 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
   def render(assigns) do
     ~H"""
     <div class="flex flex-col px-4 py-6 gap-6">
+      <.nav_tabs
+        active_tab={@active_tab}
+        on_change="switch_settings_tab"
+        variant={:border}
+        tabs={[
+          %{id: "general", label: gettext("General"), icon: "hero-cog-6-tooth"},
+          %{id: "roles", label: gettext("Role Access"), icon: "hero-user-group"}
+        ]}
+      />
+
+      <div class={@active_tab != "general" && "hidden"}>
       <div class="card bg-base-100 shadow-xl">
         <div class="card-body">
           <h2 class="card-title text-2xl">
@@ -91,7 +111,9 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
           </.checkbox>
         </div>
       </div>
+      </div>
 
+      <div class={@active_tab != "roles" && "hidden"}>
       <div class="card bg-base-100 shadow-xl">
         <div class="card-body">
           <h2 class="card-title text-xl">
@@ -141,6 +163,7 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
             </div>
           </div>
         </div>
+      </div>
       </div>
 
     </div>
