@@ -178,10 +178,6 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
 
 ### Landmines
 
-- **`PGUSER=maxdon` on a brew `postgresql@17` Mac.** `config/test.exs` defaults
-  the role to `postgres`, which does not exist there; the schema-owner-guard
-  tests then fail as **pool timeouts that look like flakiness**, not as a
-  connection error.
 - **Cross-module PubSub server mismatch.** Sibling modules broadcast on the
   HOST app's PubSub via `PhoenixKit.PubSubHelper`; `PubSub.subscribe/1`
   subscribes on core's *internal* manager and hears none of it. Use
