@@ -21,31 +21,36 @@ db_name = db_config[:database] || "phoenix_kit_crm_test"
 # wrapper.
 LiveDatabaseGuard.check!(db_name)
 
+# The preflight ships in core, and this module's core floor (`~> 2.0`)
+# predates it — so it is used when the running core has it, and otherwise
+# this falls through to exactly the previous behaviour.
 db_check =
-  try do
-    case System.cmd("psql", ["-lqt"], stderr_to_stdout: true) do
-      {output, 0} ->
-        exists =
-          output
-          |> String.split("\n")
-          |> Enum.any?(fn line ->
-            line |> String.split("|") |> List.first("") |> String.trim() == db_name
-          end)
+  if Code.ensure_loaded?(PhoenixKit.TestSupport.PostgresPreflight) do
+    # One classified connection attempt, with the repo's OWN credentials and
+    # transport, before anything starts the pool.
+    #
+    # This replaces a `psql -lqt` listing. That check asked the wrong question:
+    # it ran as the shell's user over a unix socket, so it reported "the
+    # database is there" and said nothing about whether the CONFIGURED role
+    # could reach it over TCP. When it could not, the answer arrived minutes
+    # later as a pool checkout timeout that reads like a flaky test.
+    case PhoenixKit.TestSupport.PostgresPreflight.check(db_config) do
+      :ok ->
+        :exists
 
-        if exists, do: :exists, else: :not_found
-
-      _ ->
-        :try_connect
+      {:error, _reason, message} ->
+        IO.puts(:stderr, "\n" <> message)
+        :not_found
     end
-  rescue
-    ErlangError -> :try_connect
+  else
+    :try_connect
   end
 
 repo_available =
   if db_check == :not_found do
     IO.puts("""
-    \n  Test database "#{db_name}" not found — integration tests excluded.
-       Run: createdb #{db_name}
+    \n  Cannot reach test database "#{db_name}" — integration tests excluded.
+       The reason is printed above.
     """)
 
     false
