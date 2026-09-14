@@ -18,6 +18,19 @@ defmodule PhoenixKitCRM.Attachments do
   resolves folders, lists their files, (un)links picked files, and removes them
   — soft-trash a sole-owner file, unlink a shared one. It never hard-deletes a
   possibly-shared asset.
+
+  ## Parent folder
+
+  By default resource folders are created at the storage root. A host can
+  group them under per-type containers:
+
+      config :phoenix_kit_crm, :attachments_parent_folder, {MyApp.Media, :for_crm}
+
+  called as `for_crm(:company | :contact | :interaction, actor_uuid, subject)`
+  (or `for_crm/2` when the host doesn't need the third arg), returning
+  `{:ok, parent_folder_uuid}` or `nil` (root). Lookups by name check the
+  parent first and the root second, so folders that predate the setting are
+  still found — no adoption, no twin ever created.
   """
 
   require Logger
@@ -51,13 +64,18 @@ defmodule PhoenixKitCRM.Attachments do
   `Images` subfolder) **without creating** it. Returns the uuid or `nil` (used
   on render so viewing a tab doesn't spawn empty folders).
   """
-  @spec folder_uuid(resource(), binary(), :files | :images) :: binary() | nil
-  def folder_uuid(resource, uuid, :files),
-    do: uuid_of(get_folder(root_folder_name(resource, uuid), nil))
+  @spec folder_uuid(resource(), binary(), :files | :images, binary() | nil) :: binary() | nil
+  def folder_uuid(resource, uuid, kind, actor_uuid \\ nil)
 
-  def folder_uuid(resource, uuid, :images) do
-    case get_folder(root_folder_name(resource, uuid), nil) do
-      %Folder{uuid: root} -> uuid_of(get_folder(@images_folder_name, root))
+  def folder_uuid(resource, uuid, :files, actor_uuid),
+    do:
+      uuid_of(
+        get_folder(root_folder_name(resource, uuid), parent_folder_uuid(resource, actor_uuid))
+      )
+
+  def folder_uuid(resource, uuid, :images, actor_uuid) do
+    case get_folder(root_folder_name(resource, uuid), parent_folder_uuid(resource, actor_uuid)) do
+      %Folder{uuid: root} -> uuid_of(get_folder_under(@images_folder_name, root))
       _ -> nil
     end
   end
@@ -71,12 +89,56 @@ defmodule PhoenixKitCRM.Attachments do
   @spec ensure_folder(resource(), binary(), :files | :images, binary() | nil) ::
           {:ok, binary()} | {:error, term()}
   def ensure_folder(resource, uuid, :files, actor_uuid) do
-    find_or_create(root_folder_name(resource, uuid), nil, actor_uuid)
+    find_or_create(
+      root_folder_name(resource, uuid),
+      parent_folder_uuid(resource, actor_uuid),
+      actor_uuid
+    )
   end
 
   def ensure_folder(resource, uuid, :images, actor_uuid) do
-    with {:ok, root} <- find_or_create(root_folder_name(resource, uuid), nil, actor_uuid) do
+    with {:ok, root} <- ensure_folder(resource, uuid, :files, actor_uuid) do
       find_or_create(@images_folder_name, root, actor_uuid)
+    end
+  end
+
+  @doc false
+  # Host-configured parent folder for a resource kind; `nil` = storage root
+  # (the default), see moduledoc "Parent folder". Calls the configured
+  # `{mod, fun}` as `fun(kind, actor_uuid, subject)` when it accepts 3 args,
+  # else `fun(kind, actor_uuid)`.
+  @spec parent_folder_uuid(atom(), binary() | nil, term()) :: binary() | nil
+  def parent_folder_uuid(kind, actor_uuid, subject \\ nil) do
+    case Application.get_env(:phoenix_kit_crm, :attachments_parent_folder) do
+      {mod, fun} when is_atom(mod) and is_atom(fun) ->
+        call_parent_hook(mod, fun, kind, actor_uuid, subject)
+
+      _ ->
+        nil
+    end
+  rescue
+    error ->
+      Logger.warning("[CRM] parent folder hook failed for #{inspect(kind)}: #{inspect(error)}")
+      nil
+  end
+
+  defp call_parent_hook(mod, fun, kind, actor_uuid, subject) do
+    case invoke_parent_hook(mod, fun, kind, actor_uuid, subject) do
+      {:ok, uuid} when is_binary(uuid) -> uuid
+      _ -> nil
+    end
+  end
+
+  defp invoke_parent_hook(mod, fun, kind, actor_uuid, subject) do
+    cond do
+      Code.ensure_loaded?(mod) and function_exported?(mod, fun, 3) ->
+        apply(mod, fun, [kind, actor_uuid, subject])
+
+      Code.ensure_loaded?(mod) and function_exported?(mod, fun, 2) ->
+        apply(mod, fun, [kind, actor_uuid])
+
+      true ->
+        nil
     end
   end
 
@@ -106,7 +168,14 @@ defmodule PhoenixKitCRM.Attachments do
     end
   end
 
-  defp get_folder(name, nil) do
+  # name under `parent_uuid` first, then at root (folders that predate the
+  # hook) — never adopts, never twins.
+  defp get_folder(name, nil), do: get_folder_under(name, nil)
+
+  defp get_folder(name, parent_uuid),
+    do: get_folder_under(name, parent_uuid) || get_folder_under(name, nil)
+
+  defp get_folder_under(name, nil) do
     from(f in Folder, where: f.name == ^name and is_nil(f.parent_uuid), limit: 1) |> repo().one()
   rescue
     error ->
@@ -114,7 +183,7 @@ defmodule PhoenixKitCRM.Attachments do
       nil
   end
 
-  defp get_folder(name, parent_uuid) do
+  defp get_folder_under(name, parent_uuid) do
     from(f in Folder, where: f.name == ^name and f.parent_uuid == ^parent_uuid, limit: 1)
     |> repo().one()
   rescue
@@ -276,10 +345,11 @@ defmodule PhoenixKitCRM.Attachments do
   (soft-trash keeps the files).
   """
   @spec purge_media(resource(), binary()) :: :ok
-  def purge_media(resource, uuid), do: purge_folder(root_folder_name(resource, uuid))
+  def purge_media(resource, uuid),
+    do: purge_folder(root_folder_name(resource, uuid), parent_folder_uuid(resource, nil))
 
-  defp purge_folder(name) do
-    case get_folder(name, nil) do
+  defp purge_folder(name, parent_uuid) do
+    case get_folder(name, parent_uuid) do
       %Folder{} = folder ->
         Storage.delete_folder_completely(folder)
         :ok
@@ -306,13 +376,24 @@ defmodule PhoenixKitCRM.Attachments do
   @doc "Resolve an interaction's attachment folder uuid (no create), or nil."
   @spec interaction_folder_uuid(binary()) :: binary() | nil
   def interaction_folder_uuid(interaction_uuid),
-    do: uuid_of(get_folder(interaction_folder_name(interaction_uuid), nil))
+    do:
+      uuid_of(
+        get_folder(
+          interaction_folder_name(interaction_uuid),
+          parent_folder_uuid(:interaction, nil)
+        )
+      )
 
   @doc "Find-or-create an interaction's attachment folder."
   @spec ensure_interaction_folder(binary(), binary() | nil) ::
           {:ok, binary()} | {:error, term()}
   def ensure_interaction_folder(interaction_uuid, actor_uuid),
-    do: find_or_create(interaction_folder_name(interaction_uuid), nil, actor_uuid)
+    do:
+      find_or_create(
+        interaction_folder_name(interaction_uuid),
+        parent_folder_uuid(:interaction, actor_uuid),
+        actor_uuid
+      )
 
   @doc "Files attached to an interaction (newest first, excluding trashed)."
   @spec list_interaction_files(binary()) :: [File.t()]
@@ -331,14 +412,28 @@ defmodule PhoenixKitCRM.Attachments do
   def list_files_by_interaction(interaction_uuids) do
     name_to_iuuid = Map.new(interaction_uuids, &{interaction_folder_name(&1), &1})
     names = Map.keys(name_to_iuuid)
+    parent = parent_folder_uuid(:interaction, nil)
 
-    fuuid_to_iuuid =
+    folder_query =
       from(f in Folder,
-        where: f.name in ^names and is_nil(f.parent_uuid),
-        select: {f.uuid, f.name}
+        where: f.name in ^names and is_nil(f.trashed_at),
+        select: {f.uuid, f.name, f.parent_uuid}
       )
+
+    folder_query =
+      if parent,
+        do: where(folder_query, [f], f.parent_uuid == ^parent or is_nil(f.parent_uuid)),
+        else: where(folder_query, [f], is_nil(f.parent_uuid))
+
+    # One folder per interaction: a folder under the parent beats a root twin.
+    fuuid_to_iuuid =
+      folder_query
       |> repo().all()
-      |> Map.new(fn {fuuid, name} -> {fuuid, Map.get(name_to_iuuid, name)} end)
+      |> Enum.group_by(fn {_fuuid, name, _parent_uuid} -> name end)
+      |> Map.new(fn {name, rows} ->
+        {fuuid, _, _} = Enum.find(rows, hd(rows), fn {_, _, p} -> p == parent end)
+        {fuuid, Map.get(name_to_iuuid, name)}
+      end)
 
     case Map.keys(fuuid_to_iuuid) do
       [] -> %{}
@@ -389,7 +484,11 @@ defmodule PhoenixKitCRM.Attachments do
   @doc "Purge an interaction's attachment folder subtree (best-effort)."
   @spec purge_interaction_media(binary()) :: :ok
   def purge_interaction_media(interaction_uuid),
-    do: purge_folder(interaction_folder_name(interaction_uuid))
+    do:
+      purge_folder(
+        interaction_folder_name(interaction_uuid),
+        parent_folder_uuid(:interaction, nil)
+      )
 
   @doc "Fetch a `File` struct by uuid (nil-safe), for the composer's staged list."
   @spec get_file(binary()) :: File.t() | nil
