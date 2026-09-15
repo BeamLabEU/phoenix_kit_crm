@@ -419,9 +419,8 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   end
 
   # A `:move` whose folder already sits at `parent_uuid` under `name` is a
-  # no-op — filtered here since this Source has no core `Action.noop?/1` to
-  # lean on, and (unlike catalogue) there is never an `after_move` to keep
-  # the action alive for.
+  # no-op — filtered here before it ever reaches the core engine; unlike
+  # catalogue, there is never an `after_move` to keep the action alive for.
   defp build_move_action(entry) do
     %{record: record, kind: kind, folder: folder, parent_uuid: parent_uuid, legacy_name: name} =
       entry
@@ -477,7 +476,11 @@ defmodule PhoenixKitCRM.MediaReorganizer do
 
   defp record_label(%Contact{} = c), do: c.name
   defp record_label(%Company{} = c), do: c.name
-  defp record_label(%Interaction{} = i), do: i.subject || i.uuid
+
+  defp record_label(%Interaction{subject: subject, uuid: uuid}) when subject in [nil, ""],
+    do: uuid
+
+  defp record_label(%Interaction{} = i), do: i.subject
 
   defp hook_error_action(0), do: []
 

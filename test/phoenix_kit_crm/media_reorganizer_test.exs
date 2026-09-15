@@ -240,6 +240,24 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
     assert interaction_action.on_conflict == :report
   end
 
+  test "an interaction with an empty subject is labeled by its uuid" do
+    contact = contact_fixture()
+    interaction = interaction_fixture(contact, %{"subject" => ""})
+
+    {:ok, target} = Storage.create_folder(%{name: "Media"})
+    {:ok, _} = Storage.create_folder(%{name: "crm-interaction-#{interaction.uuid}"})
+
+    Process.put(:target_folder, target.uuid)
+    hook_on()
+
+    actions = MediaReorganizer.plan(nil, [])
+
+    interaction_action = Enum.find(actions, &(&1.kind == :interaction and &1.op == :move))
+
+    refute is_nil(interaction_action)
+    assert interaction_action.label == interaction.uuid
+  end
+
   describe "orphan folders" do
     test "legacy folder with no matching contact record → orphan report with counts" do
       {:ok, folder} = Storage.create_folder(%{name: "crm-contact-#{Ecto.UUID.generate()}"})
