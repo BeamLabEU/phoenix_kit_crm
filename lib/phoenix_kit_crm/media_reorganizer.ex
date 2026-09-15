@@ -42,7 +42,12 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   A configured `{mod, fun}` that is not actually callable (a typo, a removed
   function) is a distinct failure (T3): it is never treated as "no hook
   configured" — the hook is not called for any candidate, and the plan
-  reports one `kind: :hook_error` naming the uncallable `{mod, fun}`.
+  reports one `kind: :hook_error` naming the uncallable `{mod, fun}`. Every
+  `{:ok, uuid}` answer is cast through `Ecto.UUID.cast/1` before it is used
+  anywhere (T1): a syntactically invalid uuid is a hook FAILURE too, never a
+  `CastError` further down the plan, and the cast also normalizes case, so
+  an upper-case answer still matches the (lower-case) `parent_uuid` stored
+  on `Folder`.
 
   ## Current-folder resolution
 
@@ -62,6 +67,18 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   it lives, gets its own `kind: :relocated` report (F5: all of them, not
   only the first). Two different records can never converge on the very
   same folder here, since each record's legacy name embeds its own uuid.
+
+  An explicit `nil` hook answer (root) never pulls a folder that is already
+  live under a real parent out to root (F1). CRM has no pointer to identify
+  the current folder independent of the hook's answer, so this case is
+  resolved on its own: when the legacy name is live at exactly one
+  location — root or otherwise — that copy unambiguously IS the current
+  folder (again, the legacy name embeds the record's own uuid). Its parent
+  is left exactly as it is and the record is counted into one aggregated
+  `kind: :hook_nil` report instead of a `:relocated` one. The legacy name
+  being live in more than one place at once, with no hook answer to
+  disambiguate which is current, is unresolvable the same way R7 is — one
+  `kind: :duplicate` report naming every live copy.
 
   `on_conflict: :report` (D3, not `:suffix`) — CRM writes no pointer, so a
   folder the engine renamed to dodge a collision ("Name (2)") would become
@@ -108,9 +125,10 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   :duplicate`) for folders that cannot be unambiguously resolved, `:report`
   (`kind: :relocated`) for a legacy folder the owner moved elsewhere,
   `:report` (`kind: :hook_error`) when the configured hook fails for one or
-  more records, and `:report` (`kind: :orphan`) per legacy folder whose
-  record is missing, trashed, or (interactions) anchored to a trashed
-  contact/company.
+  more records, `:report` (`kind: :hook_nil`) when an explicit-root hook
+  answer is suppressed for one or more records already living under a real
+  parent, and `:report` (`kind: :orphan`) per legacy folder whose record is
+  missing, trashed, or (interactions) anchored to a trashed contact/company.
 
   `opts` is accepted for parity with the `Source.plan/2` contract but unused
   — CRM has no pending-folder concept (see moduledoc).
@@ -200,6 +218,8 @@ defmodule PhoenixKitCRM.MediaReorganizer do
     resolved_parents =
       resolved |> Enum.map(& &1.parent_uuid) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
+    hook_nil_count = Enum.count(resolved, & &1.hook_nil)
+
     {duplicate, normal} = Enum.split_with(resolved, & &1.duplicate)
 
     move_actions =
@@ -211,8 +231,11 @@ defmodule PhoenixKitCRM.MediaReorganizer do
     duplicate_actions = Enum.map(duplicate, &build_duplicate_action/1)
     relocated_actions = Enum.flat_map(normal, &relocated_actions_for/1)
     hook_error_actions = hook_error_action(hook_error_count)
+    hook_nil_actions = hook_nil_action(hook_nil_count)
 
-    all_actions = move_actions ++ duplicate_actions ++ relocated_actions ++ hook_error_actions
+    all_actions =
+      move_actions ++
+        duplicate_actions ++ relocated_actions ++ hook_error_actions ++ hook_nil_actions
 
     {finalize_counts(all_actions), resolved_parents}
   end
@@ -253,12 +276,28 @@ defmodule PhoenixKitCRM.MediaReorganizer do
     end
   end
 
+  # T1: every answer is cast through `Ecto.UUID.cast/1` before it goes
+  # anywhere else — `{:ok, ""}` / `{:ok, "not-a-uuid"}` are hook FAILURES
+  # (`:error`), never forwarded into a later `in ^parent_uuids` query (which
+  # would raise a CastError and take down the whole plan). `Ecto.UUID.cast/1`
+  # also normalizes case, so an upper-case answer still string-equals the
+  # (lower-case) `parent_uuid` stored on `Folder`.
   defp safe_call(fun) do
     case fun.() do
-      {:ok, uuid} when is_binary(uuid) -> {:ok, uuid}
-      {:ok, nil} -> {:ok, nil}
-      nil -> {:ok, nil}
-      _other -> :error
+      {:ok, uuid} when is_binary(uuid) ->
+        case valid_uuid(uuid) do
+          nil -> :error
+          cast -> {:ok, cast}
+        end
+
+      {:ok, nil} ->
+        {:ok, nil}
+
+      nil ->
+        {:ok, nil}
+
+      _other ->
+        :error
     end
   rescue
     error ->
@@ -274,23 +313,43 @@ defmodule PhoenixKitCRM.MediaReorganizer do
       :error
   end
 
+  # Returns the CAST/downcased value — not the raw string — so an
+  # upper-case hook answer still matches the (lower-case) `parent_uuid`
+  # stored on `Folder`. Not a well-formed UUID → `nil`, never sent into an
+  # `in ^parent_uuids` query (which would raise a CastError).
+  defp valid_uuid(uuid) when is_binary(uuid) do
+    case Ecto.UUID.cast(uuid) do
+      {:ok, cast} -> cast
+      :error -> nil
+    end
+  end
+
   # Resolves one record's current folder among every live copy of its
-  # legacy name: root or the resolved parent ONLY are acceptable current
-  # folders (the module's own lookup order — never "anywhere", X9). The
-  # legacy name being live at BOTH root and the resolved parent at once is
-  # unresolvable — reported as one `:duplicate` naming every live copy
-  # (R7/P9). Otherwise, a live copy at exactly one of those two valid spots
-  # is the current folder (F1: never a nil hook answer pulling a nested
-  # folder to root — a folder that isn't already at root fails this check
-  # since only a root match satisfies `at_root`) — every OTHER live copy of
-  # the same legacy name, current folder included or not, gets its own
-  # `:relocated` report (F5: all of them, not only the first).
+  # legacy name. A non-nil hook answer keeps the module's own lookup order
+  # (root or the resolved parent ONLY, never "anywhere", X9) — see
+  # `resolve_entry_with_parent/3`. An explicit `nil` answer (root) is
+  # handled separately (F1) — see `resolve_entry_nil_hook/2` — since CRM has
+  # no pointer to identify the current folder independent of the hook's
+  # answer (unlike catalogue).
+  defp resolve_entry(d, nil, by_name) do
+    resolve_entry_nil_hook(d, Map.get(by_name, d.legacy_name, []))
+  end
+
   defp resolve_entry(d, parent_uuid, by_name) do
-    matches = Map.get(by_name, d.legacy_name, [])
-    under_parent = parent_uuid && Enum.find(matches, &(&1.parent_uuid == parent_uuid))
+    resolve_entry_with_parent(d, parent_uuid, Map.get(by_name, d.legacy_name, []))
+  end
+
+  # The legacy name being live at BOTH root and the resolved parent at once
+  # is unresolvable — reported as one `:duplicate` naming every live copy
+  # (R7/P9). Otherwise, a live copy at exactly one of those two valid spots
+  # is the current folder — every OTHER live copy of the same legacy name,
+  # current folder included or not, gets its own `:relocated` report (F5:
+  # all of them, not only the first).
+  defp resolve_entry_with_parent(d, parent_uuid, matches) do
+    under_parent = Enum.find(matches, &(&1.parent_uuid == parent_uuid))
     at_root = Enum.find(matches, &is_nil(&1.parent_uuid))
 
-    base = %{record: d.record, kind: d.kind, legacy_name: d.legacy_name, parent_uuid: parent_uuid}
+    base = base_entry(d, parent_uuid)
 
     cond do
       under_parent && at_root && under_parent.uuid != at_root.uuid ->
@@ -309,6 +368,48 @@ defmodule PhoenixKitCRM.MediaReorganizer do
       true ->
         Map.merge(base, %{folder: nil, matches: matches, duplicate: false, relocated: matches})
     end
+  end
+
+  # F1: an explicit `nil` hook answer never pulls a folder that is already
+  # live under a real parent out to root. CRM has no pointer to identify the
+  # current folder independent of the hook's answer (unlike catalogue), so
+  # when the legacy name is live at exactly one location — root or
+  # otherwise — that copy unambiguously IS the current folder: each
+  # record's legacy name embeds its own uuid, so no other record could be
+  # confused with it. Its `parent_uuid` is pinned to wherever it already
+  # lives (never moved to root) and, if that is not root, the record is
+  # counted into one aggregated `kind: :hook_nil` report (never the
+  # per-record `:relocated` path) instead. The legacy name being live in
+  # more than one place at once, with no hook answer to disambiguate which
+  # is "current", is unresolvable the same way R7 is — one `:duplicate`
+  # report naming every live copy.
+  defp resolve_entry_nil_hook(d, [only_match]) do
+    Map.merge(base_entry(d, only_match.parent_uuid), %{
+      folder: only_match,
+      matches: nil,
+      duplicate: false,
+      relocated: [],
+      hook_nil: not is_nil(only_match.parent_uuid)
+    })
+  end
+
+  defp resolve_entry_nil_hook(d, matches) do
+    Map.merge(base_entry(d, nil), %{
+      folder: nil,
+      matches: matches,
+      duplicate: true,
+      relocated: []
+    })
+  end
+
+  defp base_entry(d, parent_uuid) do
+    %{
+      record: d.record,
+      kind: d.kind,
+      legacy_name: d.legacy_name,
+      parent_uuid: parent_uuid,
+      hook_nil: false
+    }
   end
 
   defp relocated_actions_for(entry) do
@@ -391,6 +492,25 @@ defmodule PhoenixKitCRM.MediaReorganizer do
         reason:
           "#{count} record(s) skipped: the configured parent hook raised, exited, or " <>
             "returned neither {:ok, uuid} nor nil"
+      }
+    ]
+  end
+
+  # F1: a plain aggregated count, not one report per record — mirrors
+  # `hook_error_action/1`.
+  defp hook_nil_action(0), do: []
+
+  defp hook_nil_action(count) do
+    [
+      %{
+        source: @source,
+        kind: :hook_nil,
+        op: :report,
+        label: "attachments parent hook",
+        counts: nil,
+        reason:
+          "#{count} record(s): the parent hook answered root for a folder living under a " <>
+            "parent — left in place (the parent hook may resolve differently for another user)"
       }
     ]
   end

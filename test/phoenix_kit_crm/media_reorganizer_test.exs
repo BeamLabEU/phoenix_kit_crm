@@ -422,6 +422,124 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
     end
   end
 
+  describe "hook answer garbage never crashes the plan (T1)" do
+    test "hook returns {:ok, \"not-a-uuid\"} → hook_error report, never a CastError" do
+      contact = contact_fixture(%{"name" => "Garbage Answer"})
+      {:ok, _folder} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
+
+      Process.put(:target_folder, "not-a-uuid")
+      hook_on()
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.op == :move and &1.label == contact.name))
+      refute Enum.any?(actions, &(&1.kind == :relocated and &1.label == contact.name))
+
+      action = Enum.find(actions, &(&1.kind == :hook_error))
+      refute is_nil(action)
+      assert action.op == :report
+    end
+
+    test "hook returns {:ok, \"\"} → hook_error report, never a CastError" do
+      contact = contact_fixture(%{"name" => "Empty Answer"})
+      {:ok, _folder} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
+
+      Process.put(:target_folder, "")
+      hook_on()
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.op == :move and &1.label == contact.name))
+      assert Enum.any?(actions, &(&1.kind == :hook_error))
+    end
+  end
+
+  describe "hook answer case is normalized before any comparison (T1)" do
+    test "an uppercase parent uuid still resolves the folder already living there → no-op, never relocated" do
+      contact = contact_fixture(%{"name" => "Cased"})
+      {:ok, target} = Storage.create_folder(%{name: "Contacts"})
+
+      {:ok, _folder} =
+        Storage.create_folder(%{name: "crm-contact-#{contact.uuid}", parent_uuid: target.uuid})
+
+      Process.put(:target_folder, String.upcase(target.uuid))
+      hook_on()
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.op == :move and &1.label == contact.name))
+      refute Enum.any?(actions, &(&1.kind == :relocated and &1.label == contact.name))
+      refute Enum.any?(actions, &(&1.kind == :duplicate and &1.label == contact.name))
+    end
+  end
+
+  describe "a nil hook answer never moves a folder that is not at root (F1)" do
+    test "sole live folder already sits under a real parent → in-place no-op, aggregated hook_nil report" do
+      contact = contact_fixture(%{"name" => "Already Placed"})
+      {:ok, elsewhere} = Storage.create_folder(%{name: "Somewhere Else"})
+
+      {:ok, folder} =
+        Storage.create_folder(%{
+          name: "crm-contact-#{contact.uuid}",
+          parent_uuid: elsewhere.uuid
+        })
+
+      # `:target_folder` is left unset, so `Hook.parent/3` answers `{:ok, nil}`.
+      hook_on()
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.op == :move and &1.label == contact.name))
+      refute Enum.any?(actions, &(&1.kind == :relocated and &1.label == contact.name))
+      refute Enum.any?(actions, &(&1.kind == :duplicate and &1.label == contact.name))
+
+      hook_nil = Enum.find(actions, &(&1.kind == :hook_nil))
+      refute is_nil(hook_nil)
+      assert hook_nil.op == :report
+      assert hook_nil.reason =~ "1 record"
+
+      reloaded = Storage.get_folder(folder.uuid)
+      assert reloaded.parent_uuid == elsewhere.uuid
+    end
+
+    test "aggregates a count across every affected record" do
+      contact1 = contact_fixture(%{"name" => "First"})
+      contact2 = contact_fixture(%{"name" => "Second"})
+      {:ok, elsewhere} = Storage.create_folder(%{name: "Somewhere Else"})
+
+      {:ok, _folder1} =
+        Storage.create_folder(%{
+          name: "crm-contact-#{contact1.uuid}",
+          parent_uuid: elsewhere.uuid
+        })
+
+      {:ok, _folder2} =
+        Storage.create_folder(%{
+          name: "crm-contact-#{contact2.uuid}",
+          parent_uuid: elsewhere.uuid
+        })
+
+      hook_on()
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      hook_nil = Enum.find(actions, &(&1.kind == :hook_nil))
+      refute is_nil(hook_nil)
+      assert hook_nil.reason =~ "2 record"
+    end
+
+    test "sole live folder already at root → no hook_nil report at all" do
+      contact = contact_fixture(%{"name" => "At Root"})
+      {:ok, _folder} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
+
+      hook_on()
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.kind == :hook_nil))
+    end
+  end
+
   describe "ambiguous duplicates at root and under the resolved parent (X11)" do
     test "live in both places → one duplicate report, no move" do
       contact = contact_fixture(%{"name" => "Twinned"})
