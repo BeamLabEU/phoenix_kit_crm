@@ -35,6 +35,17 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
   defp hook_on(module),
     do: Application.put_env(:phoenix_kit_crm, :attachments_parent_folder, {module, :parent})
 
+  # T3: a configured `{mod, fun}` that does not exist at all (typo, removed
+  # module) — distinct from InvalidHook/RaisingHook, which ARE callable and
+  # fail at call time.
+  defp hook_on_not_callable,
+    do:
+      Application.put_env(
+        :phoenix_kit_crm,
+        :attachments_parent_folder,
+        {PhoenixKitCRM.MediaReorganizerTest.NoSuchHook, :parent}
+      )
+
   defp contact_fixture(attrs \\ %{}) do
     {:ok, c} = Contacts.create_contact(Map.merge(%{"name" => "Ada Lovelace"}, attrs))
     c
@@ -335,17 +346,26 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
 
     # R8: the reorganizer never calls the hook without a subject (Andi's
     # `Containers.ensure`/`Settings.update_setting` would otherwise write on
-    # every dry-run plan even with zero candidates for a kind).
-    test "the hook is never called without a subject, even with zero candidates" do
+    # every dry-run plan even with zero candidates for a kind). A single
+    # contact candidate exists here so the plan does real work — companies
+    # and interactions have zero live records, which is exactly the case a
+    # per-kind subject-less resolution call used to fire for.
+    test "the hook is never called without a subject, even when other kinds have zero candidates" do
+      contact = contact_fixture(%{"name" => "Has Folder"})
+      {:ok, target} = Storage.create_folder(%{name: "Contacts"})
+      {:ok, _folder} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
+
+      Process.put(:target_folder, target.uuid)
       Process.put(:hook_calls, [])
       hook_on()
 
       MediaReorganizer.plan(nil, [])
 
-      subject_less_calls =
-        Process.get(:hook_calls) |> Enum.filter(fn {_kind, subject} -> is_nil(subject) end)
+      calls = Process.get(:hook_calls)
+      subject_less_calls = Enum.filter(calls, fn {_kind, subject} -> is_nil(subject) end)
 
       assert subject_less_calls == []
+      assert {:contact, contact.uuid} in calls
     end
   end
 
@@ -427,11 +447,15 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
       assert action.reason =~ at_root.uuid
       assert action.reason =~ under_parent.uuid
     end
+  end
 
-    # R7/P9: a third live copy of the legacy name sitting somewhere other
-    # than root/the resolved parent must not be silently dropped from the
-    # report just because root+parent alone would have resolved cleanly.
-    test "live at root AND somewhere else → duplicate report names both, no move" do
+  describe "extra copies beyond the current folder (F5)" do
+    # A copy at root (a valid location, since the resolved parent isn't
+    # occupied) resolves unambiguously as the current folder and gets
+    # moved; a third copy sitting somewhere else entirely is not folded
+    # into a single duplicate report — it gets its own `:relocated` report
+    # instead, and must never be silently dropped.
+    test "live at root AND somewhere else → root copy moves, the other copy is reported relocated" do
       contact = contact_fixture(%{"name" => "Triplicate"})
       {:ok, target} = Storage.create_folder(%{name: "Contacts"})
       {:ok, elsewhere} = Storage.create_folder(%{name: "Somewhere Else"})
@@ -448,13 +472,16 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
 
       actions = MediaReorganizer.plan(nil, [])
 
-      refute Enum.any?(actions, &(&1.op == :move and &1.label == contact.name))
+      refute Enum.any?(actions, &(&1.kind == :duplicate and &1.label == contact.name))
 
-      action = Enum.find(actions, &(&1.kind == :duplicate and &1.label == contact.name))
-      refute is_nil(action)
-      assert action.op == :report
-      assert action.reason =~ at_root.uuid
-      assert action.reason =~ at_elsewhere.uuid
+      move_action = Enum.find(actions, &(&1.op == :move and &1.label == contact.name))
+      refute is_nil(move_action)
+      assert move_action.folder.uuid == at_root.uuid
+      assert move_action.parent_uuid == target.uuid
+
+      relocated_action = Enum.find(actions, &(&1.kind == :relocated and &1.label == contact.name))
+      refute is_nil(relocated_action)
+      assert relocated_action.reason =~ at_elsewhere.uuid
     end
   end
 
@@ -489,6 +516,49 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
 
       refute Enum.any?(actions, &(&1.op == :move and &1.label == contact.name))
       assert Enum.any?(actions, &(&1.kind == :hook_error))
+    end
+
+    # T3: a configured hook whose module does not even exist is a distinct
+    # failure from "no hook configured" (D1/E1) — it must be reported even
+    # when there are zero candidates, since the plan never gets far enough
+    # to build any to find that out.
+    test "a configured but uncallable hook → hook_error naming it, even with zero candidates" do
+      hook_on_not_callable()
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      action = Enum.find(actions, &(&1.kind == :hook_error))
+      refute is_nil(action)
+      assert action.op == :report
+      assert action.reason =~ "not callable"
+      assert action.reason =~ "NoSuchHook"
+    end
+
+    test "a configured but uncallable hook skips every candidate, no moves at all" do
+      contact = contact_fixture(%{"name" => "Uncallable"})
+      {:ok, _folder} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
+
+      hook_on_not_callable()
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.op == :move and &1.label == contact.name))
+      assert Enum.count(actions, &(&1.kind == :hook_error)) == 1
+    end
+
+    # T4: an exception from the hook must be logged, not silently swallowed.
+    test "a raising hook logs a warning" do
+      contact = contact_fixture(%{"name" => "Logged"})
+      {:ok, _folder} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
+
+      hook_on(RaisingHook)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          MediaReorganizer.plan(nil, [])
+        end)
+
+      assert log =~ "boom"
     end
   end
 
@@ -570,10 +640,14 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
 
   describe "orphan detection requires a canonical uuid suffix (X7)" do
     test "a legacy-prefixed folder whose suffix is a non-canonical uuid form is never reported" do
-      # 32 hex chars with no dashes — not the 36-char canonical form the
-      # module's strict regex requires (see X7 in the moduledoc).
-      compact_uuid = Ecto.UUID.generate() |> String.replace("-", "")
-      {:ok, folder} = Storage.create_folder(%{name: "crm-contact-#{compact_uuid}"})
+      # 16 raw bytes — `Ecto.UUID.cast/1` happily accepts this as a binary
+      # UUID, so this input only proves the strict regex (not a looser
+      # `Ecto.UUID.cast/1` check) gates the suffix: the module's regex
+      # requires the 36-char canonical dashed form (see X7 in the
+      # moduledoc) and must reject it even though `Ecto.UUID.cast/1` would
+      # not.
+      assert {:ok, _} = Ecto.UUID.cast("abcdefghijklmnop")
+      {:ok, folder} = Storage.create_folder(%{name: "crm-contact-abcdefghijklmnop"})
 
       actions = MediaReorganizer.plan(nil, [])
 
