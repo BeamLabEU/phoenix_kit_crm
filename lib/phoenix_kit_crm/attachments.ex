@@ -27,10 +27,19 @@ defmodule PhoenixKitCRM.Attachments do
       config :phoenix_kit_crm, :attachments_parent_folder, {MyApp.Media, :for_crm}
 
   called as `for_crm(:company | :contact | :interaction, actor_uuid, subject)`
-  (or `for_crm/2` when the host doesn't need the third arg), returning
-  `{:ok, parent_folder_uuid}` or `nil` (root). Lookups by name check the
-  parent first and the root second, so folders that predate the setting are
-  still found — no adoption, no twin ever created.
+  (or `for_crm/2` when the host doesn't need the third arg), where `subject` is
+  the record's uuid, returning `{:ok, parent_folder_uuid}` or `nil` (root). The
+  parent only decides where a **new** folder is created: reads, purges and the
+  timeline run without an actor, so a folder is resolved by its deterministic
+  name wherever it lives — under the configured parent first, then the root,
+  then anywhere else (created under a parent the hook no longer returns, or
+  moved in `/admin/media`). Folders that predate the setting are still found —
+  no adoption, no twin ever created. The nested `Images` subfolder is always
+  resolved strictly inside its record folder.
+
+  The hook also runs on reads (every Media tab load and timeline render), so
+  keep it cheap. A hook that raises or returns anything else falls back to the
+  root.
   """
 
   require Logger
@@ -68,16 +77,17 @@ defmodule PhoenixKitCRM.Attachments do
   def folder_uuid(resource, uuid, kind, actor_uuid \\ nil)
 
   def folder_uuid(resource, uuid, :files, actor_uuid),
-    do:
-      uuid_of(
-        get_folder(root_folder_name(resource, uuid), parent_folder_uuid(resource, actor_uuid))
-      )
+    do: uuid_of(get_record_folder(resource, uuid, actor_uuid))
 
   def folder_uuid(resource, uuid, :images, actor_uuid) do
-    case get_folder(root_folder_name(resource, uuid), parent_folder_uuid(resource, actor_uuid)) do
+    case get_record_folder(resource, uuid, actor_uuid) do
       %Folder{uuid: root} -> uuid_of(get_folder_under(@images_folder_name, root))
       _ -> nil
     end
+  end
+
+  defp get_record_folder(resource, uuid, actor_uuid) do
+    get_folder(root_folder_name(resource, uuid), parent_folder_uuid(resource, actor_uuid, uuid))
   end
 
   @doc """
@@ -91,14 +101,18 @@ defmodule PhoenixKitCRM.Attachments do
   def ensure_folder(resource, uuid, :files, actor_uuid) do
     find_or_create(
       root_folder_name(resource, uuid),
-      parent_folder_uuid(resource, actor_uuid),
-      actor_uuid
+      parent_folder_uuid(resource, actor_uuid, uuid),
+      actor_uuid,
+      &get_folder/2
     )
   end
 
+  # "Images" is not a unique name, so it is only ever looked up inside the
+  # record folder — never at the storage root, where a host's own "Images"
+  # folder may live.
   def ensure_folder(resource, uuid, :images, actor_uuid) do
     with {:ok, root} <- ensure_folder(resource, uuid, :files, actor_uuid) do
-      find_or_create(@images_folder_name, root, actor_uuid)
+      find_or_create(@images_folder_name, root, actor_uuid, &get_folder_under/2)
     end
   end
 
@@ -142,10 +156,12 @@ defmodule PhoenixKitCRM.Attachments do
     end
   end
 
-  defp find_or_create(name, parent_uuid, user_uuid) do
-    case get_folder(name, parent_uuid) do
+  # `lookup` is `&get_folder/2` for the deterministic record folders and
+  # `&get_folder_under/2` for a subfolder whose name is only unique locally.
+  defp find_or_create(name, parent_uuid, user_uuid, lookup) do
+    case lookup.(name, parent_uuid) do
       %Folder{uuid: uuid} -> {:ok, uuid}
-      nil -> create_or_resolve(name, parent_uuid, user_uuid)
+      nil -> create_or_resolve(name, parent_uuid, user_uuid, lookup)
     end
   rescue
     error ->
@@ -153,7 +169,7 @@ defmodule PhoenixKitCRM.Attachments do
       {:error, :folder_unavailable}
   end
 
-  defp create_or_resolve(name, parent_uuid, user_uuid) do
+  defp create_or_resolve(name, parent_uuid, user_uuid, lookup) do
     case Storage.create_folder(%{name: name, parent_uuid: parent_uuid, user_uuid: user_uuid}) do
       {:ok, %Folder{uuid: uuid}} ->
         {:ok, uuid}
@@ -161,19 +177,36 @@ defmodule PhoenixKitCRM.Attachments do
       # Lost the create race against a concurrent first-upload — the unique
       # [:name, :parent_uuid] constraint rejected us; re-resolve the winner.
       {:error, %Ecto.Changeset{}} ->
-        case get_folder(name, parent_uuid) do
+        case lookup.(name, parent_uuid) do
           %Folder{uuid: uuid} -> {:ok, uuid}
           _ -> {:error, :folder_unavailable}
         end
     end
   end
 
-  # name under `parent_uuid` first, then at root (folders that predate the
-  # hook) — never adopts, never twins.
-  defp get_folder(name, nil), do: get_folder_under(name, nil)
+  # A record folder by its deterministic name, wherever it lives — see the
+  # moduledoc "Parent folder". Never adopts, never twins.
+  defp get_folder(name, parent_uuid) do
+    from(f in Folder, where: f.name == ^name, limit: 1)
+    |> prefer_parent(parent_uuid)
+    |> repo().one()
+  rescue
+    error ->
+      Logger.warning("[CRM] get_folder #{name} failed: #{inspect(error)}")
+      nil
+  end
 
-  defp get_folder(name, parent_uuid),
-    do: get_folder_under(name, parent_uuid) || get_folder_under(name, nil)
+  # Among same-named folders: under `parent_uuid`, then at root, then oldest.
+  defp prefer_parent(query, nil),
+    do: order_by(query, [f], desc: is_nil(f.parent_uuid), asc: f.inserted_at)
+
+  defp prefer_parent(query, parent_uuid) do
+    order_by(query, [f],
+      desc: coalesce(f.parent_uuid == ^parent_uuid, false),
+      desc: is_nil(f.parent_uuid),
+      asc: f.inserted_at
+    )
+  end
 
   defp get_folder_under(name, nil) do
     from(f in Folder, where: f.name == ^name and is_nil(f.parent_uuid), limit: 1) |> repo().one()
@@ -346,7 +379,7 @@ defmodule PhoenixKitCRM.Attachments do
   """
   @spec purge_media(resource(), binary()) :: :ok
   def purge_media(resource, uuid),
-    do: purge_folder(root_folder_name(resource, uuid), parent_folder_uuid(resource, nil))
+    do: purge_folder(root_folder_name(resource, uuid), parent_folder_uuid(resource, nil, uuid))
 
   defp purge_folder(name, parent_uuid) do
     case get_folder(name, parent_uuid) do
@@ -380,7 +413,7 @@ defmodule PhoenixKitCRM.Attachments do
       uuid_of(
         get_folder(
           interaction_folder_name(interaction_uuid),
-          parent_folder_uuid(:interaction, nil)
+          parent_folder_uuid(:interaction, nil, interaction_uuid)
         )
       )
 
@@ -391,8 +424,9 @@ defmodule PhoenixKitCRM.Attachments do
     do:
       find_or_create(
         interaction_folder_name(interaction_uuid),
-        parent_folder_uuid(:interaction, actor_uuid),
-        actor_uuid
+        parent_folder_uuid(:interaction, actor_uuid, interaction_uuid),
+        actor_uuid,
+        &get_folder/2
       )
 
   @doc "Files attached to an interaction (newest first, excluding trashed)."
@@ -412,28 +446,16 @@ defmodule PhoenixKitCRM.Attachments do
   def list_files_by_interaction(interaction_uuids) do
     name_to_iuuid = Map.new(interaction_uuids, &{interaction_folder_name(&1), &1})
     names = Map.keys(name_to_iuuid)
+    # One subject-less hook call for the whole batch.
     parent = parent_folder_uuid(:interaction, nil)
 
-    folder_query =
-      from(f in Folder,
-        where: f.name in ^names and is_nil(f.trashed_at),
-        select: {f.uuid, f.name, f.parent_uuid}
-      )
-
-    folder_query =
-      if parent,
-        do: where(folder_query, [f], f.parent_uuid == ^parent or is_nil(f.parent_uuid)),
-        else: where(folder_query, [f], is_nil(f.parent_uuid))
-
-    # One folder per interaction: a folder under the parent beats a root twin.
+    # One folder per interaction (DISTINCT ON name), picked exactly as
+    # get_folder/2 picks it, so the timeline and the composer agree.
     fuuid_to_iuuid =
-      folder_query
+      from(f in Folder, where: f.name in ^names, distinct: f.name, select: {f.uuid, f.name})
+      |> prefer_parent(parent)
       |> repo().all()
-      |> Enum.group_by(fn {_fuuid, name, _parent_uuid} -> name end)
-      |> Map.new(fn {name, rows} ->
-        {fuuid, _, _} = Enum.find(rows, hd(rows), fn {_, _, p} -> p == parent end)
-        {fuuid, Map.get(name_to_iuuid, name)}
-      end)
+      |> Map.new(fn {fuuid, name} -> {fuuid, Map.get(name_to_iuuid, name)} end)
 
     case Map.keys(fuuid_to_iuuid) do
       [] -> %{}
@@ -487,7 +509,7 @@ defmodule PhoenixKitCRM.Attachments do
     do:
       purge_folder(
         interaction_folder_name(interaction_uuid),
-        parent_folder_uuid(:interaction, nil)
+        parent_folder_uuid(:interaction, nil, interaction_uuid)
       )
 
   @doc "Fetch a `File` struct by uuid (nil-safe), for the composer's staged list."

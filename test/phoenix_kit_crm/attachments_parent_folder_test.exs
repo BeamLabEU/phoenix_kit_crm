@@ -26,6 +26,15 @@ defmodule PhoenixKitCRM.AttachmentsParentFolderTest do
     def parent(_, _, _), do: nil
   end
 
+  # A parent that depends on the actor (and reports the subject it was given).
+  # Reads run without an actor, so resolution must not depend on the hook.
+  defmodule ActorHook do
+    def parent(kind, actor, subject) do
+      send(self(), {:parent_hook, kind, actor, subject})
+      if actor, do: {:ok, Process.get({:parent_for, actor})}
+    end
+  end
+
   setup do
     on_exit(fn -> Application.delete_env(:phoenix_kit_crm, :attachments_parent_folder) end)
 
@@ -73,6 +82,47 @@ defmodule PhoenixKitCRM.AttachmentsParentFolderTest do
     assert Attachments.folder_uuid(:contact, uuid, :files) == legacy
     assert {:ok, ^legacy} = Attachments.ensure_folder(:contact, uuid, :files, nil)
     assert Repo.aggregate(from(f in Folder, where: f.name == ^"crm-contact-#{uuid}"), :count) == 1
+  end
+
+  test "a host's own root-level Images folder is never used as a record's Images folder" do
+    {:ok, host_images} = Storage.create_folder(%{name: "Images"})
+    hook_on()
+    uuid = Ecto.UUID.generate()
+
+    assert {:ok, images} = Attachments.ensure_folder(:company, uuid, :images, nil)
+    refute images == host_images.uuid
+
+    assert Repo.get!(Folder, images).parent_uuid ==
+             Attachments.folder_uuid(:company, uuid, :files)
+
+    assert Attachments.folder_uuid(:company, uuid, :images) == images
+  end
+
+  test "an actor-dependent parent: reads without an actor find the folder, no actor twins it", %{
+    companies: a_parent,
+    contacts: b_parent
+  } do
+    Application.put_env(:phoenix_kit_crm, :attachments_parent_folder, {ActorHook, :parent})
+    [actor_a, actor_b] = [file_owner_uuid(), file_owner_uuid()]
+    Process.put({:parent_for, actor_a}, a_parent.uuid)
+    Process.put({:parent_for, actor_b}, b_parent.uuid)
+    uuid = Ecto.UUID.generate()
+
+    assert {:ok, images} = Attachments.ensure_folder(:contact, uuid, :images, actor_a)
+    root = Repo.get!(Folder, images).parent_uuid
+    assert Repo.get!(Folder, root).parent_uuid == a_parent.uuid
+
+    assert Attachments.folder_uuid(:contact, uuid, :files) == root
+    assert Attachments.folder_uuid(:contact, uuid, :images) == images
+    assert {:ok, ^root} = Attachments.ensure_folder(:contact, uuid, :files, actor_b)
+    assert {:ok, ^images} = Attachments.ensure_folder(:contact, uuid, :images, actor_b)
+    assert Repo.aggregate(from(f in Folder, where: f.name == ^"crm-contact-#{uuid}"), :count) == 1
+
+    assert :ok = Attachments.purge_media(:contact, uuid)
+    assert Repo.get(Folder, root) == nil
+
+    # The hook is told which record it is placing.
+    assert_received {:parent_hook, :contact, ^actor_a, ^uuid}
   end
 
   test "purge_media deletes a nested folder" do
