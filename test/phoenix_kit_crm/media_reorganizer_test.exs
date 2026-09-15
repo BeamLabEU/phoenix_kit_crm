@@ -549,6 +549,38 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
     end
   end
 
+  describe "archived/inactive records are live for the reorganizer (D4)" do
+    test "an inactive contact's legacy folder is still moved, not treated as an orphan" do
+      contact = contact_fixture(%{"status" => "inactive"})
+      {:ok, target} = Storage.create_folder(%{name: "Contacts"})
+      {:ok, folder} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
+
+      Process.put(:target_folder, target.uuid)
+      hook_on()
+
+      actions = MediaReorganizer.plan(nil, [])
+      action = Enum.find(actions, &(&1.kind == :contact and &1.label == contact.name))
+
+      refute is_nil(action)
+      assert action.op == :move
+      assert action.folder.uuid == folder.uuid
+      refute Enum.any?(actions, &(&1.kind == :orphan and &1.folder.uuid == folder.uuid))
+    end
+  end
+
+  describe "orphan detection requires a canonical uuid suffix (X7)" do
+    test "a legacy-prefixed folder whose suffix is a non-canonical uuid form is never reported" do
+      # 32 hex chars with no dashes — not the 36-char canonical form the
+      # module's strict regex requires (see X7 in the moduledoc).
+      compact_uuid = Ecto.UUID.generate() |> String.replace("-", "")
+      {:ok, folder} = Storage.create_folder(%{name: "crm-contact-#{compact_uuid}"})
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(Map.get(&1, :folder) && &1.folder.uuid == folder.uuid))
+    end
+  end
+
   describe "Images subfolder" do
     test "moving the root folder does not touch the nested Images subfolder" do
       contact = contact_fixture()

@@ -44,7 +44,9 @@ defmodule PhoenixKitCRM.MediaReorganizer do
 
   For a candidate record, the current folder is looked up **only** at the
   storage root or under the hook-resolved parent (the module's own lookup
-  order, `Attachments.get_folder/2`) — never "anywhere" in the tree (X9): a
+  order — one batched query loads every live folder sharing the legacy name,
+  `preload_by_name_anywhere/1`, then `resolve_entry/3` picks whichever copy
+  sits at root or the resolved parent) — never "anywhere" in the tree (X9): a
   folder the owner moved out of root/parent to some unrelated place is left
   alone and reported (`kind: :relocated` — the reason names it as
   actor-dependent, since CRM's hook can resolve differently per acting user,
