@@ -14,6 +14,16 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
     def parent(_, _, _), do: nil
   end
 
+  defmodule RaisingHook do
+    def parent(:contact, _actor, _subject), do: raise("boom")
+    def parent(_kind, _actor, _subject), do: nil
+  end
+
+  defmodule InvalidHook do
+    def parent(:contact, _actor, _subject), do: {:error, :timeout}
+    def parent(_kind, _actor, _subject), do: nil
+  end
+
   setup do
     on_exit(fn -> Application.delete_env(:phoenix_kit_crm, :attachments_parent_folder) end)
     :ok
@@ -21,6 +31,9 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
 
   defp hook_on,
     do: Application.put_env(:phoenix_kit_crm, :attachments_parent_folder, {Hook, :parent})
+
+  defp hook_on(module),
+    do: Application.put_env(:phoenix_kit_crm, :attachments_parent_folder, {module, :parent})
 
   defp contact_fixture(attrs \\ %{}) do
     {:ok, c} = Contacts.create_contact(Map.merge(%{"name" => "Ada Lovelace"}, attrs))
@@ -319,6 +332,45 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
       assert Enum.count(per_record_calls, &(&1 == {:contact, with_folder.uuid})) == 1
       refute {:contact, without_folder.uuid} in per_record_calls
     end
+
+    # R8: the reorganizer never calls the hook without a subject (Andi's
+    # `Containers.ensure`/`Settings.update_setting` would otherwise write on
+    # every dry-run plan even with zero candidates for a kind).
+    test "the hook is never called without a subject, even with zero candidates" do
+      Process.put(:hook_calls, [])
+      hook_on()
+
+      MediaReorganizer.plan(nil, [])
+
+      subject_less_calls =
+        Process.get(:hook_calls) |> Enum.filter(fn {_kind, subject} -> is_nil(subject) end)
+
+      assert subject_less_calls == []
+    end
+  end
+
+  describe "orphans without a resolved parent for that kind (R8)" do
+    # R8 removed the per-kind subject-less hook call that used to resolve a
+    # parent even with zero candidates. A legacy folder under a parent no
+    # live candidate of that kind ever resolved is therefore out of the
+    # orphan sweep's reach (root + resolved parents only) — not adopted,
+    # not reported; a human finds it via `/admin/media` directly.
+    test "a legacy folder under a parent with zero live records of that kind is not reported" do
+      company = company_fixture()
+      {:ok, target} = Storage.create_folder(%{name: "Companies"})
+
+      {:ok, folder} =
+        Storage.create_folder(%{name: "crm-company-#{company.uuid}", parent_uuid: target.uuid})
+
+      {:ok, _} = Companies.trash_company(company)
+
+      Process.put(:target_folder, target.uuid)
+      hook_on()
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(Map.get(&1, :folder) && &1.folder.uuid == folder.uuid))
+    end
   end
 
   describe "relocated folders (X9)" do
@@ -344,6 +396,9 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
       refute is_nil(action)
       assert action.op == :report
       assert action.reason =~ folder.uuid
+      # E6: CRM's hook is actor-dependent — the reason must not claim this is
+      # the answer for every user, only for the actor this plan ran as.
+      assert action.reason =~ "another user"
     end
   end
 
@@ -371,6 +426,69 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
       assert action.op == :report
       assert action.reason =~ at_root.uuid
       assert action.reason =~ under_parent.uuid
+    end
+
+    # R7/P9: a third live copy of the legacy name sitting somewhere other
+    # than root/the resolved parent must not be silently dropped from the
+    # report just because root+parent alone would have resolved cleanly.
+    test "live at root AND somewhere else → duplicate report names both, no move" do
+      contact = contact_fixture(%{"name" => "Triplicate"})
+      {:ok, target} = Storage.create_folder(%{name: "Contacts"})
+      {:ok, elsewhere} = Storage.create_folder(%{name: "Somewhere Else"})
+      {:ok, at_root} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
+
+      {:ok, at_elsewhere} =
+        Storage.create_folder(%{
+          name: "crm-contact-#{contact.uuid}",
+          parent_uuid: elsewhere.uuid
+        })
+
+      Process.put(:target_folder, target.uuid)
+      hook_on()
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.op == :move and &1.label == contact.name))
+
+      action = Enum.find(actions, &(&1.kind == :duplicate and &1.label == contact.name))
+      refute is_nil(action)
+      assert action.op == :report
+      assert action.reason =~ at_root.uuid
+      assert action.reason =~ at_elsewhere.uuid
+    end
+  end
+
+  describe "hook failures (R2)" do
+    test "a hook that raises → hook_error report, record skipped, never treated as root" do
+      contact = contact_fixture(%{"name" => "Ada"})
+      {:ok, folder} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
+
+      hook_on(RaisingHook)
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.op == :move and &1.label == contact.name))
+      refute Enum.any?(actions, &(&1.kind == :relocated and &1.label == contact.name))
+
+      action = Enum.find(actions, &(&1.kind == :hook_error))
+      refute is_nil(action)
+      assert action.op == :report
+      assert action.reason =~ "1"
+
+      reloaded = Storage.get_folder(folder.uuid)
+      assert is_nil(reloaded.parent_uuid)
+    end
+
+    test "a hook returning {:error, _} → hook_error report, record skipped" do
+      contact = contact_fixture(%{"name" => "Grace"})
+      {:ok, _folder} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
+
+      hook_on(InvalidHook)
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.op == :move and &1.label == contact.name))
+      assert Enum.any?(actions, &(&1.kind == :hook_error))
     end
   end
 
@@ -427,27 +545,6 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
       action = Enum.find(actions, &(&1.kind == :orphan and &1.folder.uuid == folder.uuid))
       refute is_nil(action)
       assert action.reason =~ "company"
-      assert action.reason =~ "trashed"
-    end
-  end
-
-  describe "orphans under a resolved parent with zero live records of that kind (X13)" do
-    test "a legacy folder under the kind's default parent is still found when every record is trashed" do
-      company = company_fixture()
-      {:ok, target} = Storage.create_folder(%{name: "Companies"})
-
-      {:ok, folder} =
-        Storage.create_folder(%{name: "crm-company-#{company.uuid}", parent_uuid: target.uuid})
-
-      {:ok, _} = Companies.trash_company(company)
-
-      Process.put(:target_folder, target.uuid)
-      hook_on()
-
-      actions = MediaReorganizer.plan(nil, [])
-
-      action = Enum.find(actions, &(&1.kind == :orphan and &1.folder.uuid == folder.uuid))
-      refute is_nil(action)
       assert action.reason =~ "trashed"
     end
   end

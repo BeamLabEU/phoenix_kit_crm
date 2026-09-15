@@ -30,7 +30,15 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   a record that already has a *candidate* folder — a live folder anywhere
   named after its legacy deterministic name (checked without calling the
   hook, one batched query for the whole plan) — never for a record with
-  nothing to move (X12).
+  nothing to move (X12), and never without a subject (R8): a legacy folder
+  under a parent no live candidate of a kind ever resolved simply stays
+  outside this plan's reach, rather than the module forcing one extra hook
+  call per kind on every run to widen that reach.
+
+  A configured hook that raises, exits, or returns anything but `{:ok, uuid}`
+  or an explicit `nil` is a hook FAILURE (R2): that one record is skipped —
+  no move, no relocated report — and counted into a single `kind:
+  :hook_error` report for the whole plan. Only an explicit `nil` means root.
 
   ## Current-folder resolution
 
@@ -38,12 +46,14 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   storage root or under the hook-resolved parent (the module's own lookup
   order, `Attachments.get_folder/2`) — never "anywhere" in the tree (X9): a
   folder the owner moved out of root/parent to some unrelated place is left
-  alone and reported (`kind: :relocated`), never silently moved back or
-  adopted from wherever it now lives. A legacy name live in **both** root and
-  the resolved parent is likewise unresolvable — reported as one
-  `kind: :duplicate` action naming both folders, nothing moved. Two (or more)
-  records sharing the very same live folder get one `kind: :duplicate` report
-  each, no move for any of them.
+  alone and reported (`kind: :relocated` — the reason names it as
+  actor-dependent, since CRM's hook can resolve differently per acting user,
+  E6). Any time the legacy name is live in **more than one** place at once —
+  root and the resolved parent, root and somewhere else entirely, or any
+  other combination — the record is unresolvable: one `kind: :duplicate`
+  report names every live copy, nothing moves (R7). Two different records
+  can never converge on the very same folder here, since each record's
+  legacy name embeds its own uuid.
 
   `on_conflict: :report` (D3, not `:suffix`) — CRM writes no pointer, so a
   folder the engine renamed to dodge a collision ("Name (2)") would become
@@ -66,7 +76,7 @@ defmodule PhoenixKitCRM.MediaReorganizer do
 
   import Ecto.Query, warn: false
 
-  alias PhoenixKit.Modules.Storage.{File, Folder, FolderLink}
+  alias PhoenixKit.Modules.Storage.{Folder, FolderLink}
   alias PhoenixKitCRM.Attachments
   alias PhoenixKitCRM.Schemas.{Company, Contact, Interaction}
 
@@ -86,9 +96,11 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   and (anchor-live) interaction whose current folder does not already match
   the host's `:attachments_parent_folder` hook, `:report` (`kind:
   :duplicate`) for folders that cannot be unambiguously resolved, `:report`
-  (`kind: :relocated`) for a legacy folder the owner moved elsewhere, and
-  `:report` (`kind: :orphan`) per legacy folder whose record is missing,
-  trashed, or (interactions) anchored to a trashed contact/company.
+  (`kind: :relocated`) for a legacy folder the owner moved elsewhere,
+  `:report` (`kind: :hook_error`) when the configured hook fails for one or
+  more records, and `:report` (`kind: :orphan`) per legacy folder whose
+  record is missing, trashed, or (interactions) anchored to a trashed
+  contact/company.
 
   `opts` is accepted for parity with the `Source.plan/2` contract but unused
   — CRM has no pending-folder concept (see moduledoc).
@@ -111,16 +123,11 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   defp resource_plan(actor_uuid) do
     if hook_configured?() do
       tagged_records =
-        tag(live_contacts(), :contact) ++
-          tag(live_companies(), :company) ++
-          tag(live_interactions(), :interaction)
+        tag(light_contacts(), :contact) ++
+          tag(light_companies(), :company) ++
+          tag(light_interactions(), :interaction)
 
-      {actions, resolved_parents} = build_resource_plan(tagged_records, actor_uuid)
-
-      # X13: one extra hook call per kind (no subject) so a legacy folder
-      # under a kind's parent is still found by orphan detection even when
-      # that kind currently has zero live/candidate records.
-      {actions, Enum.uniq(resolved_parents ++ kind_default_parents(actor_uuid))}
+      build_resource_plan(tagged_records, actor_uuid)
     else
       {[], []}
     end
@@ -133,18 +140,13 @@ defmodule PhoenixKitCRM.MediaReorganizer do
     )
   end
 
-  defp kind_default_parents(actor_uuid) do
-    [:contact, :company, :interaction]
-    |> Enum.map(&Attachments.parent_folder_uuid(&1, actor_uuid, nil))
-    |> Enum.reject(&is_nil/1)
-  end
-
   defp tag(records, kind), do: Enum.map(records, &{&1, kind})
 
   # Candidate detection needs no hook call: a live folder anywhere named
   # after the record's legacy name. Only candidates go on to have the host's
   # parent hook resolved — a record with nothing pointing at it never
-  # triggers a (possibly writing) host hook (X12).
+  # triggers a (possibly writing) host hook (X12), and never with a nil
+  # subject (R8).
   defp build_resource_plan(tagged_records, actor_uuid) do
     prelim =
       Enum.map(tagged_records, fn {record, kind} ->
@@ -155,28 +157,20 @@ defmodule PhoenixKitCRM.MediaReorganizer do
 
     candidates = Enum.filter(prelim, &Map.has_key?(by_name, &1.legacy_name))
 
-    desired =
-      Enum.map(candidates, fn p ->
-        Map.put(
-          p,
-          :parent_uuid,
-          Attachments.parent_folder_uuid(p.kind, actor_uuid, p.record.uuid)
-        )
-      end)
-
-    entries = Enum.map(desired, &resolve_entry(&1, by_name))
+    {resolved, hook_error_count} = resolve_candidates(candidates, by_name, actor_uuid)
 
     resolved_parents =
-      desired |> Enum.map(& &1.parent_uuid) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+      resolved |> Enum.map(& &1.parent_uuid) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
-    {unique, ambiguous_dup, shared_dup, relocated} = classify_entries(entries)
+    {duplicate, normal} = Enum.split_with(resolved, & &1.duplicate)
+    {relocated, normal} = Enum.split_with(normal, & &1.relocated)
 
-    move_actions = unique |> Enum.map(&build_move_action/1) |> Enum.reject(&is_nil/1)
-    dup_actions = Enum.map(ambiguous_dup, &build_ambiguous_duplicate_action/1)
-    shared_actions = Enum.map(shared_dup, &build_shared_duplicate_action/1)
+    move_actions = normal |> Enum.map(&build_move_action/1) |> Enum.reject(&is_nil/1)
+    duplicate_actions = Enum.map(duplicate, &build_duplicate_action/1)
     relocated_actions = Enum.map(relocated, &build_relocated_action/1)
+    hook_error_actions = hook_error_action(hook_error_count)
 
-    all_actions = move_actions ++ dup_actions ++ shared_actions ++ relocated_actions
+    all_actions = move_actions ++ duplicate_actions ++ relocated_actions ++ hook_error_actions
 
     {finalize_counts(all_actions), resolved_parents}
   end
@@ -184,56 +178,86 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   defp legacy_name(:interaction, record), do: Attachments.interaction_folder_name(record.uuid)
   defp legacy_name(kind, record), do: Attachments.root_folder_name(kind, record.uuid)
 
-  # Resolves one record's current folder — root or the resolved parent ONLY
-  # (module's own order — never "anywhere", X9). A live match at both is
-  # ambiguous (X11). A live match somewhere else entirely (the owner moved
-  # it) resolves to neither — reported `:relocated` by the caller, never
-  # moved back or adopted from where it now lives.
-  defp resolve_entry(d, by_name) do
-    matches = Map.get(by_name, d.legacy_name, [])
-    under_parent = d.parent_uuid && Enum.find(matches, &(&1.parent_uuid == d.parent_uuid))
-    at_root = Enum.find(matches, &is_nil(&1.parent_uuid))
+  # R2: resolves the desired parent for every candidate via the host's exact
+  # hook, distinguishing an explicit `nil` (root) from a hook that
+  # raised/exited/returned anything else (failure — the record is skipped,
+  # never treated as "root").
+  defp resolve_candidates(candidates, by_name, actor_uuid) do
+    {acc, errs} =
+      Enum.reduce(candidates, {[], 0}, fn candidate, {acc, errs} ->
+        case resolve_parent(candidate.kind, actor_uuid, candidate.record) do
+          {:ok, parent_uuid} ->
+            {[resolve_entry(candidate, parent_uuid, by_name) | acc], errs}
 
-    case {under_parent, at_root} do
-      {nil, nil} ->
-        Map.merge(d, %{folder: nil, ambiguous: nil, elsewhere: matches})
-
-      {same, same} ->
-        Map.merge(d, %{folder: same, ambiguous: nil, elsewhere: nil})
-
-      {f, nil} ->
-        Map.merge(d, %{folder: f, ambiguous: nil, elsewhere: nil})
-
-      {nil, f} ->
-        Map.merge(d, %{folder: f, ambiguous: nil, elsewhere: nil})
-
-      {f1, f2} ->
-        Map.merge(d, %{folder: nil, ambiguous: {f1, f2}, elsewhere: nil})
-    end
-  end
-
-  # Splits resolved entries into: `unique` (one record ↔ one folder, safe to
-  # plan a move for), `ambiguous_dup` (legacy name live at both root and
-  # under the resolved parent — X11), `shared_dup` (two or more records
-  # resolving to the very same live folder — X5), `relocated` (a live match
-  # exists only outside root/the resolved parent — X9).
-  defp classify_entries(entries) do
-    {ambiguous, normal} = Enum.split_with(entries, & &1.ambiguous)
-    {relocated, normal} = Enum.split_with(normal, &(is_nil(&1.folder) and &1.elsewhere != []))
-    {with_folder, _without_folder} = Enum.split_with(normal, & &1.folder)
-
-    grouped = Enum.group_by(with_folder, & &1.folder.uuid)
-
-    {shared, unique} =
-      Enum.reduce(grouped, {[], []}, fn {_uuid, group}, {shared_acc, unique_acc} ->
-        if length(group) > 1 do
-          {[group | shared_acc], unique_acc}
-        else
-          {shared_acc, group ++ unique_acc}
+          :error ->
+            {acc, errs + 1}
         end
       end)
 
-    {unique, ambiguous, shared, relocated}
+    {Enum.reverse(acc), errs}
+  end
+
+  defp resolve_parent(kind, actor_uuid, record) do
+    case Application.get_env(:phoenix_kit_crm, :attachments_parent_folder) do
+      {mod, fun} when is_atom(mod) and is_atom(fun) ->
+        guarded_hook_call(mod, fun, kind, actor_uuid, record)
+
+      _ ->
+        :error
+    end
+  end
+
+  defp guarded_hook_call(mod, fun, kind, actor_uuid, record) do
+    cond do
+      Code.ensure_loaded?(mod) and function_exported?(mod, fun, 3) ->
+        safe_call(fn -> apply(mod, fun, [kind, actor_uuid, record.uuid]) end)
+
+      Code.ensure_loaded?(mod) and function_exported?(mod, fun, 2) ->
+        safe_call(fn -> apply(mod, fun, [kind, actor_uuid]) end)
+
+      true ->
+        :error
+    end
+  end
+
+  defp safe_call(fun) do
+    case fun.() do
+      {:ok, uuid} when is_binary(uuid) -> {:ok, uuid}
+      {:ok, nil} -> {:ok, nil}
+      nil -> {:ok, nil}
+      _other -> :error
+    end
+  rescue
+    _ -> :error
+  catch
+    _, _ -> :error
+  end
+
+  # Resolves one record's current folder among every live copy of its
+  # legacy name: root or the resolved parent ONLY are acceptable current
+  # folders (the module's own lookup order — never "anywhere", X9). Exactly
+  # one live copy total, at root or the resolved parent → that is the
+  # current folder. More than one live copy anywhere (root+parent,
+  # root+elsewhere, or any other combination) is unresolvable — reported as
+  # one `:duplicate` naming every copy (R7/P9). Exactly one live copy that
+  # sits at neither root nor the resolved parent is left alone and reported
+  # `:relocated` — never moved back or adopted from where it now lives.
+  defp resolve_entry(d, parent_uuid, by_name) do
+    matches = Map.get(by_name, d.legacy_name, [])
+    at_target = Enum.find(matches, &(is_nil(&1.parent_uuid) or &1.parent_uuid == parent_uuid))
+
+    base = %{record: d.record, kind: d.kind, legacy_name: d.legacy_name, parent_uuid: parent_uuid}
+
+    cond do
+      length(matches) > 1 ->
+        Map.merge(base, %{folder: nil, matches: matches, duplicate: true, relocated: nil})
+
+      at_target ->
+        Map.merge(base, %{folder: at_target, matches: nil, duplicate: false, relocated: nil})
+
+      true ->
+        Map.merge(base, %{folder: nil, matches: matches, duplicate: false, relocated: hd(matches)})
+    end
   end
 
   # A `:move` whose folder already sits at `parent_uuid` under `name` is a
@@ -265,7 +289,9 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   defp noop_move?(%Folder{parent_uuid: parent_uuid, name: name}, parent_uuid, name), do: true
   defp noop_move?(_folder, _parent_uuid, _name), do: false
 
-  defp build_ambiguous_duplicate_action(%{record: record, kind: kind, ambiguous: {f1, f2}}) do
+  defp build_duplicate_action(%{record: record, kind: kind, matches: matches}) do
+    locations = Enum.map_join(matches, ", ", & &1.uuid)
+
     %{
       source: @source,
       kind: :duplicate,
@@ -273,26 +299,12 @@ defmodule PhoenixKitCRM.MediaReorganizer do
       op: :report,
       counts: nil,
       reason:
-        "legacy #{kind} folder found live in two places (#{f1.uuid} and #{f2.uuid}) — pick one and remove the other"
+        "legacy #{kind} folder found live in #{length(matches)} place(s) (#{locations}) " <>
+          "— pick one and remove the others"
     }
   end
 
-  defp build_shared_duplicate_action([%{folder: folder} | _] = group) do
-    labels = group |> Enum.map(&record_label(&1.record)) |> Enum.uniq() |> Enum.join(", ")
-
-    %{
-      source: @source,
-      kind: :duplicate,
-      label: folder.name,
-      op: :report,
-      counts: nil,
-      reason: "folder #{folder.uuid} is claimed by more than one record: #{labels}"
-    }
-  end
-
-  defp build_relocated_action(%{record: record, kind: kind, elsewhere: folders}) do
-    locations = Enum.map_join(folders, ", ", & &1.uuid)
-
+  defp build_relocated_action(%{record: record, kind: kind, relocated: folder}) do
     %{
       source: @source,
       kind: :relocated,
@@ -300,7 +312,8 @@ defmodule PhoenixKitCRM.MediaReorganizer do
       op: :report,
       counts: nil,
       reason:
-        "legacy #{kind} folder is live at #{locations} — outside root and the resolved parent, left alone"
+        "legacy #{kind} folder is live at #{folder.uuid} — outside root and the resolved " <>
+          "parent, left alone (the parent hook may resolve differently for another user)"
     }
   end
 
@@ -308,11 +321,28 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   defp record_label(%Company{} = c), do: c.name
   defp record_label(%Interaction{} = i), do: i.subject || i.uuid
 
+  defp hook_error_action(0), do: []
+
+  defp hook_error_action(count) do
+    [
+      %{
+        source: @source,
+        kind: :hook_error,
+        op: :report,
+        label: "attachments parent hook",
+        counts: nil,
+        reason:
+          "#{count} record(s) skipped: the configured parent hook raised, exited, or " <>
+            "returned neither {:ok, uuid} nor nil"
+      }
+    ]
+  end
+
   # One query for every distinct legacy name in the batch, live folders only
   # (X2 — the unique index is partial, a trashed twin must not hide the live
   # folder), matching ANYWHERE — used only to decide candidacy (X12) and to
-  # detect a relocated folder (X9); `resolve_entry/2` still restricts the
-  # actual move target to root/parent.
+  # detect relocated/duplicate folders (X9/R7); `resolve_entry/3` still
+  # restricts the actual move target to root/parent.
   defp preload_by_name_anywhere(names) do
     case names |> Enum.reject(&is_nil/1) |> Enum.uniq() do
       [] ->
@@ -326,18 +356,29 @@ defmodule PhoenixKitCRM.MediaReorganizer do
     end
   end
 
-  defp live_contacts do
-    Contact |> where([c], c.status != "trashed") |> repo().all()
+  # R9/R10: only the columns a plan needs, deterministically ordered
+  # (contacts, then companies, then interactions — interactions reference
+  # the other two — each by inserted_at/uuid).
+  defp light_contacts do
+    Contact
+    |> where([c], c.status != "trashed")
+    |> order_by([c], asc: c.inserted_at, asc: c.uuid)
+    |> select([c], struct(c, [:uuid, :name, :status, :inserted_at]))
+    |> repo().all()
   end
 
-  defp live_companies do
-    Company |> where([c], c.status != "trashed") |> repo().all()
+  defp light_companies do
+    Company
+    |> where([c], c.status != "trashed")
+    |> order_by([c], asc: c.inserted_at, asc: c.uuid)
+    |> select([c], struct(c, [:uuid, :name, :status, :inserted_at]))
+    |> repo().all()
   end
 
   # Interaction has no soft-delete field of its own — an interaction is live
   # for move-planning unless its anchor (contact or company) is trashed
   # (D8); those are handled separately by `trashed_anchor_orphan_actions/0`.
-  defp live_interactions do
+  defp light_interactions do
     Interaction
     |> join(:left, [i], c in Contact, on: i.contact_uuid == c.uuid)
     |> join(:left, [i, _c], co in Company, on: i.company_uuid == co.uuid)
@@ -346,14 +387,15 @@ defmodule PhoenixKitCRM.MediaReorganizer do
       (is_nil(i.contact_uuid) or c.status != "trashed") and
         (is_nil(i.company_uuid) or co.status != "trashed")
     )
-    |> select([i], i)
+    |> order_by([i], asc: i.inserted_at, asc: i.uuid)
+    |> select([i], struct(i, [:uuid, :subject, :contact_uuid, :company_uuid, :inserted_at]))
     |> repo().all()
   end
 
   # ── Interactions anchored to a trashed contact/company (D8) ─────
 
   # Such an interaction is skipped by move-planning above (never in
-  # `live_interactions/0`, so the parent hook is never called for it — same
+  # `light_interactions/0`, so the parent hook is never called for it — same
   # "skip the hook" spirit as X12). If it has a legacy folder, it is
   # reported as an orphan instead — searched anywhere by name (not just
   # root/the resolved parent — the hook was never run for it, so there is no
@@ -379,7 +421,7 @@ defmodule PhoenixKitCRM.MediaReorganizer do
     contact_trashed =
       Interaction
       |> join(:inner, [i], c in Contact, on: i.contact_uuid == c.uuid and c.status == "trashed")
-      |> select([i], i)
+      |> select([i], struct(i, [:uuid, :subject]))
       |> repo().all()
       |> Enum.map(&{&1, "contact"})
 
@@ -388,7 +430,7 @@ defmodule PhoenixKitCRM.MediaReorganizer do
       |> join(:inner, [i], co in Company,
         on: i.company_uuid == co.uuid and co.status == "trashed"
       )
-      |> select([i], i)
+      |> select([i], struct(i, [:uuid, :subject]))
       |> repo().all()
       |> Enum.map(&{&1, "company"})
 
@@ -468,7 +510,9 @@ defmodule PhoenixKitCRM.MediaReorganizer do
     end
   end
 
-  # One query per record kind present among the candidates — not per folder.
+  # One query per record kind present among the candidates (R9: only the
+  # column an orphan report needs — the record's status, or presence for
+  # interactions, which have no status column of their own).
   defp load_candidate_records(candidates) do
     by_kind =
       Enum.group_by(
@@ -478,24 +522,35 @@ defmodule PhoenixKitCRM.MediaReorganizer do
       )
 
     %{}
-    |> Map.merge(load_records(Contact, :contact, Map.get(by_kind, :contact, [])))
-    |> Map.merge(load_records(Company, :company, Map.get(by_kind, :company, [])))
-    |> Map.merge(load_records(Interaction, :interaction, Map.get(by_kind, :interaction, [])))
+    |> Map.merge(load_record_statuses(Contact, :contact, Map.get(by_kind, :contact, [])))
+    |> Map.merge(load_record_statuses(Company, :company, Map.get(by_kind, :company, [])))
+    |> Map.merge(load_interaction_presence(Map.get(by_kind, :interaction, [])))
   end
 
-  defp load_records(_schema, _kind, []), do: %{}
+  defp load_record_statuses(_schema, _kind, []), do: %{}
 
-  defp load_records(schema, kind, uuids) do
+  defp load_record_statuses(schema, kind, uuids) do
     schema
     |> where([r], r.uuid in ^uuids)
+    |> select([r], {r.uuid, r.status})
     |> repo().all()
-    |> Map.new(&{{kind, &1.uuid}, &1})
+    |> Map.new(fn {uuid, status} -> {{kind, uuid}, status} end)
+  end
+
+  defp load_interaction_presence([]), do: %{}
+
+  defp load_interaction_presence(uuids) do
+    Interaction
+    |> where([i], i.uuid in ^uuids)
+    |> select([i], i.uuid)
+    |> repo().all()
+    |> Map.new(&{{:interaction, &1}, :live})
   end
 
   defp orphan_action({folder, {kind, uuid}}, records_by_key, counts) do
-    record = Map.get(records_by_key, {kind, uuid})
+    value = Map.get(records_by_key, {kind, uuid})
 
-    if orphan?(record) do
+    if orphan?(kind, value) do
       folder_counts = folder_counts(counts, folder.uuid)
 
       %{
@@ -505,24 +560,22 @@ defmodule PhoenixKitCRM.MediaReorganizer do
         label: folder.name,
         folder: folder,
         counts: folder_counts,
-        reason: orphan_reason(record, folder_counts)
+        reason: orphan_reason(value, folder_counts)
       }
     end
   end
 
   # No record at all → orphan. A found `Interaction` row is always live here
   # (its trashed-anchor case never reaches this path, see
-  # `live_interactions/0` above). Contact/Company use the shared "trashed"
+  # `light_interactions/0` above). Contact/Company use the shared "trashed"
   # sentinel.
-  defp orphan?(nil), do: true
-  defp orphan?(%Interaction{}), do: false
-  defp orphan?(%{status: "trashed"}), do: true
-  defp orphan?(_), do: false
+  defp orphan?(:interaction, value), do: is_nil(value)
+  defp orphan?(_kind, nil), do: true
+  defp orphan?(_kind, "trashed"), do: true
+  defp orphan?(_kind, _status), do: false
 
   defp orphan_reason(nil, {files, _links}), do: "record missing, #{files} file(s)"
-
-  defp orphan_reason(%{status: status}, {files, _links}),
-    do: "record status #{status}, #{files} file(s)"
+  defp orphan_reason(status, {files, _links}), do: "record status #{status}, #{files} file(s)"
 
   # ── Shared helpers ───────────────────────────────────────────────
 
@@ -539,7 +592,7 @@ defmodule PhoenixKitCRM.MediaReorganizer do
 
       uuids ->
         files =
-          File
+          PhoenixKit.Modules.Storage.File
           |> where([f], f.folder_uuid in ^uuids)
           |> group_by([f], f.folder_uuid)
           |> select([f], {f.folder_uuid, count(f.uuid)})
