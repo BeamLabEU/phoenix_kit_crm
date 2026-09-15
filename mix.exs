@@ -1,7 +1,7 @@
 defmodule PhoenixKitCRM.MixProject do
   use Mix.Project
 
-  @version "0.12.0"
+  @version "0.13.0"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_crm"
 
   def project do
@@ -154,9 +154,9 @@ defmodule PhoenixKitCRM.MixProject do
   defp docs do
     [
       main: "PhoenixKitCRM",
-      # Tags in this repo are bare version numbers, not v-prefixed — a "v" ref
-      # points at a tag that does not exist and 404s every HexDocs source link.
-      source_ref: @version
+      # Tags are v-prefixed from v0.12.0 on (earlier releases used bare version
+      # numbers) — the ref must match the tag or every HexDocs source link 404s.
+      source_ref: "v" <> @version
     ]
   end
 end

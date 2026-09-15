@@ -451,10 +451,6 @@ publish has succeeded.
 
 ## TODOs
 
-- **`docs source_ref` and the tag form disagree.** `mix.exs` sets
-  `source_ref: @version` on the strength of bare version tags, but the newest
-  tag is `v`-prefixed, so HexDocs source links 404. Reconcile at the next
-  release — either tag bare again or switch `source_ref` to `"v" <> @version`.
 - **`test_helper.exs` still gates on core shipping the CRM tables.** Its
   `crm_tables_present` probe and the `PHOENIX_KIT_PATH` hint it prints predate
   the module-owned chain, which now creates those tables itself; the branch is

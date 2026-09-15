@@ -4,13 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.13.0 - 2026-09-15
 
 ### Added
 
 - Attachment folders can be created under a host-configured parent
-  (`:attachments_parent_folder`); lookups, purge and the timeline listing
-  are parent-aware.
+  (`config :phoenix_kit_crm, :attachments_parent_folder, {mod, fun}`, called as
+  `fun(kind, actor_uuid, record_uuid)` or `fun(kind, actor_uuid)`). The parent
+  decides where a new folder goes; existing folders are found by name wherever
+  they live — under the parent, at the root, or moved elsewhere — so turning the
+  setting on, re-pointing it, or moving a folder in `/admin/media` never strands
+  media or creates a twin.
+
+### Fixed
+
+- A record's `Images` subfolder is resolved only inside its own folder. A
+  host's own top-level `Images` folder could otherwise be picked up as the
+  record's Images folder, sending uploads there and letting Remove trash the
+  host's files.
+- HexDocs source links point at the `v`-prefixed release tag.
 
 ## 0.12.0 - 2026-09-07
 
