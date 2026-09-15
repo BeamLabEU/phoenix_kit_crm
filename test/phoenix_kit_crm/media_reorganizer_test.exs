@@ -200,8 +200,20 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
 
     actions = MediaReorganizer.plan(nil, [])
 
-    assert Enum.any?(actions, &(&1.kind == :company and &1.label == company.name))
-    assert Enum.any?(actions, &(&1.kind == :interaction and &1.folder.name =~ interaction.uuid))
+    company_action = Enum.find(actions, &(&1.kind == :company and &1.label == company.name))
+
+    interaction_action =
+      Enum.find(actions, &(&1.kind == :interaction and &1.folder.name =~ interaction.uuid))
+
+    refute is_nil(company_action)
+    assert company_action.op == :move
+    assert company_action.parent_uuid == target.uuid
+    assert company_action.on_conflict == :report
+
+    refute is_nil(interaction_action)
+    assert interaction_action.op == :move
+    assert interaction_action.parent_uuid == target.uuid
+    assert interaction_action.on_conflict == :report
   end
 
   describe "orphan folders" do
@@ -220,10 +232,14 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
       assert action.reason =~ "1 file"
     end
 
-    test "legacy folder of a trashed company → report names the record's status" do
+    test "legacy folder of a trashed company → report names the record's status, never a move" do
       company = company_fixture()
+      {:ok, target} = Storage.create_folder(%{name: "Companies"})
       {:ok, folder} = Storage.create_folder(%{name: "crm-company-#{company.uuid}"})
       {:ok, _} = Companies.trash_company(company)
+
+      Process.put(:target_folder, target.uuid)
+      hook_on()
 
       actions = MediaReorganizer.plan(nil, [])
       action = Enum.find(actions, &(&1.kind == :orphan and &1.folder.uuid == folder.uuid))
@@ -231,6 +247,7 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
       refute is_nil(action)
       assert action.op == :report
       assert action.reason =~ "trashed"
+      refute Enum.any?(actions, &(&1.op == :move and &1.kind == :company))
     end
 
     test "legacy folder with no matching interaction record → orphan report" do
@@ -268,10 +285,23 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
 
       assert MediaReorganizer.plan(nil, []) == []
     end
+
+    test "a contact with a legacy folder NOT at root → plan is entirely empty (untouched)" do
+      contact = contact_fixture()
+      {:ok, elsewhere} = Storage.create_folder(%{name: "Somewhere"})
+
+      {:ok, _folder} =
+        Storage.create_folder(%{
+          name: "crm-contact-#{contact.uuid}",
+          parent_uuid: elsewhere.uuid
+        })
+
+      assert MediaReorganizer.plan(nil, []) == []
+    end
   end
 
   describe "candidate detection (X12)" do
-    test "the parent hook is called only for records that already have a folder" do
+    test "the parent hook is called exactly once, only for records that already have a folder" do
       with_folder = contact_fixture(%{"name" => "Has Folder"})
       without_folder = contact_fixture(%{"name" => "No Folder"})
       {:ok, target} = Storage.create_folder(%{name: "Contacts"})
@@ -286,7 +316,7 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
       per_record_calls =
         Process.get(:hook_calls) |> Enum.reject(fn {_kind, subject} -> is_nil(subject) end)
 
-      assert {:contact, with_folder.uuid} in per_record_calls
+      assert Enum.count(per_record_calls, &(&1 == {:contact, with_folder.uuid})) == 1
       refute {:contact, without_folder.uuid} in per_record_calls
     end
   end
