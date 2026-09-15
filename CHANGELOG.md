@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+
+- `PhoenixKitCRM.MediaReorganizer`: plans legacy media-folder moves for
+  contacts, companies and interactions from the `:attachments_parent_folder`
+  hook, plus orphaned-legacy-folder reports. Registered via
+  `PhoenixKitCRM.media_reorganizer/0` (no `@impl` yet — the core engine that
+  will consume it has not shipped).
+
 ## 0.13.0 - 2026-09-15
 
 ### Added
