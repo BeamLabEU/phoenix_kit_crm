@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.14.0 - 2026-09-16
+
+### Added
+
+- `PhoenixKitCRM.MediaReorganizer`, registered through `media_reorganizer/0`
+  for core's media reorganizer (core 2.24.0+). Its plan moves each contact's,
+  company's and interaction's legacy `crm-*-<uuid>` folder under the parent the
+  `:attachments_parent_folder` hook returns. It reports ambiguous duplicates,
+  copies moved elsewhere, hook failures, and orphaned folders (record missing
+  or trashed, or an interaction whose contact/company is trashed). Without the
+  hook configured, the plan only reports and moves nothing.
+
+### Fixed
+
+- A contact or company with no `name` is labeled by its uuid in the plan, so
+  its folder is planned normally instead of the action being rejected as
+  invalid.
+
 ## 0.13.0 - 2026-09-15
 
 ### Added
