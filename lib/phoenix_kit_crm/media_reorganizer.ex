@@ -33,21 +33,32 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   nothing to move (X12), and never without a subject (R8): a legacy folder
   under a parent no live candidate of a kind ever resolved simply stays
   outside this plan's reach, rather than the module forcing one extra hook
-  call per kind on every run to widen that reach.
+  call per kind on every run to widen that reach. The orphan scan's scope is
+  root plus every parent a hook call actually returned for some candidate,
+  regardless of that candidate's own outcome — moved, relocated, duplicate,
+  or `:hook_nil` all count (U4/V2); a parent an F1-adopted folder merely
+  happens to already sit under, without the hook ever having returned it,
+  never widens that scope.
 
   A configured hook that raises, exits, or returns anything but `{:ok, uuid}`
   or an explicit `nil` is a hook FAILURE (R2): that one record is skipped —
   no move, no relocated report — and counted into a single `kind:
-  :hook_error` report for the whole plan. Only an explicit `nil` means root.
-  A configured `{mod, fun}` that is not actually callable (a typo, a removed
-  function) is a distinct failure (T3): it is never treated as "no hook
-  configured" — the hook is not called for any candidate, and the plan
-  reports one `kind: :hook_error` naming the uncallable `{mod, fun}`. Every
-  `{:ok, uuid}` answer is cast through `Ecto.UUID.cast/1` before it is used
-  anywhere (T1): a syntactically invalid uuid is a hook FAILURE too, never a
-  `CastError` further down the plan, and the cast also normalizes case, so
-  an upper-case answer still matches the (lower-case) `parent_uuid` stored
-  on `Folder`.
+  :hook_error` report for the whole plan, naming (up to 10, then "… and N
+  more") every skipped record's label (U8). Only an explicit `nil` means
+  root. A configured value that is not a `{mod, fun}` pair naming an
+  exported function — a typo, a removed function, or outright garbage (a
+  string, an atom, a stray tuple) — is one and the same distinct failure
+  (T3/U7/V3): it is never treated as "no hook configured" (that state is
+  reserved for the key being entirely absent), the hook is not called for
+  any candidate, and the plan reports one `kind: :hook_error` naming the
+  invalid config. Every `{:ok, uuid}` answer is cast through
+  `Ecto.UUID.cast/1` before it is used anywhere (T1): a syntactically
+  invalid uuid is a hook FAILURE too, never a `CastError` further down the
+  plan, and the cast also normalizes case, so an upper-case answer still
+  matches the (lower-case) `parent_uuid` stored on `Folder`. Every hook
+  call site — an exception, or a return value that is neither `{:ok, uuid}`
+  nor `nil` — logs a warning naming the `{mod, fun}` and the record kind
+  (U6/T4), not only exceptions.
 
   ## Current-folder resolution
 
@@ -65,8 +76,12 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   sits at a valid location (root or the resolved parent), that copy IS the
   current folder — every other live copy of the same legacy name, wherever
   it lives, gets its own `kind: :relocated` report (F5: all of them, not
-  only the first). Two different records can never converge on the very
-  same folder here, since each record's legacy name embeds its own uuid.
+  only the first), its reason naming the actual place — the media root,
+  already a twin under the resolved target parent, or by name under a
+  genuine third-party parent (U3; the third case batches one lookup of
+  every such parent's name for the whole plan). Two different records can
+  never converge on the very same folder here, since each record's legacy
+  name embeds its own uuid.
 
   An explicit `nil` hook answer (root) never pulls a folder that is already
   live under a real parent out to root (F1). CRM has no pointer to identify
@@ -152,29 +167,38 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   # calling the hook.
   defp resource_plan(actor_uuid) do
     case hook_status() do
-      :ok ->
+      {:ok, mod, fun} ->
         tagged_records =
           tag(light_contacts(), :contact) ++
             tag(light_companies(), :company) ++
             tag(light_interactions(), :interaction)
 
-        build_resource_plan(tagged_records, actor_uuid)
+        build_resource_plan(tagged_records, mod, fun, actor_uuid)
 
-      {:not_callable, mod, fun} ->
-        {[not_callable_hook_action(mod, fun)], []}
+      {:not_callable, config} ->
+        {[not_callable_hook_action(config)], []}
 
       :none ->
         {[], []}
     end
   end
 
+  # U7/V3: any configured value that is not a `{mod, fun}` pair naming an
+  # exported function is one and the same failure — a typo'd module, a
+  # removed function, and outright garbage (a string, an atom, a 3-tuple)
+  # all report `:hook_error` "not callable"; none of them is silently
+  # treated as "no hook configured" (that state is reserved for the key
+  # being entirely absent — `nil`, F2's root sentinel elsewhere).
   defp hook_status do
     case Application.get_env(:phoenix_kit_crm, :attachments_parent_folder) do
-      {mod, fun} when is_atom(mod) and is_atom(fun) ->
-        if callable?(mod, fun), do: :ok, else: {:not_callable, mod, fun}
-
-      _ ->
+      nil ->
         :none
+
+      {mod, fun} = config when is_atom(mod) and is_atom(fun) ->
+        if callable?(mod, fun), do: {:ok, mod, fun}, else: {:not_callable, config}
+
+      config ->
+        {:not_callable, config}
     end
   end
 
@@ -183,14 +207,14 @@ defmodule PhoenixKitCRM.MediaReorganizer do
       (function_exported?(mod, fun, 3) or function_exported?(mod, fun, 2))
   end
 
-  defp not_callable_hook_action(mod, fun) do
+  defp not_callable_hook_action(config) do
     %{
       source: @source,
       kind: :hook_error,
       op: :report,
       label: "attachments parent hook",
       counts: nil,
-      reason: "configured parent hook {#{inspect(mod)}, #{inspect(fun)}} is not callable"
+      reason: "configured parent hook #{inspect(config)} is not callable (invalid config)"
     }
   end
 
@@ -201,9 +225,7 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   # parent hook resolved — a record with nothing pointing at it never
   # triggers a (possibly writing) host hook (X12), and never with a nil
   # subject (R8).
-  defp build_resource_plan(tagged_records, actor_uuid) do
-    {mod, fun} = Application.get_env(:phoenix_kit_crm, :attachments_parent_folder)
-
+  defp build_resource_plan(tagged_records, mod, fun, actor_uuid) do
     prelim =
       Enum.map(tagged_records, fn {record, kind} ->
         %{record: record, kind: kind, legacy_name: legacy_name(kind, record)}
@@ -213,12 +235,18 @@ defmodule PhoenixKitCRM.MediaReorganizer do
 
     candidates = Enum.filter(prelim, &Map.has_key?(by_name, &1.legacy_name))
 
-    {resolved, hook_error_count} = resolve_candidates(candidates, by_name, mod, fun, actor_uuid)
+    {resolved, hook_error_labels} = resolve_candidates(candidates, by_name, mod, fun, actor_uuid)
 
+    # U4/V2: orphan scope = root + every parent that came from a SUCCESSFUL
+    # hook answer for ANY candidate, regardless of that candidate's outcome
+    # (moved, relocated, duplicate, hook_nil) — `hook_parent_uuid` is the
+    # raw answer `resolve_parent/5` returned, never the current-folder
+    # location `resolve_entry_nil_hook/2` pins an F1-adopted folder to.
     resolved_parents =
-      resolved |> Enum.map(& &1.parent_uuid) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+      resolved |> Enum.map(& &1.hook_parent_uuid) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
-    hook_nil_count = Enum.count(resolved, & &1.hook_nil)
+    hook_nil_labels =
+      resolved |> Enum.filter(& &1.hook_nil) |> Enum.map(&record_label(&1.record))
 
     {duplicate, normal} = Enum.split_with(resolved, & &1.duplicate)
 
@@ -229,9 +257,9 @@ defmodule PhoenixKitCRM.MediaReorganizer do
       |> Enum.reject(&is_nil/1)
 
     duplicate_actions = Enum.map(duplicate, &build_duplicate_action/1)
-    relocated_actions = Enum.flat_map(normal, &relocated_actions_for/1)
-    hook_error_actions = hook_error_action(hook_error_count)
-    hook_nil_actions = hook_nil_action(hook_nil_count)
+    relocated_actions = relocated_actions(normal)
+    hook_error_actions = hook_error_action(hook_error_labels)
+    hook_nil_actions = hook_nil_action(hook_nil_labels)
 
     all_actions =
       move_actions ++
@@ -249,27 +277,32 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   # never treated as "root"). `mod`/`fun` are already known callable (T3
   # checked that in `hook_status/0` before this ever runs).
   defp resolve_candidates(candidates, by_name, mod, fun, actor_uuid) do
-    {acc, errs} =
-      Enum.reduce(candidates, {[], 0}, fn candidate, {acc, errs} ->
+    {acc, err_labels} =
+      Enum.reduce(candidates, {[], []}, fn candidate, {acc, err_labels} ->
         case resolve_parent(mod, fun, candidate.kind, actor_uuid, candidate.record) do
-          {:ok, parent_uuid} ->
-            {[resolve_entry(candidate, parent_uuid, by_name) | acc], errs}
+          {:ok, hook_parent_uuid} ->
+            entry =
+              candidate
+              |> resolve_entry(hook_parent_uuid, by_name)
+              |> Map.put(:hook_parent_uuid, hook_parent_uuid)
+
+            {[entry | acc], err_labels}
 
           :error ->
-            {acc, errs + 1}
+            {acc, [record_label(candidate.record) | err_labels]}
         end
       end)
 
-    {Enum.reverse(acc), errs}
+    {Enum.reverse(acc), Enum.reverse(err_labels)}
   end
 
   defp resolve_parent(mod, fun, kind, actor_uuid, record) do
     cond do
       function_exported?(mod, fun, 3) ->
-        safe_call(fn -> apply(mod, fun, [kind, actor_uuid, record.uuid]) end)
+        safe_call(mod, fun, kind, fn -> apply(mod, fun, [kind, actor_uuid, record.uuid]) end)
 
       function_exported?(mod, fun, 2) ->
-        safe_call(fn -> apply(mod, fun, [kind, actor_uuid]) end)
+        safe_call(mod, fun, kind, fn -> apply(mod, fun, [kind, actor_uuid]) end)
 
       true ->
         :error
@@ -282,12 +315,21 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   # would raise a CastError and take down the whole plan). `Ecto.UUID.cast/1`
   # also normalizes case, so an upper-case answer still string-equals the
   # (lower-case) `parent_uuid` stored on `Folder`.
-  defp safe_call(fun) do
-    case fun.() do
+  # U6/T4: every log line — an exception, an unrecognized return value —
+  # carries the hook's `{mod, fun}` and the record `kind`, so a failure is
+  # traceable to which host callback and which kind of record hit it. A bad
+  # RETURN value (`{:error, _}`, `{:ok, "x"}`) is logged too, not only an
+  # exception.
+  defp safe_call(mod, fun, kind, fun_to_call) do
+    case fun_to_call.() do
       {:ok, uuid} when is_binary(uuid) ->
         case valid_uuid(uuid) do
-          nil -> :error
-          cast -> {:ok, cast}
+          nil ->
+            log_bad_hook_return(mod, fun, kind, {:ok, uuid})
+            :error
+
+          cast ->
+            {:ok, cast}
         end
 
       {:ok, nil} ->
@@ -296,21 +338,33 @@ defmodule PhoenixKitCRM.MediaReorganizer do
       nil ->
         {:ok, nil}
 
-      _other ->
+      other ->
+        log_bad_hook_return(mod, fun, kind, other)
         :error
     end
   rescue
     error ->
       Logger.warning(
-        "CRM attachments parent hook raised: " <>
+        "CRM attachments parent hook #{inspect(mod)}.#{fun} (kind=#{kind}) raised: " <>
           Exception.format(:error, error, __STACKTRACE__)
       )
 
       :error
   catch
-    kind, reason ->
-      Logger.warning("CRM attachments parent hook #{kind}: #{inspect(reason)}")
+    err_kind, reason ->
+      Logger.warning(
+        "CRM attachments parent hook #{inspect(mod)}.#{fun} (kind=#{kind}) #{err_kind}: " <>
+          inspect(reason)
+      )
+
       :error
+  end
+
+  defp log_bad_hook_return(mod, fun, kind, value) do
+    Logger.warning(
+      "CRM attachments parent hook #{inspect(mod)}.#{fun} (kind=#{kind}) returned " <>
+        "#{inspect(value)} — treated as a hook failure"
+    )
   end
 
   # Returns the CAST/downcased value — not the raw string — so an
@@ -412,11 +466,48 @@ defmodule PhoenixKitCRM.MediaReorganizer do
     }
   end
 
-  defp relocated_actions_for(entry) do
-    Enum.map(entry.relocated, fn folder ->
-      build_relocated_action(%{record: entry.record, kind: entry.kind, relocated: folder})
+  # U3/F5: batched over the whole plan so naming a relocated copy's actual
+  # third-party parent never costs a query per copy — only parents that are
+  # neither root nor the record's own resolved target need a name looked
+  # up (those two cases have their own wording, see `relocated_reason/4`).
+  defp relocated_actions(normal) do
+    pairs = Enum.flat_map(normal, fn entry -> Enum.map(entry.relocated, &{entry, &1}) end)
+    parent_names = load_relocated_parent_names(pairs)
+
+    Enum.map(pairs, fn {entry, folder} ->
+      build_relocated_action(%{
+        record: entry.record,
+        kind: entry.kind,
+        relocated: folder,
+        target_parent_uuid: entry.parent_uuid,
+        parent_names: parent_names
+      })
     end)
   end
+
+  defp load_relocated_parent_names(pairs) do
+    uuids =
+      pairs
+      |> Enum.map(fn {entry, folder} -> other_parent_uuid(folder, entry.parent_uuid) end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    case uuids do
+      [] ->
+        %{}
+
+      uuids ->
+        Folder
+        |> where([f], f.uuid in ^uuids)
+        |> select([f], {f.uuid, f.name})
+        |> repo().all()
+        |> Map.new()
+    end
+  end
+
+  defp other_parent_uuid(%Folder{parent_uuid: nil}, _target_parent_uuid), do: nil
+  defp other_parent_uuid(%Folder{parent_uuid: parent_uuid}, parent_uuid), do: nil
+  defp other_parent_uuid(%Folder{parent_uuid: parent_uuid}, _target_parent_uuid), do: parent_uuid
 
   # A `:move` whose folder already sits at `parent_uuid` under `name` is a
   # no-op — filtered here before it ever reaches the core engine; unlike
@@ -461,17 +552,52 @@ defmodule PhoenixKitCRM.MediaReorganizer do
     }
   end
 
-  defp build_relocated_action(%{record: record, kind: kind, relocated: folder}) do
+  defp build_relocated_action(%{record: record, kind: kind, relocated: folder} = ctx) do
+    reason =
+      relocated_reason(
+        folder,
+        kind,
+        Map.get(ctx, :target_parent_uuid),
+        Map.get(ctx, :parent_names, %{})
+      )
+
     %{
       source: @source,
       kind: :relocated,
       label: record_label(record),
       op: :report,
       counts: nil,
-      reason:
-        "legacy #{kind} folder is live at #{folder.uuid} — outside root and the resolved " <>
-          "parent, left alone (the parent hook may resolve differently for another user)"
+      reason: reason
     }
+  end
+
+  # U3: the reason names the copy's actual place — at the media root,
+  # already under the very parent the record's own hook answer resolved
+  # (where an eventual move there would collide), or by name under a
+  # genuine third-party parent — instead of a blanket "outside root and the
+  # resolved parent" that reads the same for all three cases. The first two
+  # clauses are unreachable through live data today: `resolve_entry_with_parent/3`
+  # reports root+target both occupied as one `:duplicate` (R7) before a
+  # `:relocated` copy is ever built, so every reachable relocated copy here
+  # is a genuine third-party parent. Kept for parity with the shared
+  # reason-naming pattern (catalogue/warehouse) and in case that ordering
+  # changes.
+  defp relocated_reason(%Folder{parent_uuid: nil, uuid: uuid}, kind, _target, _names) do
+    "legacy #{kind} folder #{uuid} is live at the media root — left alone " <>
+      "(the parent hook may resolve differently for another user)"
+  end
+
+  defp relocated_reason(%Folder{parent_uuid: parent_uuid, uuid: uuid}, kind, parent_uuid, _names)
+       when not is_nil(parent_uuid) do
+    "legacy #{kind} folder #{uuid} is already live as a twin under the target parent " <>
+      "— left alone (the parent hook may resolve differently for another user)"
+  end
+
+  defp relocated_reason(%Folder{parent_uuid: parent_uuid, uuid: uuid}, kind, _target, names) do
+    parent_label = Map.get(names, parent_uuid, parent_uuid)
+
+    "legacy #{kind} folder #{uuid} is live under #{parent_label} — left alone " <>
+      "(the parent hook may resolve differently for another user)"
   end
 
   defp record_label(%Contact{} = c), do: c.name
@@ -482,9 +608,9 @@ defmodule PhoenixKitCRM.MediaReorganizer do
 
   defp record_label(%Interaction{} = i), do: i.subject
 
-  defp hook_error_action(0), do: []
+  defp hook_error_action([]), do: []
 
-  defp hook_error_action(count) do
+  defp hook_error_action(labels) do
     [
       %{
         source: @source,
@@ -493,17 +619,17 @@ defmodule PhoenixKitCRM.MediaReorganizer do
         label: "attachments parent hook",
         counts: nil,
         reason:
-          "#{count} record(s) skipped: the configured parent hook raised, exited, or " <>
-            "returned neither {:ok, uuid} nor nil"
+          "#{length(labels)} record(s) skipped: the configured parent hook raised, exited, " <>
+            "or returned neither {:ok, uuid} nor nil — #{label_list(labels)}"
       }
     ]
   end
 
-  # F1: a plain aggregated count, not one report per record — mirrors
+  # F1: an aggregated report, not one per record — mirrors
   # `hook_error_action/1`.
-  defp hook_nil_action(0), do: []
+  defp hook_nil_action([]), do: []
 
-  defp hook_nil_action(count) do
+  defp hook_nil_action(labels) do
     [
       %{
         source: @source,
@@ -512,10 +638,24 @@ defmodule PhoenixKitCRM.MediaReorganizer do
         label: "attachments parent hook",
         counts: nil,
         reason:
-          "#{count} record(s): the parent hook answered root for a folder living under a " <>
-            "parent — left in place (the parent hook may resolve differently for another user)"
+          "#{length(labels)} record(s): the parent hook answered root for a folder living " <>
+            "under a parent — left in place (the parent hook may resolve differently for " <>
+            "another user) — #{label_list(labels)}"
       }
     ]
+  end
+
+  # U8: names up to 10 records so the owner can tell where to look, instead
+  # of a bare count.
+  @max_listed_labels 10
+
+  defp label_list(labels) do
+    {shown, rest} = Enum.split(labels, @max_listed_labels)
+
+    case rest do
+      [] -> Enum.join(shown, ", ")
+      rest -> Enum.join(shown, ", ") <> ", … and #{length(rest)} more"
+    end
   end
 
   # One query for every distinct legacy name in the batch, live folders only

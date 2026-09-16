@@ -437,6 +437,9 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
       # E6: CRM's hook is actor-dependent — the reason must not claim this is
       # the answer for every user, only for the actor this plan ran as.
       assert action.reason =~ "another user"
+      # U3: the reason names the actual third-party parent, not just the
+      # folder's own uuid.
+      assert action.reason =~ "Somewhere Else"
     end
   end
 
@@ -515,6 +518,8 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
       refute is_nil(hook_nil)
       assert hook_nil.op == :report
       assert hook_nil.reason =~ "1 record"
+      # U8: the report names the affected record, not only a bare count.
+      assert hook_nil.reason =~ contact.name
 
       reloaded = Storage.get_folder(folder.uuid)
       assert reloaded.parent_uuid == elsewhere.uuid
@@ -555,6 +560,45 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
       actions = MediaReorganizer.plan(nil, [])
 
       refute Enum.any?(actions, &(&1.kind == :hook_nil))
+    end
+  end
+
+  describe "orphan scope is never widened by where an F1-adopted folder sits (U4)" do
+    # Before the fix, an F1-adopted folder's own resting place (never
+    # returned by the hook, which answered root/nil) leaked into the
+    # orphan-scan scope — widening it to a parent the hook never resolved
+    # for anyone. A stray legacy folder under that same parent must stay
+    # out of the orphan sweep's reach exactly like R8 (no candidate of that
+    # kind ever resolved that parent).
+    test "an F1-adopted folder's own parent does not admit unrelated stray folders into the orphan scan" do
+      contact = contact_fixture(%{"name" => "Adopted In Place"})
+      {:ok, elsewhere} = Storage.create_folder(%{name: "Somewhere Else"})
+
+      {:ok, _adopted} =
+        Storage.create_folder(%{
+          name: "crm-contact-#{contact.uuid}",
+          parent_uuid: elsewhere.uuid
+        })
+
+      # An unrelated legacy-named folder for a company that no longer
+      # exists, sitting under the very same parent — the hook never
+      # resolved `elsewhere` for any candidate (only F1 pinned the contact's
+      # folder there), so this must stay outside the orphan scan.
+      {:ok, stray_orphan} =
+        Storage.create_folder(%{
+          name: "crm-company-#{Ecto.UUID.generate()}",
+          parent_uuid: elsewhere.uuid
+        })
+
+      # `:target_folder` left unset → `Hook.parent/3` answers `{:ok, nil}` for
+      # the contact candidate; the company kind has zero live candidates so
+      # the hook is never called for it (R8/X12) and elsewhere is never
+      # returned by a successful hook answer for anyone.
+      hook_on()
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(Map.get(&1, :folder) && &1.folder.uuid == stray_orphan.uuid))
     end
   end
 
@@ -651,7 +695,54 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
       actions = MediaReorganizer.plan(nil, [])
 
       refute Enum.any?(actions, &(&1.op == :move and &1.label == contact.name))
-      assert Enum.any?(actions, &(&1.kind == :hook_error))
+      hook_error = Enum.find(actions, &(&1.kind == :hook_error))
+      refute is_nil(hook_error)
+      # U8: the report names the skipped record, not only a bare count.
+      assert hook_error.reason =~ contact.name
+    end
+
+    # U8: several failing records are all named, not folded into a bare
+    # count — the owner can tell exactly which records to look at.
+    test "several hook failures list every affected record's label" do
+      grace = contact_fixture(%{"name" => "Grace"})
+      ada = contact_fixture(%{"name" => "Ada"})
+      {:ok, _} = Storage.create_folder(%{name: "crm-contact-#{grace.uuid}"})
+      {:ok, _} = Storage.create_folder(%{name: "crm-contact-#{ada.uuid}"})
+
+      hook_on(InvalidHook)
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      hook_error = Enum.find(actions, &(&1.kind == :hook_error))
+      refute is_nil(hook_error)
+      assert hook_error.reason =~ "2 record"
+      assert hook_error.reason =~ "Grace"
+      assert hook_error.reason =~ "Ada"
+    end
+
+    # U8: past the tenth failing record, the report stops listing every
+    # label and summarizes the rest instead of growing unbounded.
+    test "more than ten hook failures are summarized after the tenth label" do
+      contacts =
+        for letter <- ~w[A B C D E F G H I J K L] do
+          contact = contact_fixture(%{"name" => "Failing #{letter}"})
+          {:ok, _} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
+          contact
+        end
+
+      hook_on(InvalidHook)
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      hook_error = Enum.find(actions, &(&1.kind == :hook_error))
+      refute is_nil(hook_error)
+      assert hook_error.reason =~ "12 record"
+      assert hook_error.reason =~ "… and 2 more"
+
+      # Exactly 10 of the 12 labels are listed (order is the module's own
+      # inserted_at/uuid ordering, not necessarily creation order).
+      listed = Enum.count(contacts, &(hook_error.reason =~ &1.name))
+      assert listed == 10
     end
 
     # T3: a configured hook whose module does not even exist is a distinct
@@ -670,6 +761,25 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
       assert action.reason =~ "NoSuchHook"
     end
 
+    # U7/V3: a configured value that is not a `{mod, fun}` pair at all
+    # (a typo left the config as an atom, a string, a stray tuple, …) is
+    # the same failure as a not-callable `{mod, fun}` — never silently
+    # treated as "no hook configured".
+    test "a garbage (non-tuple) config → hook_error, never silently treated as unconfigured" do
+      Application.put_env(:phoenix_kit_crm, :attachments_parent_folder, "oops")
+      contact = contact_fixture(%{"name" => "Garbage Config"})
+      {:ok, _folder} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.op == :move and &1.label == contact.name))
+      action = Enum.find(actions, &(&1.kind == :hook_error))
+      refute is_nil(action)
+      assert action.op == :report
+      assert action.reason =~ "not callable"
+      assert action.reason =~ "oops"
+    end
+
     test "a configured but uncallable hook skips every candidate, no moves at all" do
       contact = contact_fixture(%{"name" => "Uncallable"})
       {:ok, _folder} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
@@ -682,8 +792,10 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
       assert Enum.count(actions, &(&1.kind == :hook_error)) == 1
     end
 
-    # T4: an exception from the hook must be logged, not silently swallowed.
-    test "a raising hook logs a warning" do
+    # T4/U6: an exception from the hook must be logged, not silently
+    # swallowed, and the log line names the failing `{mod, fun}` and kind so
+    # the owner knows which host callback and which record kind to look at.
+    test "a raising hook logs a warning naming the hook and the kind" do
       contact = contact_fixture(%{"name" => "Logged"})
       {:ok, _folder} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
 
@@ -695,6 +807,26 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
         end)
 
       assert log =~ "boom"
+      assert log =~ "RaisingHook"
+      assert log =~ "kind=contact"
+    end
+
+    # U6: a bad RETURN value (not an exception) is logged too, not silently
+    # swallowed — it was previously only counted, never logged.
+    test "a hook returning an unrecognized value logs a warning naming the hook, the kind and the value" do
+      contact = contact_fixture(%{"name" => "Bad Return"})
+      {:ok, _folder} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
+
+      hook_on(InvalidHook)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          MediaReorganizer.plan(nil, [])
+        end)
+
+      assert log =~ "InvalidHook"
+      assert log =~ "kind=contact"
+      assert log =~ "{:error, :timeout}"
     end
   end
 
