@@ -234,11 +234,12 @@ defmodule PhoenixKitCRM do
   @impl PhoenixKit.Module
   def css_sources, do: [:phoenix_kit_crm]
 
-  # PhoenixKit.Module.media_reorganizer/0 (core ≥ the release that ships
-  # Storage.Reorganizer). No `@impl` yet — today's hex core pin (2.23.x)
-  # predates the callback; `ModuleRegistry.all_media_reorganizers/0` looks
-  # this function up by name, not by behaviour, so it is collected either
-  # way once core ships it.
+  # PhoenixKit.Module.media_reorganizer/0 (core ≥ 2.24.0, which ships
+  # Storage.Reorganizer). No `@impl`: the `:phoenix_kit` requirement is still
+  # `~> 2.0` and older cores do not declare the callback, so the annotation
+  # would warn (same reasoning as `js_sources/0`).
+  # `ModuleRegistry.all_media_reorganizers/0` looks this function up by name,
+  # so it is collected either way.
   def media_reorganizer, do: PhoenixKitCRM.MediaReorganizer
 
   # Project-extension contribution to the `phoenix_kit_projects` hub — the

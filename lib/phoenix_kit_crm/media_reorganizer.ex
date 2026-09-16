@@ -2,13 +2,12 @@ defmodule PhoenixKitCRM.MediaReorganizer do
   @moduledoc """
   CRM's media-reorganizer plan source.
 
-  Not compiled against a core `PhoenixKit.Modules.Storage.Reorganizer.Source`
-  behaviour — today's hex core (2.23.x) does not ship the engine yet. This
-  module declares no `@behaviour` and returns plain maps; see
-  `PhoenixKitCRM.media_reorganizer/0` for the registration comment. Once core
-  ships the engine, `plan/2`'s contract (`plan(actor_uuid, opts) :: [map()]`)
-  already matches `Source.plan/2` — the only follow-up is adding
-  `@behaviour`/`@impl`.
+  Implements the `PhoenixKit.Modules.Storage.Reorganizer.Source` contract
+  (`plan(actor_uuid, opts) :: [map()]`, shipped in core 2.24.0) without
+  declaring `@behaviour`: the `:phoenix_kit` requirement is still `~> 2.0`,
+  and against an older core the behaviour module does not exist, so the
+  annotation would warn. Returns plain maps, which is all the contract asks
+  for; see `PhoenixKitCRM.media_reorganizer/0` for the registration.
 
   Covers contacts, companies and interactions (their own attachment root
   folders) and orphaned legacy folders whose record is missing, trashed, or
@@ -600,13 +599,16 @@ defmodule PhoenixKitCRM.MediaReorganizer do
       "(the parent hook may resolve differently for another user)"
   end
 
-  defp record_label(%Contact{} = c), do: c.name
-  defp record_label(%Company{} = c), do: c.name
+  # Core's `Action.new!/1` requires a binary `label`. `name` is nullable in
+  # the DB (only the changeset requires it) and an interaction's `subject` is
+  # optional, so a blank one falls back to the record's uuid — otherwise the
+  # engine turns that record's action into an `:invalid_action` report.
+  defp record_label(%Contact{name: name, uuid: uuid}), do: label_or_uuid(name, uuid)
+  defp record_label(%Company{name: name, uuid: uuid}), do: label_or_uuid(name, uuid)
+  defp record_label(%Interaction{subject: subject, uuid: uuid}), do: label_or_uuid(subject, uuid)
 
-  defp record_label(%Interaction{subject: subject, uuid: uuid}) when subject in [nil, ""],
-    do: uuid
-
-  defp record_label(%Interaction{} = i), do: i.subject
+  defp label_or_uuid(value, uuid) when value in [nil, ""], do: uuid
+  defp label_or_uuid(value, _uuid), do: value
 
   defp hook_error_action([]), do: []
 

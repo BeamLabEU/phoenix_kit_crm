@@ -2,8 +2,10 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
   use PhoenixKitCRM.DataCase, async: false
 
   alias PhoenixKit.Modules.Storage
+  alias PhoenixKit.Modules.Storage.Reorganizer.Action
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.{Companies, Contacts, Interactions, MediaReorganizer}
+  alias PhoenixKitCRM.Schemas.{Company, Contact}
 
   defmodule Hook do
     def parent(kind, _actor, subject) when kind in [:contact, :company, :interaction] do
@@ -256,6 +258,57 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
 
     refute is_nil(interaction_action)
     assert interaction_action.label == interaction.uuid
+  end
+
+  test "a contact/company with a NULL name (nullable column) is labeled by its uuid" do
+    contact = contact_fixture()
+    company = company_fixture()
+
+    # Only the changeset requires `name`; the column itself is nullable.
+    Repo.update_all(from(c in Contact, where: c.uuid == ^contact.uuid),
+      set: [name: nil]
+    )
+
+    Repo.update_all(from(c in Company, where: c.uuid == ^company.uuid),
+      set: [name: nil]
+    )
+
+    {:ok, target} = Storage.create_folder(%{name: "Media"})
+    {:ok, _} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
+    {:ok, _} = Storage.create_folder(%{name: "crm-company-#{company.uuid}"})
+
+    Process.put(:target_folder, target.uuid)
+    hook_on()
+
+    actions = MediaReorganizer.plan(nil, [])
+
+    assert Enum.find(actions, &(&1.kind == :contact)).label == contact.uuid
+    assert Enum.find(actions, &(&1.kind == :company)).label == company.uuid
+  end
+
+  test "every planned action passes core's Action.new!/1 validation" do
+    contact = contact_fixture()
+    company = company_fixture()
+    interaction = interaction_fixture(contact, %{"subject" => ""})
+
+    {:ok, target} = Storage.create_folder(%{name: "Media"})
+    {:ok, _} = Storage.create_folder(%{name: "crm-contact-#{contact.uuid}"})
+    {:ok, _} = Storage.create_folder(%{name: "crm-company-#{company.uuid}"})
+    {:ok, _} = Storage.create_folder(%{name: "crm-interaction-#{interaction.uuid}"})
+    {:ok, _} = Storage.create_folder(%{name: "crm-contact-#{Ecto.UUID.generate()}"})
+
+    Process.put(:target_folder, target.uuid)
+    hook_on()
+
+    actions = MediaReorganizer.plan(nil, [])
+
+    assert Enum.count(actions, &(&1.op == :move)) == 3
+    assert Enum.any?(actions, &(&1.kind == :orphan))
+
+    for action <- actions do
+      assert Action.unknown_keys(action) == []
+      assert %{} = Action.new!(action)
+    end
   end
 
   describe "orphan folders" do
