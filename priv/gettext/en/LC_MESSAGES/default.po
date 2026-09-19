@@ -2075,7 +2075,7 @@ msgstr ""
 
 #: lib/phoenix_kit_crm/web/project_client_live.ex:155
 #, elixir-autogen, elixir-format
-msgid "No client linked to this project yet."
+msgid "Client not set."
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/project_client_live.ex:149
@@ -2418,7 +2418,7 @@ msgstr ""
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:676
 #, elixir-autogen, elixir-format, fuzzy
-msgid "No contacts linked to this company yet."
+msgid "This company has no contacts yet."
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:865

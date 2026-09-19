@@ -77,7 +77,7 @@ defmodule PhoenixKitCRM.Web.ProjectClientLiveTest do
   test "shows the link-a-client empty state when config carries no company" do
     html = render_tab(company: nil)
 
-    assert html =~ "No client linked to this project yet."
+    assert html =~ "Client not set."
     refute html =~ "Recent interactions"
   end
 
@@ -85,6 +85,6 @@ defmodule PhoenixKitCRM.Web.ProjectClientLiveTest do
     html = render_tab(loading: true)
 
     assert html =~ "skeleton"
-    refute html =~ "No client linked to this project yet."
+    refute html =~ "Client not set."
   end
 end

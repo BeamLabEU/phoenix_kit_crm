@@ -152,7 +152,7 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
           <div class="card border border-dashed border-base-300 bg-base-100">
             <div class="card-body items-center text-center py-8 gap-2">
               <p class="text-sm opacity-70">
-                {gettext("No client linked to this project yet.")}
+                {gettext("Client not set.")}
               </p>
               <p class="text-xs opacity-50">
                 {gettext("Pick the client company in the project's Modules & features panel.")}
