@@ -1981,7 +1981,7 @@ msgstr ""
 
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:638
 #, elixir-autogen, elixir-format
-msgid "— none —"
+msgid "— Company not set —"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/list_import_live.ex:438

@@ -1999,8 +1999,8 @@ msgstr "фото профиля"
 
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:638
 #, elixir-autogen, elixir-format
-msgid "— none —"
-msgstr "— нет —"
+msgid "— Company not set —"
+msgstr "— Компания не указана —"
 
 #: lib/phoenix_kit_crm/web/list_import_live.ex:438
 #, elixir-autogen, elixir-format

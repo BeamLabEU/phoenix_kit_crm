@@ -13,6 +13,20 @@ defmodule PhoenixKitCRM.Web.ContactFormLiveTest do
     assert html =~ "Name"
   end
 
+  # "— none —" read as if there were no companies (boss, 2026-09-19).
+  test "the company select's default says the company is not set", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/new")
+
+    assert view |> element("#contact-company option[value='']") |> render() =~
+             "— Company not set —"
+
+    for {locale, text} <- [{"et", "— Ettevõte määramata —"}, {"ru", "— Компания не указана —"}] do
+      assert Gettext.with_locale(PhoenixKitCRM.Gettext, locale, fn ->
+               Gettext.gettext(PhoenixKitCRM.Gettext, "— Company not set —")
+             end) == text
+    end
+  end
+
   test "the way back is the chrome breadcrumb (page_section), not an in-body header",
        %{conn: conn} do
     {:ok, view, html} = live(conn, "/en/admin/crm/contacts/new")
