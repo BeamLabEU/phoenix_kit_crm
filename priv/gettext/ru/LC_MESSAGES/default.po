@@ -2407,8 +2407,8 @@ msgstr "— выберите аккаунт —"
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:539
 #, elixir-autogen
-msgid "These items could not be displayed. The catalogue module may be unavailable."
-msgstr "Не удалось показать эти товары. Модуль каталога может быть недоступен."
+msgid "These items could not be displayed. The Catalogues module may be unavailable."
+msgstr "Не удалось показать эти товары. Модуль «Каталоги» может быть недоступен."
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:677
 #, elixir-autogen, elixir-format

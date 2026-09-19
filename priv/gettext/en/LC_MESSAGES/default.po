@@ -2388,7 +2388,7 @@ msgstr ""
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:539
 #, elixir-autogen
-msgid "These items could not be displayed. The catalogue module may be unavailable."
+msgid "These items could not be displayed. The Catalogues module may be unavailable."
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:677

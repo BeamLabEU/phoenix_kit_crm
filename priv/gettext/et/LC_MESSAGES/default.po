@@ -2388,8 +2388,8 @@ msgstr "— vali konto —"
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:539
 #, elixir-autogen
-msgid "These items could not be displayed. The catalogue module may be unavailable."
-msgstr "Neid tooteid ei õnnestunud kuvada. Kataloogimoodul võib olla kättesaamatu."
+msgid "These items could not be displayed. The Catalogues module may be unavailable."
+msgstr "Neid tooteid ei õnnestunud kuvada. Moodul Kataloogid võib olla kättesaamatu."
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:677
 #, elixir-autogen, elixir-format

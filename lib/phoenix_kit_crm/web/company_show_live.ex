@@ -536,7 +536,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
     ~H"""
     <p class="text-sm text-base-content/50 italic">
-      {gettext("These items could not be displayed. The catalogue module may be unavailable.")}
+      {gettext("These items could not be displayed. The Catalogues module may be unavailable.")}
     </p>
     """
   end
