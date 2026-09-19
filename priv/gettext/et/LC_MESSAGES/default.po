@@ -2106,8 +2106,8 @@ msgstr "Tootja"
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:435
 #, elixir-autogen
-msgid "Catalogue"
-msgstr "Kataloog"
+msgid "Catalogues"
+msgstr "Kataloogid"
 
 #: lib/phoenix_kit_crm/web/company_form_live.ex:476
 #, elixir-autogen

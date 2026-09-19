@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.14.1 - 2026-09-19
+
+### Changed
+
+- The Catalogues module is named by its own name everywhere CRM refers to it:
+  the company profile's tab is now **Catalogues** (its `?tab=catalogue` id is
+  unchanged), the "items could not be displayed" notice reads "The Catalogues
+  module may be unavailable", and the backfill tasks' missing-table guard says
+  "Catalogues module not installed". `et` and `ru` translations updated to
+  match.
+
 ## 0.14.0 - 2026-09-16
 
 ### Added

@@ -3,8 +3,8 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   Show page for a CRM company. Tabs: Overview (identity block — logo picker,
   status, role badges — plus details), Members, Interactions (a composer for
   company-anchored interactions plus a merged feed of the members' own,
-  behind an All | Company | People filter), and Events always; Catalogue when
-  the catalogue module is enabled; Files + Images when core Storage is
+  behind an All | Company | People filter), and Events always; Catalogues when
+  the Catalogues module is enabled; Files + Images when core Storage is
   enabled; Comments when the comments module is enabled. There is no in-body
   header band: the name lives in the layout header and Edit rides its
   `page_action` chip.
@@ -432,7 +432,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
       %{id: "events", label: gettext("Events"), icon: "hero-clock"}
     ]
     |> maybe_concat(catalogue_enabled?, [
-      %{id: "catalogue", label: gettext("Catalogue"), icon: "hero-rectangle-stack"}
+      %{id: "catalogue", label: gettext("Catalogues"), icon: "hero-rectangle-stack"}
     ])
     |> maybe_concat(storage_enabled?, [
       %{id: "files", label: gettext("Files"), icon: "hero-document"},
