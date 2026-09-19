@@ -105,8 +105,8 @@ defmodule PhoenixKitCRM.CatalogueImport do
 
     unless source_table_exists?(repo, prefix, config) do
       Mix.shell().error(
-        "Catalogue not installed: table #{prefix}.#{config.table} not found. " <>
-          "Enable the Catalogue module first."
+        "Catalogues module not installed: table #{prefix}.#{config.table} not found. " <>
+          "Enable the Catalogues module first."
       )
 
       exit({:shutdown, 1})
