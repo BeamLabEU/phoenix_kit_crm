@@ -74,11 +74,17 @@ defmodule PhoenixKitCRM.Web.ProjectClientLiveTest do
     assert render_tab(company: %{@company | name: "   "}) =~ "?"
   end
 
-  test "shows the link-a-client empty state when config carries no company" do
+  test "shows the client-not-set empty state when config carries no company" do
     html = render_tab(company: nil)
 
     assert html =~ "Client not set."
     refute html =~ "Recent interactions"
+
+    for {locale, text} <- [{"et", "Klient määramata."}, {"ru", "Клиент не указан."}] do
+      assert Gettext.with_locale(PhoenixKitCRM.Gettext, locale, fn ->
+               Gettext.gettext(PhoenixKitCRM.Gettext, "Client not set.")
+             end) == text
+    end
   end
 
   test "paints a skeleton on the disconnected mount instead of a false empty state" do

@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.14.2 - 2026-09-20
+
+### Changed
+
+- Unset and empty copy now says what is true: the contact form's company
+  select reads **— Company not set —** instead of "— none —"; a company with
+  no members reads "This company has no contacts yet."; a project with no
+  client reads "Client not set." `et` and `ru` translations updated to match.
+
 ## 0.14.1 - 2026-09-19
 
 ### Changed

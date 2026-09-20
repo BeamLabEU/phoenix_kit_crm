@@ -2417,7 +2417,7 @@ msgid "New contact for this company"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:676
-#, elixir-autogen, elixir-format, fuzzy
+#, elixir-autogen, elixir-format
 msgid "This company has no contacts yet."
 msgstr ""
 

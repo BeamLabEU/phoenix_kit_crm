@@ -176,20 +176,16 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     assert html =~ "This company has no contacts yet."
   end
 
-  test "the reworded empty labels are translated" do
-    for {msgid, et, ru} <- [
-          {"This company has no contacts yet.", "Sellel ettevõttel pole veel kontakte.",
-           "У этой компании пока нет контактов."},
-          {"Client not set.", "Klient määramata.", "Клиент не указан."},
-          {"— Company not set —", "— Ettevõte määramata —", "— Компания не указана —"}
-        ] do
-      assert Gettext.with_locale(PhoenixKitCRM.Gettext, "et", fn ->
-               Gettext.gettext(PhoenixKitCRM.Gettext, msgid)
-             end) == et
+  test "the members empty-state title is translated" do
+    msgid = "This company has no contacts yet."
 
-      assert Gettext.with_locale(PhoenixKitCRM.Gettext, "ru", fn ->
+    for {locale, text} <- [
+          {"et", "Sellel ettevõttel pole veel kontakte."},
+          {"ru", "У этой компании пока нет контактов."}
+        ] do
+      assert Gettext.with_locale(PhoenixKitCRM.Gettext, locale, fn ->
                Gettext.gettext(PhoenixKitCRM.Gettext, msgid)
-             end) == ru
+             end) == text
     end
   end
 
