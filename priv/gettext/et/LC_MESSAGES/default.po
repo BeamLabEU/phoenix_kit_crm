@@ -1981,8 +1981,8 @@ msgstr "profiilipilt"
 
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:638
 #, elixir-autogen, elixir-format
-msgid "— none —"
-msgstr "— puudub —"
+msgid "— Company not set —"
+msgstr "— Ettevõte määramata —"
 
 #: lib/phoenix_kit_crm/web/list_import_live.ex:438
 #, elixir-autogen, elixir-format
@@ -2075,8 +2075,8 @@ msgstr "(teemata)"
 
 #: lib/phoenix_kit_crm/web/project_client_live.ex:155
 #, elixir-autogen, elixir-format
-msgid "No client linked to this project yet."
-msgstr "Selle projektiga pole veel klienti seotud."
+msgid "Client not set."
+msgstr "Klient määramata."
 
 #: lib/phoenix_kit_crm/web/project_client_live.ex:149
 #, elixir-autogen, elixir-format
@@ -2418,8 +2418,8 @@ msgstr "Uus kontakt sellele ettevõttele"
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:676
 #, elixir-autogen, elixir-format
-msgid "No contacts linked to this company yet."
-msgstr "Selle ettevõttega pole veel ühtegi kontakti seotud."
+msgid "This company has no contacts yet."
+msgstr "Sellel ettevõttel pole veel kontakte."
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:865
 #, elixir-autogen, elixir-format

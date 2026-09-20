@@ -635,7 +635,7 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
                 name="company_uuid"
                 value={@company_uuid}
                 label={gettext("Company")}
-                prompt={gettext("— none —")}
+                prompt={gettext("— Company not set —")}
                 options={Enum.map(@companies, &{&1.name, &1.uuid})}
               />
               <p class="text-xs text-base-content/50 mt-1">

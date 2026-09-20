@@ -673,7 +673,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
           <.empty_state
             :if={@memberships == []}
             icon="hero-users"
-            title={gettext("No contacts linked to this company yet.")}
+            title={gettext("This company has no contacts yet.")}
             description={gettext("Add one with the link above, or set the Company field on an existing contact's edit page.")}
           />
 

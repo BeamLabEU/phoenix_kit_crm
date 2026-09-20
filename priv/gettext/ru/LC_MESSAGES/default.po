@@ -1999,8 +1999,8 @@ msgstr "фото профиля"
 
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:638
 #, elixir-autogen, elixir-format
-msgid "— none —"
-msgstr "— нет —"
+msgid "— Company not set —"
+msgstr "— Компания не указана —"
 
 #: lib/phoenix_kit_crm/web/list_import_live.ex:438
 #, elixir-autogen, elixir-format
@@ -2094,8 +2094,8 @@ msgstr "(без темы)"
 
 #: lib/phoenix_kit_crm/web/project_client_live.ex:155
 #, elixir-autogen, elixir-format
-msgid "No client linked to this project yet."
-msgstr "К этому проекту пока не привязан клиент."
+msgid "Client not set."
+msgstr "Клиент не указан."
 
 #: lib/phoenix_kit_crm/web/project_client_live.ex:149
 #, elixir-autogen, elixir-format
@@ -2437,8 +2437,8 @@ msgstr "Новый контакт для этой компании"
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:676
 #, elixir-autogen, elixir-format
-msgid "No contacts linked to this company yet."
-msgstr "К этой компании пока не привязан ни один контакт."
+msgid "This company has no contacts yet."
+msgstr "У этой компании пока нет контактов."
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:865
 #, elixir-autogen, elixir-format
