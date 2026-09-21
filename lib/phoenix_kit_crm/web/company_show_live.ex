@@ -318,7 +318,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
                :company,
                socket.assigns.company.uuid,
                :images,
-               actor_uuid(socket)
+               Activity.actor_uuid(socket)
              ) do
           {:ok, folder_uuid} ->
             {:noreply, assign(socket, avatar_folder_uuid: folder_uuid, show_avatar_picker: true)}
@@ -406,16 +406,9 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     :exit, _ -> []
   end
 
-  defp actor_uuid(socket) do
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> uuid
-      _ -> nil
-    end
-  end
-
   defp log_avatar(socket, verb) do
     Activity.log("crm.company_avatar_#{verb}",
-      actor_uuid: actor_uuid(socket),
+      actor_uuid: Activity.actor_uuid(socket),
       resource_type: "crm_company",
       resource_uuid: socket.assigns.company.uuid,
       metadata: %{}

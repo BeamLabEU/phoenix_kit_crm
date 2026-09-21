@@ -148,8 +148,9 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
 - **`enabled?/0` rescues and returns `false`** so the module degrades gracefully
   when the DB is not reachable (during boot, for instance).
 - **Activity logging:** mutations log `"crm.<verb>"` actions through
-  `PhoenixKitCRM.Activity`, a `Code.ensure_loaded?`-guarded, never-raising
-  wrapper over `PhoenixKit.Activity`; the Events-tab labels live in
+  `PhoenixKitCRM.Activity`, a thin wrapper over core's never-raising
+  `PhoenixKit.Activity.log/3`; the actor comes from `PhoenixKitWeb.Actor`
+  (scope first, then the bare current user). The Events-tab labels live in
   `PhoenixKitCRM.ActivityLabels`. Never put PII (email, phone, free-text body)
   in activity metadata, and never set `target_uuid` to a non-user — it drives
   core notifications.

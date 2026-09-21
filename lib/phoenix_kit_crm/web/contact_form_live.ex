@@ -446,9 +446,9 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
       {:ok, contact} ->
         # All three are best-effort secondary ops (each logs + swallows its own
         # failure). roles returns :ok | {:partial, _}; membership/login :ok | :error.
-        roles = sync_roles(contact, socket.assigns.roles_selected, actor_uuid(socket))
+        roles = sync_roles(contact, socket.assigns.roles_selected, Activity.actor_uuid(socket))
         membership = apply_membership(contact, company_uuid, role, dept)
-        login = apply_login(contact, allow_login, email, actor_uuid(socket))
+        login = apply_login(contact, allow_login, email, Activity.actor_uuid(socket))
 
         Activity.log(
           "crm.contact_#{verb(action)}",
@@ -599,8 +599,6 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
 
   defp verb(:new), do: "created"
   defp verb(:edit), do: "updated"
-
-  defp actor_uuid(socket), do: Keyword.get(Activity.actor_opts(socket), :actor_uuid)
 
   @impl true
   def render(assigns) do
