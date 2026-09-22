@@ -14,6 +14,13 @@ defmodule PhoenixKitCRM.Web.ContactFormLiveTest do
   end
 
   # "— none —" read as if there were no companies (boss, 2026-09-19).
+  # LiveView recovers a form's input after a reconnect only when the form
+  # has an id beside its phx-change.
+  test "the form carries the id LiveView recovers it by", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/new")
+    assert has_element?(view, "form#contact-form[phx-change=validate]")
+  end
+
   test "the company select's default says the company is not set", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/new")
 

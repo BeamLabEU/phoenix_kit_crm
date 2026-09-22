@@ -52,6 +52,12 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
     assert html =~ "Drag files here or click to upload"
   end
 
+  test "the composer's form carries the id LiveView recovers it by", %{conn: conn} do
+    {:ok, contact} = Contacts.create_contact(%{"name" => "Recover Rita"})
+    {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=interactions")
+    assert has_element?(view, "form[id$='-composer'][phx-change]")
+  end
+
   test "the company composer offers the dropzone too", %{conn: conn} do
     {:ok, company} = Companies.create_company(%{"name" => "Attach Co"})
 

@@ -8,6 +8,13 @@ defmodule PhoenixKitCRM.Web.CompanyFormLiveTest do
     {:ok, conn: put_test_scope(conn, scope), scope: scope}
   end
 
+  # LiveView recovers a form's input after a reconnect only when the form
+  # has an id beside its phx-change.
+  test "the form carries the id LiveView recovers it by", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/en/admin/crm/companies/new")
+    assert has_element?(view, "form#company-form[phx-change=validate]")
+  end
+
   test "renders the new company form", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/en/admin/crm/companies/new")
     assert html =~ "Name"

@@ -16,6 +16,10 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
     def parent(_, _, _), do: nil
   end
 
+  defmodule NameHook do
+    def name(_subject, _actor), do: {:ok, "Host picked name"}
+  end
+
   defmodule RaisingHook do
     def parent(:contact, _actor, _subject), do: raise("boom")
     def parent(_kind, _actor, _subject), do: nil
@@ -173,6 +177,22 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
 
     actions = MediaReorganizer.plan(nil, [])
     refute Enum.any?(actions, &(&1.kind == :contact and &1.label == contact.name))
+  end
+
+  test "a host folder-name hook is never asked: uploads only ever use the deterministic name" do
+    on_exit(fn -> Application.delete_env(:phoenix_kit_crm, :attachments_folder_name) end)
+    Application.put_env(:phoenix_kit_crm, :attachments_folder_name, {NameHook, :name})
+
+    contact = contact_fixture()
+    {:ok, target} = Storage.create_folder(%{name: "Contacts"})
+
+    {:ok, _folder} =
+      Storage.create_folder(%{name: "crm-contact-#{contact.uuid}", parent_uuid: target.uuid})
+
+    Process.put(:target_folder, target.uuid)
+    hook_on()
+
+    assert MediaReorganizer.plan(nil, []) == []
   end
 
   test "trashed folder at the resolved parent is ignored in favor of a live folder at root" do
