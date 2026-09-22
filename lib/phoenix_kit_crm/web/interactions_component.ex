@@ -66,6 +66,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      |> assign_new(:c_body, fn -> "" end)
      |> assign_new(:c_occurred_at, fn -> local_now_str(tz) end)
      |> assign_new(:save_error, fn -> nil end)
+     # An upload that could not be stored, said by the dropzone until the
+     # next upload succeeds or the interaction is saved — typing must not
+     # hide it while no file is staged.
+     |> assign_new(:upload_error, fn -> nil end)
      |> assign(:staff_enabled, StaffLink.enabled?())
      |> assign(:storage_enabled, storage_enabled?())
      |> maybe_allow_upload()
@@ -319,6 +323,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
          |> assign(:c_body, "")
          |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))
          |> assign(:save_error, nil)
+         |> assign(:upload_error, nil)
          # A company-anchored save under the People scope would be invisible —
          # the row is excluded by construction, so the composer clears and
          # nothing appears, indistinguishable from a failed save. Jump to All
@@ -416,7 +421,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   defp handle_progress(:attachments, entry, socket) do
     case consume_uploaded_entry(socket, entry, &{:ok, store_upload(socket, &1.path, entry)}) do
       {:ok, file} ->
-        {:noreply, stage_files(socket, [file.uuid])}
+        {:noreply, socket |> stage_files([file.uuid]) |> assign(:upload_error, nil)}
 
       {:error, reason} ->
         Logger.warning(
@@ -425,7 +430,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
         )
 
         {:noreply,
-         assign(socket, :save_error, CoreAttachments.failed_message(entry.client_name, reason))}
+         assign(socket, :upload_error, CoreAttachments.failed_message(entry.client_name, reason))}
     end
   end
 
@@ -777,6 +782,8 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
             <div :for={err <- upload_errors(@uploads.attachments)} class="text-xs text-error">
               {upload_error_label(err)}
             </div>
+
+            <div :if={@upload_error} class="text-xs text-error" role="alert">{@upload_error}</div>
 
             <%!-- Staged (uploaded, pending save) --%>
             <div :if={@staged_files != []} class="flex flex-wrap gap-2">

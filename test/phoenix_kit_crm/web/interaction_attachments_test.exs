@@ -29,7 +29,7 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
 
     root = Path.join(System.tmp_dir!(), "crm_attach_#{System.unique_integer([:positive])}")
 
-    {:ok, _} =
+    {:ok, bucket} =
       Storage.create_bucket(%{
         name: "Attach Bucket #{System.unique_integer([:positive])}",
         provider: "local",
@@ -41,7 +41,7 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
       File.rm_rf(root)
     end)
 
-    {:ok, conn: put_test_scope(conn, fake_scope())}
+    {:ok, conn: put_test_scope(conn, fake_scope()), bucket: bucket}
   end
 
   test "the contact composer offers the dropzone when storage has a bucket", %{conn: conn} do
@@ -115,7 +115,10 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
     assert render(view) =~ "plan.pdf"
   end
 
-  test "an upload that cannot be stored says so instead of freezing", %{conn: conn} do
+  test "an upload that cannot be stored says so instead of freezing", %{
+    conn: conn,
+    bucket: bucket
+  } do
     {:ok, user} =
       Auth.register_user(%{
         "email" => "attach-fail-#{System.unique_integer([:positive])}@example.test",
@@ -127,10 +130,7 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
     {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=interactions")
 
     # The bucket goes away between showing the dropzone and the upload.
-    for bucket <- Storage.list_enabled_buckets() do
-      {:ok, _} = Storage.update_bucket(bucket, %{enabled: false})
-    end
-
+    {:ok, bucket} = Storage.update_bucket(bucket, %{enabled: false})
     :persistent_term.erase(:phoenix_kit_buckets_cache)
 
     file =
@@ -148,6 +148,21 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
     html = render(view)
     assert html =~ "Upload failed for lost.pdf."
     refute html =~ ~s(<progress)
+
+    # Typing does not hide it: nothing is staged, and the save would go
+    # ahead without the file.
+    view
+    |> element("form[phx-change=composer_change]")
+    |> render_change(%{"interaction" => %{"subject" => "Follow-up"}})
+
+    assert render(view) =~ "Upload failed for lost.pdf."
+
+    # A later upload that is stored clears it.
+    {:ok, _} = Storage.update_bucket(bucket, %{enabled: true})
+    :persistent_term.erase(:phoenix_kit_buckets_cache)
+
+    upload(view, "found.pdf", "found #{contact.uuid}")
+    refute render(view) =~ "Upload failed for lost.pdf."
   end
 
   test "re-uploading a trashed file attaches it on save", %{conn: conn} do

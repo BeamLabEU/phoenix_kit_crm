@@ -46,6 +46,8 @@ defmodule PhoenixKitCRM.Attachments do
 
   require Logger
 
+  import Ecto.Query, only: [from: 2]
+
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.{File, Folder, ResourceFolders}
   alias PhoenixKit.Utils.Format
@@ -53,6 +55,7 @@ defmodule PhoenixKitCRM.Attachments do
   @images_folder_name "Images"
   @interaction_prefix "crm-interaction-"
   @avatar_key "avatar_uuid"
+  @avatar_pointer {:metadata, @avatar_key}
   # Inline grid is unpaginated; cap the query so a pathological folder can't
   # freeze the tab. The picker uploads ≤20/submit, so this is generous.
   @list_limit 200
@@ -407,10 +410,21 @@ defmodule PhoenixKitCRM.Attachments do
 
   def set_avatar(resource, %{metadata: _, uuid: record_uuid} = record, file_uuid)
       when resource in [:contact, :company] and is_binary(file_uuid) and file_uuid != "" do
-    if avatar_candidate?(resource, record_uuid, file_uuid) do
-      put_metadata(record, @avatar_key, file_uuid)
-    else
-      {:error, :not_record_image}
+    images = folder_uuid(resource, record_uuid, :images)
+
+    # Check and write in one step (the file cannot leave the folder in
+    # between), and only the avatar key is written.
+    case ResourceFolders.point_at(
+           record.__struct__,
+           record_uuid,
+           @avatar_pointer,
+           file_uuid,
+           images,
+           only: :images
+         ) do
+      :ok -> with_fresh_metadata(record)
+      {:error, :not_held} -> {:error, :not_record_image}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -432,14 +446,19 @@ defmodule PhoenixKitCRM.Attachments do
 
   @doc "Clears the record's avatar pointer."
   @spec clear_avatar(struct()) :: {:ok, struct()} | {:error, term()}
-  def clear_avatar(%{metadata: _} = record), do: put_metadata(record, @avatar_key, nil)
+  def clear_avatar(%{metadata: _} = record) do
+    case ResourceFolders.write_pointer(record.__struct__, record.uuid, @avatar_pointer, nil) do
+      :ok -> with_fresh_metadata(record)
+      error -> error
+    end
+  end
 
-  defp put_metadata(record, key, value) do
-    metadata = record.metadata || %{}
-
-    metadata =
-      if is_nil(value), do: Map.delete(metadata, key), else: Map.put(metadata, key, value)
-
-    record |> Ecto.Changeset.change(metadata: metadata) |> repo().update()
+  # The pointer is written in place, one key; hand the caller its own struct
+  # (preloads and all) with the metadata as the row now holds it.
+  defp with_fresh_metadata(%schema{uuid: uuid} = record) do
+    case repo().one(from(r in schema, where: r.uuid == ^uuid, select: r.metadata)) do
+      nil -> {:error, :not_found}
+      metadata -> {:ok, %{record | metadata: metadata}}
+    end
   end
 end

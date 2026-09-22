@@ -1,6 +1,8 @@
 defmodule PhoenixKitCRM.AttachmentsTest do
   use PhoenixKitCRM.DataCase, async: true
 
+  alias PhoenixKit.Modules.Storage.File, as: StorageFile
+  alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.{Attachments, Contacts}
 
   defp contact_fixture(name \\ "Avatar Contact") do
@@ -23,6 +25,42 @@ defmodule PhoenixKitCRM.AttachmentsTest do
 
       assert {:error, :record_trashed} =
                Attachments.set_avatar(:contact, trashed, Ecto.UUID.generate())
+    end
+
+    test "the record's own image becomes the avatar, keeping keys written since" do
+      c = contact_fixture()
+      {:ok, images} = Attachments.ensure_folder(:contact, c.uuid, :images, nil)
+
+      {:ok, owner} =
+        Auth.register_user(%{
+          "email" => "avatar-#{System.unique_integer([:positive])}@example.test",
+          "password" => "Sup3rSecret!24"
+        })
+
+      photo =
+        Repo.insert!(%StorageFile{
+          original_file_name: "me.png",
+          file_name: "me-#{System.unique_integer([:positive])}.png",
+          mime_type: "image/png",
+          file_type: "image",
+          ext: "png",
+          file_checksum: "c#{System.unique_integer([:positive])}",
+          user_file_checksum: "u#{System.unique_integer([:positive])}",
+          size: 1,
+          status: "active",
+          folder_uuid: images,
+          user_uuid: owner.uuid
+        })
+
+      # Another session writes a metadata key after `c` was loaded.
+      Repo.update!(Ecto.Changeset.change(c, metadata: %{"source" => "import"}))
+
+      assert {:ok, updated} = Attachments.set_avatar(:contact, c, photo.uuid)
+      assert updated.metadata == %{"source" => "import", "avatar_uuid" => photo.uuid}
+      assert Attachments.avatar_uuid(Repo.reload(c)) == photo.uuid
+
+      assert {:ok, cleared} = Attachments.clear_avatar(c)
+      assert cleared.metadata == %{"source" => "import"}
     end
 
     test "a blank file uuid is never a candidate" do
