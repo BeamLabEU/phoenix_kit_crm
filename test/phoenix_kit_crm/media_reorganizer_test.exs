@@ -859,9 +859,11 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
           MediaReorganizer.plan(nil, [])
         end)
 
-      assert log =~ "boom"
+      # The exception by name only: its message can carry the hook's arguments.
+      assert log =~ "RuntimeError"
+      refute log =~ "boom"
       assert log =~ "RaisingHook"
-      assert log =~ "kind=contact"
+      assert log =~ ":contact"
     end
 
     # U6: a bad RETURN value (not an exception) is logged too, not silently
@@ -878,8 +880,8 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
         end)
 
       assert log =~ "InvalidHook"
-      assert log =~ "kind=contact"
-      assert log =~ "{:error, :timeout}"
+      assert log =~ ":contact"
+      assert log =~ ":timeout"
     end
   end
 
