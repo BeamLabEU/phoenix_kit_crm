@@ -59,13 +59,8 @@ defmodule PhoenixKitCRM.AttachmentsTest do
       assert updated.metadata == %{"source" => "import", "avatar_uuid" => photo.uuid}
       assert Attachments.avatar_uuid(Repo.reload(c)) == photo.uuid
 
-      assert {:ok, cleared} = Attachments.clear_avatar(c)
+      assert {:ok, cleared} = Attachments.clear_avatar(c, photo.uuid)
       assert cleared.metadata == %{"source" => "import"}
-    end
-
-    test "a blank file uuid is never a candidate" do
-      c = contact_fixture()
-      refute Attachments.avatar_candidate?(:contact, c.uuid, "")
     end
   end
 end

@@ -336,9 +336,10 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   end
 
   def handle_event("remove_avatar", _params, socket) do
+    # Clears only the one this page shows; one set elsewhere since stays.
     case Attachments.clear_avatar(socket.assigns.company) do
-      {:ok, _} ->
-        log_avatar(socket, "removed")
+      {:ok, fresh} ->
+        if Attachments.avatar_uuid(fresh) == nil, do: log_avatar(socket, "removed")
         send(self(), {:avatar_changed})
         {:noreply, socket}
 

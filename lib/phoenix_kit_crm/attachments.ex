@@ -370,7 +370,7 @@ defmodule PhoenixKitCRM.Attachments do
   # A record's avatar (contact photo / company logo) is a single image-file
   # pointer kept in its `metadata` (`"avatar_uuid"`) — no new column. The image
   # is one of the record's Images-folder files (the picker is scoped there).
-  # Server-owned: written only via `set_avatar/2` / `clear_avatar/1`. Works for
+  # Server-owned: written only via `set_avatar/3` / `clear_avatar/2`. Works for
   # any record with `metadata` + `status` (Contact, Company).
 
   @doc "The record's avatar file uuid (from metadata), or nil."
@@ -429,27 +429,21 @@ defmodule PhoenixKitCRM.Attachments do
   end
 
   @doc """
-  Whether `file_uuid` is one of the record's own `Images`-folder image files
-  (home or linked, excluding trashed) — the authorization basis for `set_avatar/3`.
+  Clears the record's avatar — only while it is still `file_uuid`, or the
+  one `record` shows when none is given: an avatar another session has set
+  since is left alone. Answers the record as the row now holds it.
   """
-  @spec avatar_candidate?(resource(), binary(), binary()) :: boolean()
-  def avatar_candidate?(resource, record_uuid, file_uuid)
-      when resource in [:contact, :company] and is_binary(file_uuid) and file_uuid != "" do
-    images_folder = folder_uuid(resource, record_uuid, :images)
+  @spec clear_avatar(struct(), binary() | nil) :: {:ok, struct()} | {:error, term()}
+  def clear_avatar(%{metadata: _} = record, file_uuid \\ nil) do
+    case file_uuid || avatar_uuid(record) do
+      nil ->
+        with_fresh_metadata(record)
 
-    quietly("avatar_candidate?", false, fn ->
-      ResourceFolders.holds_file?(images_folder, file_uuid, only: :images)
-    end)
-  end
+      shown ->
+        :ok =
+          ResourceFolders.clear_pointer_if(record.__struct__, record.uuid, @avatar_pointer, shown)
 
-  def avatar_candidate?(_resource, _record_uuid, _file_uuid), do: false
-
-  @doc "Clears the record's avatar pointer."
-  @spec clear_avatar(struct()) :: {:ok, struct()} | {:error, term()}
-  def clear_avatar(%{metadata: _} = record) do
-    case ResourceFolders.write_pointer(record.__struct__, record.uuid, @avatar_pointer, nil) do
-      :ok -> with_fresh_metadata(record)
-      error -> error
+        with_fresh_metadata(record)
     end
   end
 

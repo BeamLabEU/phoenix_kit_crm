@@ -149,14 +149,17 @@ defmodule PhoenixKitCRM.Web.MediaComponent do
   end
 
   # If the removed image was the avatar, clear the pointer so the header doesn't
-  # reference a trashed file, and tell the host to refresh.
+  # reference a removed file — decided by the row, not this tab's copy, which
+  # another session may have outdated — and tell the host when it changed.
   defp maybe_clear_avatar(socket, uuid) do
-    if uuid == socket.assigns[:avatar_uuid] do
-      Attachments.clear_avatar(socket.assigns.resource)
-      send(self(), {:avatar_changed})
-      assign(socket, :avatar_uuid, nil)
-    else
-      socket
+    case Attachments.clear_avatar(socket.assigns.resource, uuid) do
+      {:ok, fresh} ->
+        avatar = Attachments.avatar_uuid(fresh)
+        if avatar != socket.assigns[:avatar_uuid], do: send(self(), {:avatar_changed})
+        assign(socket, :avatar_uuid, avatar)
+
+      {:error, _} ->
+        socket
     end
   end
 
