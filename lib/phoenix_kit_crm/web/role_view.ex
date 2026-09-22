@@ -16,7 +16,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
   import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
 
   alias PhoenixKit.Users.Roles
-  alias PhoenixKitCRM.{ColumnConfig, Contacts, Paths, Web.CellFormat, Web.ColumnModal}
+  alias PhoenixKitCRM.{ColumnConfig, Contacts, Paths, Web.CellFormat}
 
   alias PhoenixKitWeb.Components.Core.TableDefault
 
@@ -56,12 +56,12 @@ defmodule PhoenixKitCRM.Web.RoleView do
              |> assign(:users, [])
              |> assign(:selected_columns, ColumnConfig.default_columns(scope))
              # No DB query in mount/3 (it runs twice). handle_params/3 loads the
-             # real metadata on connect; the empty map keeps the static first
-             # paint safe (labels fall back to the column id until connected).
+             # real metadata, spec and choice on connect; these keep the static
+             # first paint safe (labels fall back to the column id until then).
              |> assign(:column_meta, %{})
+             |> assign(:column_spec, %{key: ColumnConfig.view_key(scope), columns: []})
              |> assign(:crm_contacts, %{})
-             |> assign(:show_column_modal, false)
-             |> assign(:temp_selected_columns, nil)}
+             |> assign(:show_column_modal, false)}
         end
     end
   end
@@ -71,14 +71,15 @@ defmodule PhoenixKitCRM.Web.RoleView do
     if connected?(socket) do
       socket = maybe_reload_role(socket, params["role_uuid"])
       users = Roles.users_with_role(socket.assigns.role.name)
-      selected = ColumnConfig.get_columns(socket.assigns.current_user_uuid, socket.assigns.scope)
+
+      socket =
+        assign_column_state(socket, socket.assigns.scope, socket.assigns.current_user_uuid)
 
       {:noreply,
        socket
        |> assign(:users, users)
-       |> assign(:selected_columns, selected)
        |> assign(:column_meta, ColumnConfig.column_metadata_map(socket.assigns.scope))
-       |> assign(:crm_contacts, load_crm_contacts(selected, users))}
+       |> assign(:crm_contacts, load_crm_contacts(socket.assigns.selected_columns, users))}
     else
       {:noreply, socket}
     end
@@ -195,11 +196,11 @@ defmodule PhoenixKitCRM.Web.RoleView do
         </TableDefault.table_default_body>
       </TableDefault.table_default>
 
-      <ColumnModal.column_modal
+      <PhoenixKitWeb.Components.Core.ColumnSettings.column_settings_modal
+        id="crm-columns-modal"
         show={@show_column_modal}
-        scope={@scope}
+        columns={@column_spec.columns}
         selected={@selected_columns}
-        temp_selected={@temp_selected_columns}
       />
     </div>
     """

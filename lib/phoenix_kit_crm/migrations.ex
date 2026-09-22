@@ -64,7 +64,7 @@ defmodule PhoenixKitCRM.Migrations do
 
   use Ecto.Migration
 
-  @current_version 6
+  @current_version 7
   @marker_prefix "crm_schema:"
   @version_table "phoenix_kit_crm_contacts"
 
@@ -151,6 +151,7 @@ defmodule PhoenixKitCRM.Migrations do
       v4_statements(prefix, p),
       v5_statements(prefix, p),
       v6_statements(p),
+      v7_statements(prefix, p),
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{@current_version}'"
     ])
   end
@@ -518,6 +519,55 @@ defmodule PhoenixKitCRM.Migrations do
   defp v6_statements(p) do
     [
       "ALTER TABLE #{p}phoenix_kit_crm_interactions ADD COLUMN IF NOT EXISTS time_zone character varying(64)"
+    ]
+  end
+
+  # ── V7: each admin's column choices move to core ─────────────────────
+  #
+  # The role pages' and Organizations page's column choices lived in
+  # `phoenix_kit_crm_user_role_view`; they are now core's per-user view
+  # preferences (`phoenix_kit_user_view_prefs`, core V200), keyed
+  # `crm.organizations` / `crm.role.<uuid>`. This copies each saved list
+  # once — only a non-empty one: CRM read an empty list as "use the
+  # defaults", and core reads it as "every column hidden". A choice already
+  # in core wins. It runs only while the chain is below V7 — `up/1` replays
+  # every version, and a later run would bring back a choice the admin has
+  # since reset. Skipped where core's table is not there yet; the old table
+  # stays (nothing reads it), as every table in this chain does.
+  defp v7_statements(prefix, p) do
+    [
+      """
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM pg_class t JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE t.relname = 'phoenix_kit_user_view_prefs' AND n.nspname = '#{prefix}'
+            AND t.relkind = 'r'
+        ) AND NOT EXISTS (
+          SELECT 1 FROM pg_description d
+          JOIN pg_class c ON c.oid = d.objoid
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE c.relname = '#{@version_table}' AND n.nspname = '#{prefix}'
+            AND d.classoid = 'pg_catalog.pg_class'::regclass AND d.objsubid = 0
+            AND d.description ~ '^#{@marker_prefix}[0-9]+$'
+            AND substring(d.description from #{String.length(@marker_prefix) + 1})::int >= 7
+        ) THEN
+          INSERT INTO #{p}phoenix_kit_user_view_prefs (user_uuid, key, prefs, inserted_at, updated_at)
+          SELECT v.user_uuid,
+                 'crm.' || replace(v.scope, ':', '.'),
+                 jsonb_build_object('columns', v.view_config -> 'columns'),
+                 date_trunc('second', now()),
+                 date_trunc('second', now())
+          FROM #{p}phoenix_kit_crm_user_role_view v
+          JOIN #{p}phoenix_kit_users u ON u.uuid = v.user_uuid
+          WHERE CASE WHEN jsonb_typeof(v.view_config -> 'columns') = 'array'
+                     THEN jsonb_array_length(v.view_config -> 'columns') > 0
+                     ELSE false END
+            AND (v.scope = 'organizations' OR v.scope LIKE 'role:%')
+          ON CONFLICT (user_uuid, key) DO NOTHING;
+        END IF;
+      END $$
+      """
     ]
   end
 

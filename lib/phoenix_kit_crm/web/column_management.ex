@@ -1,144 +1,67 @@
 defmodule PhoenixKitCRM.Web.ColumnManagement do
   @moduledoc """
-  `use` macro that injects column-management `handle_event/3` callbacks into
-  a CRM LiveView. The host LV must:
+  `use` macro that injects the column picker's `handle_event/3` callbacks
+  into a CRM LiveView, on core's live modal (`column_settings_modal/1`,
+  every change applied and saved at once) and core's per-user column
+  store (`PhoenixKitWeb.TableColumns`). The host LV must:
 
-    * assign `:scope` (a `PhoenixKitCRM.UserRoleView.scope()`)
-    * assign `:current_user_uuid`
-    * assign `:selected_columns` (initial column list)
-    * call `assign_column_state/3` from `mount/3` to bootstrap modal state
-    * `use Gettext, backend: PhoenixKitCRM.Gettext` — the injected flash
-      messages call the bare `gettext/1` macro, so the backend must be in the
-      host's scope. (It is kept as a macro rather than a fully-qualified
-      `Gettext.gettext/2` call so `mix gettext.extract` can pick the strings up.)
+    * assign `:scope` (a `PhoenixKitCRM.ColumnConfig.scope()`)
+    * call `assign_column_state/3` once the scope is known, which assigns
+      `:column_spec`, `:selected_columns` and `:show_column_modal`
 
   The macro handles `show_column_modal`, `hide_column_modal`, `add_column`,
-  `remove_column`, `reorder_selected_columns`, `update_table_columns` (with
-  and without payload), and `reset_to_defaults`.
+  `remove_column`, `reorder_columns` and `reset_columns`. A host whose rows
+  need data loaded only for some columns overrides `columns_saved/1`.
   """
 
   defmacro __using__(_opts) do
     quote do
       import PhoenixKitCRM.Web.ColumnManagement, only: [assign_column_state: 3]
 
-      alias PhoenixKitCRM.ColumnConfig
-
       @impl true
-      def handle_event("show_column_modal", _params, socket) do
-        {:noreply,
-         socket
-         |> Phoenix.Component.assign(:show_column_modal, true)
-         |> Phoenix.Component.assign(:temp_selected_columns, socket.assigns.selected_columns)}
+      def handle_event("show_column_modal", _params, socket),
+        do: {:noreply, Phoenix.Component.assign(socket, :show_column_modal, true)}
+
+      def handle_event("hide_column_modal", _params, socket),
+        do: {:noreply, Phoenix.Component.assign(socket, :show_column_modal, false)}
+
+      def handle_event(event, params, socket)
+          when event in ~w(add_column remove_column reorder_columns reset_columns) do
+        spec =
+          socket.assigns[:column_spec] || PhoenixKitCRM.ColumnConfig.spec(socket.assigns.scope)
+
+        socket =
+          PhoenixKitWeb.TableColumns.handle_event(event, params, socket, spec, :selected_columns)
+
+        {:noreply, columns_saved(socket)}
       end
 
-      def handle_event("hide_column_modal", _params, socket) do
-        {:noreply,
-         socket
-         |> Phoenix.Component.assign(:show_column_modal, false)
-         |> Phoenix.Component.assign(:temp_selected_columns, nil)}
-      end
-
-      def handle_event("add_column", %{"column_id" => id}, socket) do
-        valid_ids = ColumnConfig.all_column_ids(socket.assigns.scope)
-        temp = socket.assigns.temp_selected_columns || socket.assigns.selected_columns
-
-        new_temp =
-          cond do
-            id not in valid_ids -> temp
-            id in temp -> temp
-            true -> temp ++ [id]
-          end
-
-        {:noreply, Phoenix.Component.assign(socket, :temp_selected_columns, new_temp)}
-      end
-
-      def handle_event("remove_column", %{"column_id" => id}, socket) do
-        temp = socket.assigns.temp_selected_columns || socket.assigns.selected_columns
-
-        {:noreply,
-         Phoenix.Component.assign(socket, :temp_selected_columns, Enum.reject(temp, &(&1 == id)))}
-      end
-
-      def handle_event("reset_to_defaults", _params, socket) do
-        defaults = ColumnConfig.default_columns(socket.assigns.scope)
-        {:noreply, Phoenix.Component.assign(socket, :temp_selected_columns, defaults)}
-      end
-
-      def handle_event("reorder_selected_columns", params, socket) do
-        new_order =
-          case params do
-            %{"ordered_ids" => order} when is_list(order) -> order
-            %{"order" => order} when is_list(order) -> order
-            %{"column_order" => csv} when is_binary(csv) -> String.split(csv, ",", trim: true)
-            _ -> []
-          end
-
-        if new_order == [] do
-          {:noreply, socket}
-        else
-          temp = socket.assigns.temp_selected_columns || socket.assigns.selected_columns
-          valid = Enum.filter(new_order, &(&1 in temp))
-          {:noreply, Phoenix.Component.assign(socket, :temp_selected_columns, valid)}
-        end
-      end
-
-      def handle_event("update_table_columns", %{"column_order" => csv}, socket) do
-        ordered = String.split(csv, ",", trim: true)
-        save_columns(socket, ordered)
-      end
-
-      def handle_event("update_table_columns", _params, socket) do
-        ordered = socket.assigns.temp_selected_columns || socket.assigns.selected_columns
-        save_columns(socket, ordered)
-      end
-
-      # Runs after a column set is saved, with `:selected_columns` already
+      # Runs after the column set changed, with `:selected_columns` already
       # updated. A host whose rows need data that is only loaded for SOME
       # columns (RoleView's CRM-contact map is loaded only while that column
       # is on screen) overrides this to re-derive it — `handle_params/3`
-      # does not re-run on a save, so nothing else would.
+      # does not re-run on a column change, so nothing else would.
       defp columns_saved(socket), do: socket
       defoverridable columns_saved: 1
-
-      defp save_columns(socket, columns) do
-        case ColumnConfig.update_columns(
-               socket.assigns.current_user_uuid,
-               socket.assigns.scope,
-               columns
-             ) do
-          {:ok, _} ->
-            valid = ColumnConfig.validate_columns(socket.assigns.scope, columns)
-
-            {:noreply,
-             socket
-             |> Phoenix.Component.assign(:selected_columns, valid)
-             |> Phoenix.Component.assign(:show_column_modal, false)
-             |> Phoenix.Component.assign(:temp_selected_columns, nil)
-             |> columns_saved()
-             |> Phoenix.LiveView.put_flash(:info, gettext("Columns updated"))}
-
-          {:error, _} ->
-            {:noreply,
-             socket
-             |> Phoenix.LiveView.put_flash(:error, gettext("Failed to save columns"))}
-        end
-      end
     end
   end
 
   @doc """
-  Bootstraps column-modal-related assigns from `mount/3`. Returns a socket with
-  `:scope`, `:current_user_uuid`, `:selected_columns`, `:show_column_modal`,
-  `:temp_selected_columns` assigned.
+  Assigns the column picker's state for `scope`: `:column_spec`,
+  `:selected_columns` (the admin's own choice, else the defaults) and a
+  closed `:show_column_modal`. Reads the custom-field catalog once, so
+  call it from `handle_params/3` on connect rather than from `mount/3`.
   """
   def assign_column_state(socket, scope, current_user_uuid) do
-    selected = PhoenixKitCRM.ColumnConfig.get_columns(current_user_uuid, scope)
+    spec = PhoenixKitCRM.ColumnConfig.spec(scope)
 
     socket
     |> Phoenix.Component.assign(:scope, scope)
-    |> Phoenix.Component.assign(:current_user_uuid, current_user_uuid)
-    |> Phoenix.Component.assign(:selected_columns, selected)
+    |> Phoenix.Component.assign(:column_spec, spec)
+    |> Phoenix.Component.assign(
+      :selected_columns,
+      PhoenixKitWeb.TableColumns.load(current_user_uuid, spec)
+    )
     |> Phoenix.Component.assign(:show_column_modal, false)
-    |> Phoenix.Component.assign(:temp_selected_columns, nil)
   end
 end

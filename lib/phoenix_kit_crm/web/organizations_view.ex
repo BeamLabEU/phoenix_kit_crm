@@ -25,7 +25,7 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
-  alias PhoenixKitCRM.{ColumnConfig, Companies, Mirror, Paths, Web.CellFormat, Web.ColumnModal}
+  alias PhoenixKitCRM.{ColumnConfig, Companies, Mirror, Paths, Web.CellFormat}
   alias PhoenixKitCRM.Schemas.Company
 
   alias PhoenixKitWeb.Components.Core.TableDefault
@@ -61,8 +61,8 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
          |> assign(:users, [])
          |> assign(:selected_columns, ColumnConfig.default_columns(:organizations))
          |> assign(:column_meta, ColumnConfig.column_metadata_map(:organizations))
+         |> assign(:column_spec, %{key: ColumnConfig.view_key(:organizations), columns: []})
          |> assign(:show_column_modal, false)
-         |> assign(:temp_selected_columns, nil)
          |> assign_mirror_defaults()}
     end
   end
@@ -71,14 +71,13 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
   def handle_params(_params, _url, socket) do
     if connected?(socket) do
       users = Auth.list_organizations()
-      selected = ColumnConfig.get_columns(socket.assigns.current_user_uuid, :organizations)
       companies_by_user = Companies.map_by_user_uuids(Enum.map(users, & &1.uuid))
 
       {:noreply,
        socket
+       |> assign_column_state(:organizations, socket.assigns.current_user_uuid)
        |> assign(:users, users)
        |> assign(:companies_by_user, companies_by_user)
-       |> assign(:selected_columns, selected)
        |> assign(:column_meta, ColumnConfig.column_metadata_map(:organizations))}
     else
       {:noreply, socket}
@@ -415,11 +414,11 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
         </TableDefault.table_default_body>
       </TableDefault.table_default>
 
-      <ColumnModal.column_modal
+      <PhoenixKitWeb.Components.Core.ColumnSettings.column_settings_modal
+        id="crm-columns-modal"
         show={@show_column_modal}
-        scope={@scope}
+        columns={@column_spec.columns}
         selected={@selected_columns}
-        temp_selected={@temp_selected_columns}
       />
 
       <.modal

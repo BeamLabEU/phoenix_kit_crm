@@ -41,7 +41,9 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     only: [viewer_tz: 1, current_user_uuid: 1, current_user_name: 1]
 
   import PhoenixKitCRM.Web.PartyRoleHelpers, only: [role_label: 1, role_badge_class: 1]
+  alias PhoenixKitWeb.Actor
   alias PhoenixKitWeb.Live.Components.MediaSelectorModal
+  alias PhoenixKitWeb.TableColumns, as: ColumnPrefs
 
   # `PhoenixKitCatalogue.Catalogue.PubSub`'s topic — a string contract, so no
   # compile-time dependency on the (optional) catalogue package is needed.
@@ -93,8 +95,12 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
          |> assign(:memberships, Companies.list_memberships(company.uuid))
          |> sync_member_subscriptions()
          |> assign_new(:show_catalogue_columns, fn -> false end)
-         |> assign_new(:catalogue_columns, fn -> catalogue_default_columns() end)
          |> assign_new(:catalogue_column_catalog, fn -> catalogue_column_catalog() end)
+         |> then(fn s ->
+           assign_new(s, :catalogue_columns, fn ->
+             ColumnPrefs.load(Actor.uuid(s), catalogue_columns_spec(s))
+           end)
+         end)
          |> assign_new(:column_picker_available, fn -> column_picker_available?() end)
          |> assign_catalogue(catalogue_enabled, company)
          |> assign(:avatar_url, Attachments.avatar_url(company))
@@ -350,37 +356,34 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   def handle_event("hide_column_modal", _params, socket),
     do: {:noreply, assign(socket, :show_catalogue_columns, false)}
 
-  def handle_event("add_column", %{"column_id" => id}, socket) do
-    {:noreply, put_catalogue_columns(socket, socket.assigns.catalogue_columns ++ [id])}
+  # Each admin's own, saved as they change (PhoenixKitWeb.TableColumns).
+  def handle_event(event, params, socket)
+      when event in ~w(add_column remove_column reorder_columns reset_columns) do
+    {:noreply,
+     ColumnPrefs.handle_event(
+       event,
+       params,
+       socket,
+       catalogue_columns_spec(socket),
+       :catalogue_columns
+     )}
   end
-
-  def handle_event("remove_column", %{"column_id" => id}, socket) do
-    {:noreply, put_catalogue_columns(socket, socket.assigns.catalogue_columns -- [id])}
-  end
-
-  def handle_event("reorder_columns", %{"ordered_ids" => ids}, socket) when is_list(ids) do
-    {:noreply, put_catalogue_columns(socket, ids)}
-  end
-
-  def handle_event("reset_columns", _params, socket),
-    do: {:noreply, put_catalogue_columns(socket, catalogue_default_columns())}
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
-  # Only ids the catalogue actually offers, so a forged payload cannot inject
-  # a column name into the table.
-  defp put_catalogue_columns(socket, ids) do
-    catalog = catalogue_column_catalog()
-    # `&1[:id]` rather than `&1.id`: the catalog crosses a module boundary, and
-    # a shape change there should narrow the picker, not raise in mount.
-    known = catalog |> Enum.map(&(is_map(&1) && &1[:id])) |> Enum.reject(&(!&1)) |> MapSet.new()
-
-    socket
-    # Rendered per row; resolving it once per mount instead of once per render
-    # keeps the apply/3 off the hot path.
-    |> assign(:catalogue_column_catalog, catalog)
-    |> assign(:column_picker_available, column_picker_available?())
-    |> assign(:catalogue_columns, ids |> Enum.filter(&MapSet.member?(known, &1)) |> Enum.uniq())
+  # The catalogue's items tables on this page. The catalog crosses a module
+  # boundary, so `&1[:id]` rather than `&1.id`: a shape change there should
+  # narrow the picker, not raise in mount.
+  defp catalogue_columns_spec(socket) do
+    %{
+      key: "crm.company.catalogue_items",
+      columns:
+        Enum.filter(
+          socket.assigns[:catalogue_column_catalog] || [],
+          &(is_map(&1) and is_binary(&1[:id]))
+        ),
+      defaults: catalogue_default_columns()
+    }
   end
 
   defp column_picker_available? do

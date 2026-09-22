@@ -58,10 +58,14 @@ defmodule PhoenixKitCRM.Web.RoleViewTest do
     # The column is not a default, so nothing about the contact is on screen.
     refute html =~ contact.uuid
 
-    html = render_click(view, "update_table_columns", %{"column_order" => "email,crm_contact"})
+    view |> element(~s(button[phx-click="show_column_modal"])) |> render_click()
 
-    assert html =~ "Columns updated"
-    assert html =~ contact.uuid
-    refute html =~ ~r{<td[^>]*>\s*—\s*</td>}
+    html =
+      view
+      |> element(~s(button[phx-click="add_column"][phx-value-column_id="crm_contact"]))
+      |> render_click()
+
+    # The CRM contact cell links the contact rather than showing "—".
+    assert html =~ ~r{<td[^>]*><a href="/en/admin/crm/contacts/#{contact.uuid}"}
   end
 end
