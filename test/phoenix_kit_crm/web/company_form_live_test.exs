@@ -52,4 +52,24 @@ defmodule PhoenixKitCRM.Web.CompanyFormLiveTest do
 
     assert Companies.get_company(company.uuid).name == "Renamed Company"
   end
+
+  # `metadata` is server-owned (the avatar pointer, the trash stash, import
+  # provenance); a crafted form param must neither set nor replace it.
+  test "a crafted metadata param on save is ignored", %{conn: conn} do
+    {:ok, company} =
+      Companies.create_company(%{
+        "name" => "Kept Co",
+        "metadata" => %{"imported_from" => "cat_suppliers"}
+      })
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/companies/#{company.uuid}/edit")
+
+    view
+    |> element("form#company-form")
+    |> render_submit(%{
+      "company" => %{"name" => "Kept Co", "metadata" => %{"avatar_uuid" => Ecto.UUID.generate()}}
+    })
+
+    assert Companies.get_company(company.uuid).metadata == %{"imported_from" => "cat_suppliers"}
+  end
 end

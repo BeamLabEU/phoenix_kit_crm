@@ -78,6 +78,26 @@ defmodule PhoenixKitCRM.Web.ContactFormLiveTest do
     assert Contacts.get_contact(contact.uuid).name == "Renamed"
   end
 
+  # `metadata` is server-owned (the avatar pointer, the trash stash, import
+  # provenance); a crafted form param must neither set nor replace it.
+  test "a crafted metadata param on save is ignored", %{conn: conn} do
+    {:ok, contact} =
+      Contacts.create_contact(%{
+        "name" => "Kept Kim",
+        "metadata" => %{"import_company" => "Acme"}
+      })
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}/edit")
+
+    view
+    |> element("form#contact-form")
+    |> render_submit(%{
+      "contact" => %{"name" => "Kept Kim", "metadata" => %{"avatar_uuid" => Ecto.UUID.generate()}}
+    })
+
+    assert Contacts.get_contact(contact.uuid).metadata == %{"import_company" => "Acme"}
+  end
+
   describe "new contact — company preselected from the company page" do
     test "?company_uuid= preselects that company", %{conn: conn} do
       {:ok, company} = PhoenixKitCRM.Companies.create_company(%{"name" => "Initech"})

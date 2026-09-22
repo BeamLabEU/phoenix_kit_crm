@@ -570,6 +570,8 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   defp status_label("inactive"), do: gettext("Inactive")
   defp status_label(s), do: s
 
-  defp safe_map(p) when is_map(p), do: p
+  # `metadata` is server-owned — the avatar pointer, the trash stash, import
+  # provenance — and the changeset replaces it whole: never from a form.
+  defp safe_map(p) when is_map(p), do: Map.delete(p, "metadata")
   defp safe_map(_), do: %{}
 end

@@ -758,7 +758,9 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
 
   # Forged/malformed payloads can send non-map "contact" or non-string side
   # fields — normalize before they reach a changeset (which would raise).
-  defp safe_map(p) when is_map(p), do: p
+  # `metadata` is server-owned — the avatar pointer, the trash stash, import
+  # provenance — and the changeset replaces it whole: never from a form.
+  defp safe_map(p) when is_map(p), do: Map.delete(p, "metadata")
   defp safe_map(_), do: %{}
   defp safe_text(s) when is_binary(s), do: s
   defp safe_text(_), do: ""
