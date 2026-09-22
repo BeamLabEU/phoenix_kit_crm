@@ -372,32 +372,20 @@ defmodule PhoenixKitCRM.Attachments do
 
   @doc "The record's avatar file uuid (from metadata), or nil."
   @spec avatar_uuid(struct()) :: binary() | nil
-  def avatar_uuid(%{metadata: m}) when is_map(m) do
-    case Map.get(m, @avatar_key) do
-      uuid when is_binary(uuid) and uuid != "" -> uuid
-      _ -> nil
-    end
-  end
+  def avatar_uuid(%{metadata: _} = record),
+    do: ResourceFolders.pointer_value(record, {:metadata, @avatar_key})
 
   def avatar_uuid(_), do: nil
 
   @doc "The record's avatar `File` struct, or nil if unset / missing / trashed."
   @spec avatar_file(struct()) :: File.t() | nil
-  def avatar_file(record) do
-    case avatar_uuid(record) do
-      nil ->
-        nil
-
-      uuid ->
-        case Storage.get_file(uuid) do
-          %File{status: "trashed"} -> nil
-          %File{} = file -> file
-          _ -> nil
-        end
-    end
+  def avatar_file(%{metadata: _} = record) do
+    ResourceFolders.pointed_file(record, {:metadata, @avatar_key})
   rescue
     _ -> nil
   end
+
+  def avatar_file(_), do: nil
 
   @doc "Thumbnail URL for the record's avatar (or nil)."
   @spec avatar_url(struct()) :: String.t() | nil
