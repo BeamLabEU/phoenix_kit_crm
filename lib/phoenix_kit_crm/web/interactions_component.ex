@@ -24,9 +24,11 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     only: [party_badge: 1, format_local: 2, offset_minutes_now: 1]
 
   alias PhoenixKit.Modules.Storage
-  alias PhoenixKit.Users.Auth
+  alias PhoenixKit.Modules.Storage.ResourceFolders
   alias PhoenixKitCRM.{Attachments, Contacts, Interactions, Paths, StaffLink}
   alias PhoenixKitCRM.Schemas.{Company, Contact, Interaction}
+  alias PhoenixKitWeb.Actor
+  alias PhoenixKitWeb.Attachments, as: CoreAttachments
 
   # Curated attachment allowlist — broad enough for real CRM attachments but
   # excludes inline-renderable script vectors (.html/.htm/.svg/.xml/.xhtml) that
@@ -355,12 +357,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
       socket.assigns.storage_enabled and Storage.list_enabled_buckets() != [] ->
         socket
-        |> allow_upload(:attachments,
+        |> CoreAttachments.allow(:attachments, &handle_progress/3,
           accept: known_upload_accept(),
           max_entries: 10,
-          max_file_size: @max_upload_size,
-          auto_upload: true,
-          progress: &handle_progress/3
+          max_file_size: @max_upload_size
         )
         |> assign(:can_attach, true)
 
@@ -408,49 +408,29 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     match?(%{attachments: _}, socket.assigns[:uploads] || %{})
   end
 
+  defp handle_progress(:attachments, %{done?: false}, socket), do: {:noreply, socket}
+
+  # Stored with no folder (core's `PhoenixKitWeb.Attachments.store/4`), then
+  # staged; the interaction's folder adopts it on save. A failed store is
+  # consumed and said, not left behind as an entry frozen at 100%.
   defp handle_progress(:attachments, entry, socket) do
-    if entry.done? do
-      case consume_uploaded_entry(socket, entry, &store_upload(socket, &1.path, entry)) do
-        uuid when is_binary(uuid) -> {:noreply, stage_files(socket, [uuid])}
-        _ -> {:noreply, socket}
-      end
-    else
-      {:noreply, socket}
+    case consume_uploaded_entry(socket, entry, &{:ok, store_upload(socket, &1.path, entry)}) do
+      {:ok, file} ->
+        {:noreply, stage_files(socket, [file.uuid])}
+
+      {:error, reason} ->
+        Logger.warning(
+          "[CRM] interaction attachment upload failed: " <>
+            ResourceFolders.describe_failure(reason)
+        )
+
+        {:noreply,
+         assign(socket, :save_error, CoreAttachments.failed_message(entry.client_name, reason))}
     end
   end
 
-  # Persist a consumed upload to a bucket (no folder yet — adopted on save).
-  defp store_upload(socket, path, entry) do
-    ext = entry.client_name |> Path.extname() |> String.replace_leading(".", "")
-    mime = entry.client_type || MIME.from_path(entry.client_name)
-
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: user_uuid} ->
-        hash = Auth.calculate_file_hash(path)
-
-        case Storage.store_file_in_buckets(
-               path,
-               file_type(mime),
-               user_uuid,
-               hash,
-               ext,
-               entry.client_name
-             ) do
-          {:ok, file, :duplicate} -> {:ok, file.uuid}
-          {:ok, file} -> {:ok, file.uuid}
-          _ -> {:postpone, :error}
-        end
-
-      _ ->
-        {:postpone, :error}
-    end
-  rescue
-    _ -> {:postpone, :error}
-  end
-
-  defp file_type("image/" <> _), do: "image"
-  defp file_type("video/" <> _), do: "video"
-  defp file_type(_), do: "other"
+  defp store_upload(socket, path, entry),
+    do: CoreAttachments.store(path, entry, Actor.uuid(socket), nil)
 
   # Add newly-uploaded files to the composer's staged list (deduped). The files
   # are attached to the interaction's folder when it's saved.
