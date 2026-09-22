@@ -19,6 +19,7 @@ defmodule PhoenixKitCRM.ColumnConfig do
   require Logger
 
   alias PhoenixKit.Users.CustomFields
+  alias PhoenixKit.Users.ViewPrefs
   alias PhoenixKitWeb.TableColumns
 
   @type scope :: :organizations | {:role, binary()}
@@ -173,6 +174,19 @@ defmodule PhoenixKitCRM.ColumnConfig do
   @spec get_columns(binary(), scope()) :: [String.t()]
   def get_columns(user_uuid, scope) when is_binary(user_uuid),
     do: TableColumns.load(user_uuid, spec(scope))
+
+  @doc """
+  Saves `columns` as `user_uuid`'s choice for `scope`, keeping only ids the
+  scope offers; an empty list goes back to the defaults. Answers the stored
+  preferences.
+  """
+  @spec update_columns(binary(), scope(), [String.t()]) :: {:ok, map()} | {:error, term()}
+  def update_columns(user_uuid, scope, columns) when is_binary(user_uuid) and is_list(columns) do
+    case validate_columns(scope, columns) do
+      [] -> ViewPrefs.delete_fields(user_uuid, view_key(scope), ["columns"])
+      valid -> ViewPrefs.put(user_uuid, view_key(scope), %{"columns" => valid})
+    end
+  end
 
   @doc "Returns metadata for a single column id, or nil. The `:label` field is translated via gettext."
   @spec get_column_metadata(scope(), String.t()) :: map() | nil

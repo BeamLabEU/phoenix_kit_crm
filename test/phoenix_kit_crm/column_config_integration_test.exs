@@ -45,6 +45,17 @@ defmodule PhoenixKitCRM.ColumnConfigIntegrationTest do
     assert ColumnConfig.get_columns(user.uuid, role) == ~w(email)
   end
 
+  test "update_columns/3 saves the offered ids, and an empty list goes back to the defaults" do
+    user = create_user()
+    role = {:role, Ecto.UUID.generate()}
+
+    assert {:ok, _} = ColumnConfig.update_columns(user.uuid, role, ~w(organization_name email))
+    assert ColumnConfig.get_columns(user.uuid, role) == ~w(email)
+
+    assert {:ok, _} = ColumnConfig.update_columns(user.uuid, role, [])
+    assert ColumnConfig.get_columns(user.uuid, role) == ColumnConfig.default_columns(role)
+  end
+
   test "a role table keeps its last column; Organizations can hide every optional one" do
     role = ColumnConfig.spec({:role, Ecto.UUID.generate()})
     assert PhoenixKitWeb.TableColumns.remove(["email"], "email", role) == ["email"]
