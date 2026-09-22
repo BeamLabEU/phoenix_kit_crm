@@ -463,7 +463,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   def render(assigns) do
     ~H"""
     <div class="container flex-col mx-auto px-4 py-6 max-w-2xl">
-      <.form for={@form} phx-change="validate" phx-submit="save">
+      <.form for={@form} id="company-form" phx-change="validate" phx-submit="save">
         <div class="card bg-base-100 shadow-sm">
           <div class="card-body flex flex-col gap-5">
             <.input field={@form[:name]} label={gettext("Name")} required />

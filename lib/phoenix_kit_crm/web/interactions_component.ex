@@ -656,6 +656,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
           <.form
             for={%{}}
             as={:interaction}
+            id={"#{@id}-composer"}
             phx-change="composer_change"
             phx-target={@myself}
             class="flex flex-col gap-3"
