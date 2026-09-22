@@ -530,10 +530,14 @@ defmodule PhoenixKitCRM.Migrations do
   # `crm.organizations` / `crm.role.<uuid>`. This copies each saved list
   # once — only a non-empty one: CRM read an empty list as "use the
   # defaults", and core reads it as "every column hidden". A choice already
-  # in core wins. It runs only while the chain is below V7 — `up/1` replays
-  # every version, and a later run would bring back a choice the admin has
-  # since reset. Skipped where core's table is not there yet; the old table
-  # stays (nothing reads it), as every table in this chain does.
+  # in core wins. It runs once: the `crm_view_prefs_copied_at` setting is
+  # written right after it, and `up/1` replays every version, so a later
+  # run would otherwise bring back a choice the admin has since reset.
+  # Where core's table is not there yet (an older core) it waits, and a
+  # later run — once core has it — copies; the chain's own version marker
+  # plays no part, so running ahead of core cannot skip the copy for good.
+  # The old table stays (nothing reads it), as every table in this chain
+  # does.
   defp v7_statements(prefix, p) do
     [
       """
@@ -544,13 +548,7 @@ defmodule PhoenixKitCRM.Migrations do
           WHERE t.relname = 'phoenix_kit_user_view_prefs' AND n.nspname = '#{prefix}'
             AND t.relkind = 'r'
         ) AND NOT EXISTS (
-          SELECT 1 FROM pg_description d
-          JOIN pg_class c ON c.oid = d.objoid
-          JOIN pg_namespace n ON n.oid = c.relnamespace
-          WHERE c.relname = '#{@version_table}' AND n.nspname = '#{prefix}'
-            AND d.classoid = 'pg_catalog.pg_class'::regclass AND d.objsubid = 0
-            AND d.description ~ '^#{@marker_prefix}[0-9]+$'
-            AND substring(d.description from #{String.length(@marker_prefix) + 1})::int >= 7
+          SELECT 1 FROM #{p}phoenix_kit_settings WHERE key = 'crm_view_prefs_copied_at'
         ) THEN
           INSERT INTO #{p}phoenix_kit_user_view_prefs (user_uuid, key, prefs, inserted_at, updated_at)
           SELECT v.user_uuid,
@@ -565,6 +563,10 @@ defmodule PhoenixKitCRM.Migrations do
                      ELSE false END
             AND (v.scope = 'organizations' OR v.scope LIKE 'role:%')
           ON CONFLICT (user_uuid, key) DO NOTHING;
+
+          INSERT INTO #{p}phoenix_kit_settings (key, value, module)
+          VALUES ('crm_view_prefs_copied_at', now()::text, 'crm')
+          ON CONFLICT (key) DO NOTHING;
         END IF;
       END $$
       """

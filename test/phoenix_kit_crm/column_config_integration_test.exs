@@ -45,14 +45,28 @@ defmodule PhoenixKitCRM.ColumnConfigIntegrationTest do
     assert ColumnConfig.get_columns(user.uuid, role) == ~w(email)
   end
 
+  test "a role table keeps its last column; Organizations can hide every optional one" do
+    role = ColumnConfig.spec({:role, Ecto.UUID.generate()})
+    assert PhoenixKitWeb.TableColumns.remove(["email"], "email", role) == ["email"]
+
+    orgs = ColumnConfig.spec(:organizations)
+    assert PhoenixKitWeb.TableColumns.remove(["email"], "email", orgs) == []
+  end
+
   describe "V7" do
     defp v7_statement do
       Enum.find(Migrations.up_statements(), &(&1 =~ "phoenix_kit_user_view_prefs"))
     end
 
-    defp set_marker(version),
-      do:
-        Repo.query!("COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:#{version}'")
+    defp copied?(done?) do
+      Repo.query!("DELETE FROM phoenix_kit_settings WHERE key = 'crm_view_prefs_copied_at'")
+
+      if done?,
+        do:
+          Repo.query!(
+            "INSERT INTO phoenix_kit_settings (key, value, module) VALUES ('crm_view_prefs_copied_at', 'x', 'crm')"
+          )
+    end
 
     defp legacy!(user, scope, config) do
       Repo.query!(
@@ -73,7 +87,7 @@ defmodule PhoenixKitCRM.ColumnConfigIntegrationTest do
       # A malformed row is skipped, not an error that aborts the migration.
       legacy!(c, "role:" <> role_uuid, %{"columns" => "email"})
 
-      set_marker(6)
+      copied?(false)
       Repo.query!(v7_statement())
 
       assert ViewPrefs.get(a, "crm.organizations") == %{"columns" => ~w(email status)}
@@ -83,14 +97,25 @@ defmodule PhoenixKitCRM.ColumnConfigIntegrationTest do
       assert ViewPrefs.get(c, "crm.role." <> role_uuid) == %{}
     end
 
-    test "does nothing once the chain is at V7, so a reset choice stays reset" do
+    test "runs once, so a choice reset after the copy stays reset" do
       user = create_user()
       legacy!(user, "organizations", %{"columns" => ~w(email)})
-
-      set_marker(7)
+      copied?(false)
       Repo.query!(v7_statement())
+      {:ok, _} = ViewPrefs.delete_fields(user, "crm.organizations", ["columns"])
 
+      Repo.query!(v7_statement())
       assert ViewPrefs.get(user, "crm.organizations") == %{}
+    end
+
+    test "a copy the chain skipped is still made once core has the table" do
+      user = create_user()
+      legacy!(user, "organizations", %{"columns" => ~w(email)})
+      Repo.query!("COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:7'")
+      copied?(false)
+
+      Repo.query!(v7_statement())
+      assert ViewPrefs.get(user, "crm.organizations") == %{"columns" => ~w(email)}
     end
   end
 end
