@@ -29,6 +29,9 @@ defmodule PhoenixKitCRM.MediaReorganizer do
     %{
       source: "crm",
       app: :phoenix_kit_crm,
+      # Folders are always `crm-<kind>-<uuid>`: uploads never ask the
+      # folder-name hook, so no plan may propose a host name.
+      name_hook: false,
       kinds: [
         %{
           kind: :contact,
