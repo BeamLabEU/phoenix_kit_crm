@@ -52,6 +52,12 @@ defmodule PhoenixKitCRM.Web.ColumnManagement do
   closed `:show_column_modal`. Reads the custom-field catalog once, so
   call it from `handle_params/3` on connect rather than from `mount/3`.
   """
+  @spec assign_column_state(
+          Phoenix.LiveView.Socket.t(),
+          PhoenixKitCRM.ColumnConfig.scope(),
+          String.t() | nil
+        ) ::
+          Phoenix.LiveView.Socket.t()
   def assign_column_state(socket, scope, current_user_uuid) do
     spec = PhoenixKitCRM.ColumnConfig.spec(scope)
 

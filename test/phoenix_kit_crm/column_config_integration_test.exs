@@ -113,7 +113,13 @@ defmodule PhoenixKitCRM.ColumnConfigIntegrationTest do
       legacy!(user, "organizations", %{"columns" => ~w(email)})
       copied?(false)
       Repo.query!(v7_statement())
-      {:ok, _} = ViewPrefs.delete_fields(user, "crm.organizations", ["columns"])
+
+      # The admin's choice goes, row and all — so only the once-guard, not
+      # the conflict clause, can keep a second run from copying it back.
+      Repo.query!(
+        "DELETE FROM phoenix_kit_user_view_prefs WHERE user_uuid = $1::text::uuid AND key = 'crm.organizations'",
+        [user.uuid]
+      )
 
       Repo.query!(v7_statement())
       assert ViewPrefs.get(user, "crm.organizations") == %{}

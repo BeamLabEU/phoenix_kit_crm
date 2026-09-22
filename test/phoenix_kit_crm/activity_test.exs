@@ -25,6 +25,7 @@ defmodule PhoenixKitCRM.ActivityTest do
              )
 
     assert_activity_logged("crm.company_updated",
+      module: "crm",
       resource_uuid: resource,
       metadata_has: %{"name" => "Acme"}
     )

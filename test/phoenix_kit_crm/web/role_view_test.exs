@@ -8,8 +8,8 @@ defmodule PhoenixKitCRM.Web.RoleViewTest do
   """
   use PhoenixKitCRM.LiveCase
 
-  alias PhoenixKit.Users.{Auth, Role, Roles}
-  alias PhoenixKitCRM.{Contacts, RoleSettings, Test.Repo}
+  alias PhoenixKit.Users.{Auth, Role, Roles, ViewPrefs}
+  alias PhoenixKitCRM.{ColumnConfig, Contacts, RoleSettings, Test.Repo}
 
   setup %{conn: conn} do
     {:ok, _} = PhoenixKitCRM.enable_system()
@@ -23,7 +23,7 @@ defmodule PhoenixKitCRM.Web.RoleViewTest do
       })
 
     scope = fake_scope(user_uuid: admin.uuid, email: admin.email)
-    {:ok, conn: put_test_scope(conn, scope), scope: scope}
+    {:ok, conn: put_test_scope(conn, scope), scope: scope, admin: admin}
   end
 
   defp unique, do: System.unique_integer([:positive])
@@ -46,7 +46,7 @@ defmodule PhoenixKitCRM.Web.RoleViewTest do
   end
 
   test "ticking the CRM contact column on shows the linked contacts without a reload",
-       %{conn: conn} do
+       %{conn: conn, admin: admin} do
     role = crm_role_fixture()
     user = portal_user_fixture(role)
 
@@ -67,5 +67,10 @@ defmodule PhoenixKitCRM.Web.RoleViewTest do
 
     # The CRM contact cell links the contact rather than showing "—".
     assert html =~ ~r{<td[^>]*><a href="/en/admin/crm/contacts/#{contact.uuid}"}
+
+    # ...and the choice is the admin's, saved for the next visit.
+    assert "crm_contact" in ViewPrefs.get(admin, ColumnConfig.view_key({:role, role.uuid}))[
+             "columns"
+           ]
   end
 end
