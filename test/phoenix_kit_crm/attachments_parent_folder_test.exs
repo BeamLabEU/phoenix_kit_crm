@@ -189,4 +189,26 @@ defmodule PhoenixKitCRM.AttachmentsParentFolderTest do
     assert %{^id => [%{original_file_name: "nested.png"}]} =
              Attachments.list_files_by_interaction([id])
   end
+
+  test "a contact folder trashed in the media browser is never uploaded into again" do
+    uuid = Ecto.UUID.generate()
+    {:ok, old} = Attachments.ensure_folder(:contact, uuid, :files, nil)
+    {:ok, _} = Storage.trash_folder(Repo.get!(Folder, old))
+
+    assert Attachments.folder_uuid(:contact, uuid, :files) == nil
+    assert {:ok, new} = Attachments.ensure_folder(:contact, uuid, :files, nil)
+    refute new == old
+  end
+
+  test "purge_media removes every folder named after the record, trashed twins included" do
+    uuid = Ecto.UUID.generate()
+    name = Attachments.root_folder_name(:contact, uuid)
+    {:ok, trashed} = Storage.create_folder(%{name: name})
+    {:ok, _} = Storage.trash_folder(trashed)
+    {:ok, live} = Storage.create_folder(%{name: name})
+
+    assert :ok = Attachments.purge_media(:contact, uuid)
+    refute Repo.get(Folder, trashed.uuid)
+    refute Repo.get(Folder, live.uuid)
+  end
 end
