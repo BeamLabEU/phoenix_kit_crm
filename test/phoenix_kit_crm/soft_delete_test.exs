@@ -38,6 +38,14 @@ defmodule PhoenixKitCRM.SoftDeleteTest do
       assert {:error, :already_trashed} = SoftDelete.trash(Repo, c, @sentinel)
     end
 
+    test "bumps updated_at, as a changeset write would" do
+      c = contact!() |> write!(updated_at: ~U[2020-01-01 00:00:00Z])
+
+      assert {:ok, t} = SoftDelete.trash(Repo, c, @sentinel)
+      assert DateTime.compare(t.updated_at, ~U[2020-01-01 00:00:00Z]) == :gt
+      assert Repo.reload(c).updated_at == t.updated_at
+    end
+
     test "a record that is gone answers not_found" do
       c = contact!()
       Repo.delete!(c)
@@ -80,6 +88,14 @@ defmodule PhoenixKitCRM.SoftDeleteTest do
       assert {:ok, r} = SoftDelete.restore(Repo, c, @sentinel, ["active", "inactive"])
       assert r.status == "active"
       assert r.metadata == %{}
+    end
+
+    test "bumps updated_at" do
+      c = contact!() |> write!(status: @sentinel, updated_at: ~U[2020-01-01 00:00:00Z])
+
+      assert {:ok, r} = SoftDelete.restore(Repo, c, @sentinel, ["active"])
+      assert DateTime.compare(r.updated_at, ~U[2020-01-01 00:00:00Z]) == :gt
+      assert Repo.reload(c).updated_at == r.updated_at
     end
 
     test "a record that is not trashed answers not_trashed" do

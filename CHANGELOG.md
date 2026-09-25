@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.15.0 - 2026-09-25
+
+### Changed
+
+- **Requires `phoenix_kit` 2.38.0 or later** (`>= 2.38.0 and < 3.0.0`). CRM
+  now runs on core's shared toolkits instead of its own copies: contact,
+  company and interaction media on `Storage.ResourceFolders` (a folder trashed
+  in `/admin/media` is never uploaded into again); the media reorganizer on
+  core's `ResourceSource`; file icons and sizes on `Utils.Format`; the actor on
+  `PhoenixKitWeb.Actor`; activity on `PhoenixKit.Activity.log/3`.
+- Each admin's column choices on the role pages and the Organizations page are
+  kept in core's per-user view preferences (`crm.organizations`,
+  `crm.role.<uuid>`) and picked in core's live column modal, which saves every
+  change at once. Migration **V7** copies each saved, non-empty choice from
+  `phoenix_kit_crm_user_role_view` once; that table is kept but no longer read.
+- The admin header trail: the module is the section and the page title is the
+  page, instead of dash-joined "CRM — …" titles.
+
+### Removed
+
+- `PhoenixKitCRM.UserRoleView`, `PhoenixKitCRM.UserRoleViewConfig` and
+  `PhoenixKitCRM.Web.ColumnModal`, replaced by core's view preferences and
+  column modal. `ColumnConfig.get_columns/2` and `update_columns/3` remain.
+
+### Fixed
+
+- Trashing or restoring a contact or company is one row-reading `UPDATE`: it
+  no longer erases a metadata key another session wrote since (the avatar),
+  and two sessions trashing the same record get one success and one
+  `:already_trashed`. It still bumps `updated_at`.
+- The contact and company forms can no longer set or clear the server-owned
+  `avatar_uuid` / `trashed_from_status` metadata keys.
+- Removing an image clears the avatar only while it is still that image; the
+  avatar write can no longer race a detach or land on a record trashed since.
+- Interaction uploads keep their file names and document types and surface
+  failures; LiveView form recovery works on the CRM edit forms and composer.
+
 ## 0.14.2 - 2026-09-20
 
 ### Changed
