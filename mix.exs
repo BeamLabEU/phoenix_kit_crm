@@ -73,18 +73,17 @@ defmodule PhoenixKitCRM.MixProject do
       # PhoenixKit provides the Module behaviour, Settings API, RepoHelper,
       # Dashboard tabs, and the admin layout this module renders into.
       #
-      # Stage-3 lists/import code (contact lists + `phoenix_kit_crm_lists`/
-      # `phoenix_kit_crm_list_members`) requires core migration V152, first
-      # published in phoenix_kit 1.7.203.
-      #
-      # The floor is now 1.7.219: `organizations_view`, `role_view` and
-      # `contact_show_live` import `PhoenixKitWeb.Components.Core.RowLink`, and
-      # that module first ships in 1.7.219 (verified by unpacking the published
-      # tarballs — absent in 1.7.218, present in 1.7.219 and 1.7.220). Without
-      # this, a clean checkout resolving an older core fails to compile with an
-      # undefined `row_link/1`; the local suite only passed because it runs with
-      # PHOENIX_KIT_PATH pointing at a core checkout.
-      pk_dep(:phoenix_kit, "~> 2.0"),
+      # The floor is 2.38.0: the module runs on core's shared toolkits —
+      # `PhoenixKitWeb.Actor`, `PhoenixKit.Activity.log/3`,
+      # `Storage.ResourceFolders`, the reorganizer's `ResourceSource`,
+      # `PhoenixKitWeb.Attachments`, `Utils.Format`, `Users.ViewPrefs` with
+      # `PhoenixKitWeb.TableColumns` (and migration V7 writes their table,
+      # core V201) — all first shipped there, and none is feature-detected, so
+      # a lower core fails to compile. Patch-precise floor in the compound
+      # form, so the ceiling stays open through every later 2.x minor (a
+      # three-segment `~> 2.38.0` would pin one minor; see
+      # CorePinConformanceTest).
+      pk_dep(:phoenix_kit, ">= 2.38.0 and < 3.0.0"),
 
       # mdex_native (pulled in transitively through phoenix_kit's mdex dep)
       # builds from source when MDEX_NATIVE_BUILD=1 is set in the
@@ -106,7 +105,7 @@ defmodule PhoenixKitCRM.MixProject do
       # LiveView is needed for the admin pages.
       {:phoenix_live_view, "~> 1.1"},
 
-      # Ecto for the role-settings and per-user view-config schemas.
+      # Ecto for the role-settings schema and the module-owned migration chain.
       {:ecto_sql, "~> 3.13"},
 
       # CSV parsing for the contact-list import engine (Lists.Import). Pure
