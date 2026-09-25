@@ -161,14 +161,13 @@ defmodule PhoenixKitCRM.ColumnConfig do
         end) ++
           Enum.map(custom, fn {id, meta} -> %{id: id, label: meta.label, group: custom_group} end),
       defaults: default_columns(scope),
-      # A role page's table has no always-on column of its own: its last
-      # column stays, or the rows would render with no cells at all.
-      min: min_columns(scope)
+      # Both tables keep their last column. A role page's table has no
+      # always-on column of its own, so it would render rows with no cells;
+      # the Organizations table has the fixed CRM-company cell, but the link
+      # to the account rides the first configurable cell.
+      min: 1
     }
   end
-
-  defp min_columns({:role, _}), do: 1
-  defp min_columns(:organizations), do: 0
 
   @doc "The columns `user_uuid` sees for `scope` — their own choice, else the defaults."
   @spec get_columns(binary(), scope()) :: [String.t()]

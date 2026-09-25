@@ -69,6 +69,7 @@ defmodule PhoenixKitCRM.Schemas.Company do
   def changeset(company, attrs) do
     company
     |> cast(attrs, @castable)
+    |> PhoenixKitCRM.ServerOwnedMetadata.keep()
     |> validate_required([:name])
     |> validate_inclusion(:status, @statuses)
     |> validate_length(:name, max: 255)

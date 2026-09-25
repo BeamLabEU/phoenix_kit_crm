@@ -422,7 +422,7 @@ defmodule PhoenixKitCRM.Attachments do
            images,
            only: :images
          ) do
-      :ok -> with_fresh_metadata(record)
+      :ok -> confirm_not_trashed(record, file_uuid)
       {:error, :not_held} -> {:error, :not_record_image}
       {:error, reason} -> {:error, reason}
     end
@@ -444,6 +444,26 @@ defmodule PhoenixKitCRM.Attachments do
           ResourceFolders.clear_pointer_if(record.__struct__, record.uuid, @avatar_pointer, shown)
 
         with_fresh_metadata(record)
+    end
+  end
+
+  # `point_at/6` checked the file, not the record: a session that loaded the
+  # record before another trashed it still holds an active `status`, so the
+  # clause above let it through. Re-read the row; if it is trashed now, take
+  # the pointer back — only while it is still this file — and refuse.
+  defp confirm_not_trashed(%schema{uuid: uuid} = record, file_uuid) do
+    sentinel = schema.soft_delete_status()
+
+    case repo().one(from(r in schema, where: r.uuid == ^uuid, select: {r.status, r.metadata})) do
+      nil ->
+        {:error, :not_found}
+
+      {^sentinel, _metadata} ->
+        :ok = ResourceFolders.clear_pointer_if(schema, uuid, @avatar_pointer, file_uuid)
+        {:error, :record_trashed}
+
+      {status, metadata} ->
+        {:ok, %{record | status: status, metadata: metadata}}
     end
   end
 

@@ -526,16 +526,19 @@ defmodule PhoenixKitCRM.Migrations do
   #
   # The role pages' and Organizations page's column choices lived in
   # `phoenix_kit_crm_user_role_view`; they are now core's per-user view
-  # preferences (`phoenix_kit_user_view_prefs`, core V200), keyed
+  # preferences (`phoenix_kit_user_view_prefs`, core V201), keyed
   # `crm.organizations` / `crm.role.<uuid>`. This copies each saved list
   # once — only a non-empty one: CRM read an empty list as "use the
   # defaults", and core reads it as "every column hidden". A choice already
   # in core wins. It runs once: the `crm_view_prefs_copied_at` setting is
   # written right after it, and `up/1` replays every version, so a later
   # run would otherwise bring back a choice the admin has since reset.
-  # Where core's table is not there yet (an older core) it waits, and a
-  # later run — once core has it — copies; the chain's own version marker
-  # plays no part, so running ahead of core cannot skip the copy for good.
+  # It needs core's table, and the core floor (2.38.0, which carries it)
+  # makes sure it is there first: `mix phoenix_kit.update` runs core's
+  # chain before this one. The table guard is a belt on those braces — a
+  # host that somehow reaches V7 without the table skips the copy, and the
+  # chain only replays while a later version is pending, so the copy
+  # happens at the next CRM migration rather than at the next update.
   # The old table stays (nothing reads it), as every table in this chain
   # does.
   defp v7_statements(prefix, p) do

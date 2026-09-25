@@ -51,13 +51,11 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
          |> push_navigate(to: Paths.index(), replace: true)}
 
       true ->
-        current_user = socket.assigns.phoenix_kit_current_user
-
         {:ok,
          socket
          |> assign(:page_title, gettext("CRM — Organizations"))
          |> assign(:scope, :organizations)
-         |> assign(:current_user_uuid, current_user.uuid)
+         |> assign(:current_user_uuid, PhoenixKitWeb.Actor.uuid(socket))
          |> assign(:users, [])
          |> assign(:selected_columns, ColumnConfig.default_columns(:organizations))
          |> assign(:column_meta, ColumnConfig.column_metadata_map(:organizations))

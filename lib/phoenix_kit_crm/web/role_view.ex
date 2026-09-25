@@ -45,14 +45,13 @@ defmodule PhoenixKitCRM.Web.RoleView do
 
           role ->
             scope = {:role, role_uuid}
-            current_user = socket.assigns.phoenix_kit_current_user
 
             {:ok,
              socket
              |> assign(:page_title, gettext("CRM — %{name}", name: role.name))
              |> assign(:role, role)
              |> assign(:scope, scope)
-             |> assign(:current_user_uuid, current_user.uuid)
+             |> assign(:current_user_uuid, PhoenixKitWeb.Actor.uuid(socket))
              |> assign(:users, [])
              |> assign(:selected_columns, ColumnConfig.default_columns(scope))
              # No DB query in mount/3 (it runs twice). handle_params/3 loads the

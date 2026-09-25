@@ -14,7 +14,10 @@ comments (when `phoenix_kit_comments` is enabled), and an Events activity feed.
 It implements the `PhoenixKit.Module` behaviour, so a host application
 discovers it by adding the package to `deps` — no other config.
 
-- **Depends on:** `phoenix_kit` `~> 2.0` (Hex), `phoenix_kit_comments` `~> 0.3`
+- **Depends on:** `phoenix_kit` `>= 2.38.0 and < 3.0.0` (Hex — the release that
+  carries `PhoenixKitWeb.Actor`, `Activity.log/3`, `ResourceFolders`,
+  `PhoenixKitWeb.Attachments` and `Users.ViewPrefs`; the compound form keeps
+  the ceiling open across later 2.x minors), `phoenix_kit_comments` `~> 0.3`
   (hard — the contact and company profiles `use PhoenixKitComments.Embed` at
   compile time, so the dep cannot be optional; the Comments *tab* is still
   runtime-gated on `PhoenixKitComments.enabled?/0`). Also `phoenix_live_view`
@@ -139,9 +142,6 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
   core's `:phoenix_kit_js_sources` compiler folds it into the host's module
   bundle. Never register a hook from an inline `<script>` — morphdom does not
   execute inserted script tags, so the hook vanishes on LiveView navigation.
-  `js_sources/0` deliberately carries **no `@impl`**: older core releases do not
-  declare the callback and annotating it warns, which fails
-  `--warnings-as-errors`.
 - **`css_sources/0` returns `[:phoenix_kit_crm]`.** Tailwind source discovery is
   automatic — core's `:phoenix_kit_css_sources` compiler scans this module's
   templates and writes the host's `assets/css/_phoenix_kit_sources.css`.
@@ -332,8 +332,9 @@ Adoption rules:
   current shape.
 - **Every statement is idempotent** (`IF NOT EXISTS`, guarded `DO $$ …
   pg_constraint … $$`, `COMMENT`), so the chain replays safely. A one-time
-  data copy (V07) guards on the stored marker being below its version, or a
-  replay would redo it over what users changed since.
+  data copy (V07) guards on the `crm_view_prefs_copied_at` settings row it
+  writes after copying (and on core's table being present), so a replay
+  changes nothing.
   `up_statements/1` returns the SQL as data — the testable single source.
 - **`down/1` drops nothing.** It only unstamps or re-stamps the marker.
 

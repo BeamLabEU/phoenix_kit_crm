@@ -120,16 +120,11 @@ defmodule PhoenixKitCRM.Web.InteractionHelpers do
 
   @doc """
   The acting user's uuid from the page assigns — what the composer stamps as
-  the interaction owner. One definition for both show LiveViews (they were
-  verbatim copies).
+  the interaction owner. Read through core's `PhoenixKitWeb.Actor` (scope
+  first, then the bare current user), like every other actor in the module.
   """
   @spec current_user_uuid(map()) :: binary() | nil
-  def current_user_uuid(assigns) do
-    case assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> uuid
-      _ -> nil
-    end
-  end
+  def current_user_uuid(assigns), do: PhoenixKitWeb.Actor.uuid(assigns)
 
   @doc "Display name for the composer's \"Add me\" shortcut — full name, else email."
   @spec current_user_name(map()) :: String.t() | nil

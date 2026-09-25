@@ -56,12 +56,12 @@ defmodule PhoenixKitCRM.ColumnConfigIntegrationTest do
     assert ColumnConfig.get_columns(user.uuid, role) == ColumnConfig.default_columns(role)
   end
 
-  test "a role table keeps its last column; Organizations can hide every optional one" do
+  test "both tables keep their last column (the row link rides the first one)" do
     role = ColumnConfig.spec({:role, Ecto.UUID.generate()})
     assert PhoenixKitWeb.TableColumns.remove(["email"], "email", role) == ["email"]
 
     orgs = ColumnConfig.spec(:organizations)
-    assert PhoenixKitWeb.TableColumns.remove(["email"], "email", orgs) == []
+    assert PhoenixKitWeb.TableColumns.remove(["email"], "email", orgs) == ["email"]
   end
 
   describe "V7" do
@@ -125,7 +125,19 @@ defmodule PhoenixKitCRM.ColumnConfigIntegrationTest do
       assert ViewPrefs.get(user, "crm.organizations") == %{}
     end
 
-    test "a copy the chain skipped is still made once core has the table" do
+    test "V7 writes the keys the runtime reads" do
+      uuid = Ecto.UUID.generate()
+      assert ColumnConfig.view_key(:organizations) == "crm.organizations"
+      assert ColumnConfig.view_key({:role, uuid}) == "crm.role." <> uuid
+      # The SQL builds the same two shapes from the legacy scope column.
+      assert v7_statement() =~ "'crm.' || replace(v.scope, ':', '.')"
+      assert v7_statement() =~ "v.scope = 'organizations' OR v.scope LIKE 'role:%'"
+    end
+
+    # The statement itself, replayed after the table appeared, still copies:
+    # this pins the guard's shape, not when the chain replays it (only while
+    # a later CRM version is pending).
+    test "a replay of the statement copies once the table is there" do
       user = create_user()
       legacy!(user, "organizations", %{"columns" => ~w(email)})
       Repo.query!("COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:7'")

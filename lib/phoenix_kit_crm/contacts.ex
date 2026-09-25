@@ -212,17 +212,15 @@ defmodule PhoenixKitCRM.Contacts do
   def trash_contact(%Contact{status: "trashed"}), do: {:error, :already_trashed}
 
   def trash_contact(%Contact{} = contact) do
-    contact
-    |> SoftDelete.trash_changeset(Contact.soft_delete_status())
-    |> repo().update()
+    repo()
+    |> SoftDelete.trash(contact, Contact.soft_delete_status())
     |> announce_to_companies(:member_left)
   end
 
   @spec restore_contact(Contact.t()) :: {:ok, Contact.t()} | {:error, atom() | Ecto.Changeset.t()}
   def restore_contact(%Contact{status: "trashed"} = contact) do
-    contact
-    |> SoftDelete.restore_changeset(Contact.statuses())
-    |> repo().update()
+    repo()
+    |> SoftDelete.restore(contact, Contact.soft_delete_status(), Contact.statuses())
     |> announce_to_companies(:member_joined)
   end
 
