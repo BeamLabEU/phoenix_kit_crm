@@ -34,8 +34,10 @@ defmodule PhoenixKitCRM.Attachments do
   name wherever it lives — under the configured parent first, then the root,
   then anywhere else (created under a parent the hook no longer returns, or
   moved in `/admin/media`). Folders that predate the setting are still found —
-  no adoption, no twin ever created. The nested `Images` subfolder is always
-  resolved strictly inside its record folder.
+  no adoption, no twin ever created. Only live folders count: a folder trashed
+  in `/admin/media` is never uploaded into again. The nested `Images`
+  subfolder is always resolved strictly inside its record folder. The
+  convention itself is core's `PhoenixKit.Modules.Storage.ResourceFolders`.
 
   The hook also runs on reads (every Media tab load and timeline render), so
   keep it cheap. A hook that raises or returns anything else falls back to the
@@ -44,14 +46,16 @@ defmodule PhoenixKitCRM.Attachments do
 
   require Logger
 
-  import Ecto.Query, warn: false
+  import Ecto.Query, only: [from: 2]
 
   alias PhoenixKit.Modules.Storage
-  alias PhoenixKit.Modules.Storage.{File, Folder, FolderLink}
+  alias PhoenixKit.Modules.Storage.{File, Folder, ResourceFolders}
+  alias PhoenixKit.Utils.Format
 
   @images_folder_name "Images"
   @interaction_prefix "crm-interaction-"
   @avatar_key "avatar_uuid"
+  @avatar_pointer {:metadata, @avatar_key}
   # Inline grid is unpaginated; cap the query so a pathological folder can't
   # freeze the tab. The picker uploads ≤20/submit, so this is generous.
   @list_limit 200
@@ -81,8 +85,15 @@ defmodule PhoenixKitCRM.Attachments do
 
   def folder_uuid(resource, uuid, :images, actor_uuid) do
     case get_record_folder(resource, uuid, actor_uuid) do
-      %Folder{uuid: root} -> uuid_of(get_folder_under(@images_folder_name, root))
-      _ -> nil
+      %Folder{uuid: root} ->
+        uuid_of(
+          quietly("get_folder", nil, fn ->
+            ResourceFolders.find_under(@images_folder_name, root)
+          end)
+        )
+
+      _ ->
+        nil
     end
   end
 
@@ -92,18 +103,17 @@ defmodule PhoenixKitCRM.Attachments do
 
   @doc """
   Find-or-create the folder for `kind`, returning `{:ok, uuid}` or
-  `{:error, reason}`. Race-safe: a lost create (unique `[:name, :parent_uuid]`)
-  re-resolves the winner. Call when an action needs the folder to exist (opening
-  the picker / handling a selection).
+  `{:error, :folder_unavailable}`. Race-safe: a lost create (unique
+  `[:name, :parent_uuid]`) re-resolves the winner. Call when an action needs
+  the folder to exist (opening the picker / handling a selection).
   """
   @spec ensure_folder(resource(), binary(), :files | :images, binary() | nil) ::
           {:ok, binary()} | {:error, term()}
   def ensure_folder(resource, uuid, :files, actor_uuid) do
-    find_or_create(
+    ensure_record_folder(
       root_folder_name(resource, uuid),
       parent_folder_uuid(resource, actor_uuid, uuid),
-      actor_uuid,
-      &get_folder/2
+      actor_uuid
     )
   end
 
@@ -112,157 +122,76 @@ defmodule PhoenixKitCRM.Attachments do
   # folder may live.
   def ensure_folder(resource, uuid, :images, actor_uuid) do
     with {:ok, root} <- ensure_folder(resource, uuid, :files, actor_uuid) do
-      find_or_create(@images_folder_name, root, actor_uuid, &get_folder_under/2)
+      @images_folder_name |> ResourceFolders.ensure(root, actor_uuid) |> ensured()
     end
   end
 
   @doc false
   # Host-configured parent folder for a resource kind; `nil` = storage root
-  # (the default), see moduledoc "Parent folder". Calls the configured
-  # `{mod, fun}` as `fun(kind, actor_uuid, subject)` when it accepts 3 args,
-  # else `fun(kind, actor_uuid)`.
+  # (the default), see moduledoc "Parent folder". The hook contract, and the
+  # fallback to the root for a failing hook or a non-uuid answer, are core's
+  # (`ResourceFolders.parent_uuid/4`).
   @spec parent_folder_uuid(atom(), binary() | nil, term()) :: binary() | nil
-  def parent_folder_uuid(kind, actor_uuid, subject \\ nil) do
-    case Application.get_env(:phoenix_kit_crm, :attachments_parent_folder) do
-      {mod, fun} when is_atom(mod) and is_atom(fun) ->
-        call_parent_hook(mod, fun, kind, actor_uuid, subject)
+  def parent_folder_uuid(kind, actor_uuid, subject \\ nil),
+    do: ResourceFolders.parent_uuid(:phoenix_kit_crm, kind, actor_uuid, subject)
 
-      _ ->
-        nil
-    end
-  rescue
-    error ->
-      Logger.warning("[CRM] parent folder hook failed for #{inspect(kind)}: #{inspect(error)}")
-      nil
-  end
-
-  defp call_parent_hook(mod, fun, kind, actor_uuid, subject) do
-    case invoke_parent_hook(mod, fun, kind, actor_uuid, subject) do
-      {:ok, uuid} when is_binary(uuid) -> uuid
-      _ -> nil
-    end
-  end
-
-  defp invoke_parent_hook(mod, fun, kind, actor_uuid, subject) do
-    cond do
-      Code.ensure_loaded?(mod) and function_exported?(mod, fun, 3) ->
-        apply(mod, fun, [kind, actor_uuid, subject])
-
-      Code.ensure_loaded?(mod) and function_exported?(mod, fun, 2) ->
-        apply(mod, fun, [kind, actor_uuid])
-
-      true ->
-        nil
-    end
-  end
-
-  # `lookup` is `&get_folder/2` for the deterministic record folders and
-  # `&get_folder_under/2` for a subfolder whose name is only unique locally.
-  defp find_or_create(name, parent_uuid, user_uuid, lookup) do
-    case lookup.(name, parent_uuid) do
-      %Folder{uuid: uuid} -> {:ok, uuid}
-      nil -> create_or_resolve(name, parent_uuid, user_uuid, lookup)
-    end
-  rescue
-    error ->
-      Logger.warning("[CRM] ensure_folder #{name} failed: #{inspect(error)}")
-      {:error, :folder_unavailable}
-  end
-
-  defp create_or_resolve(name, parent_uuid, user_uuid, lookup) do
-    case Storage.create_folder(%{name: name, parent_uuid: parent_uuid, user_uuid: user_uuid}) do
-      {:ok, %Folder{uuid: uuid}} ->
-        {:ok, uuid}
-
-      # Lost the create race against a concurrent first-upload — the unique
-      # [:name, :parent_uuid] constraint rejected us; re-resolve the winner.
-      {:error, %Ecto.Changeset{}} ->
-        case lookup.(name, parent_uuid) do
-          %Folder{uuid: uuid} -> {:ok, uuid}
-          _ -> {:error, :folder_unavailable}
-        end
-    end
-  end
-
-  # A record folder by its deterministic name, wherever it lives — see the
-  # moduledoc "Parent folder". Never adopts, never twins.
-  defp get_folder(name, parent_uuid) do
-    from(f in Folder, where: f.name == ^name, limit: 1)
-    |> prefer_parent(parent_uuid)
-    |> repo().one()
-  rescue
-    error ->
-      Logger.warning("[CRM] get_folder #{name} failed: #{inspect(error)}")
-      nil
-  end
-
-  # Among same-named folders: under `parent_uuid`, then at root, then oldest.
-  defp prefer_parent(query, nil),
-    do: order_by(query, [f], desc: is_nil(f.parent_uuid), asc: f.inserted_at)
-
-  defp prefer_parent(query, parent_uuid) do
-    order_by(query, [f],
-      desc: coalesce(f.parent_uuid == ^parent_uuid, false),
-      desc: is_nil(f.parent_uuid),
-      asc: f.inserted_at
+  # A record folder's name embeds the record's uuid, so the folder is found
+  # wherever it lives — see the moduledoc "Parent folder". Never adopts,
+  # never twins.
+  defp ensure_record_folder(name, parent_uuid, actor_uuid) do
+    name
+    |> ResourceFolders.ensure(parent_uuid, actor_uuid,
+      lookup: fn -> ResourceFolders.find_named(name, parent_uuid, anywhere: true) end
     )
+    |> ensured()
   end
 
-  defp get_folder_under(name, nil) do
-    from(f in Folder, where: f.name == ^name and is_nil(f.parent_uuid), limit: 1) |> repo().one()
-  rescue
-    error ->
-      Logger.warning("[CRM] get_folder #{name} failed: #{inspect(error)}")
-      nil
-  end
+  defp ensured({:ok, %Folder{uuid: uuid}}), do: {:ok, uuid}
+  defp ensured({:error, _reason}), do: {:error, :folder_unavailable}
 
-  defp get_folder_under(name, parent_uuid) do
-    from(f in Folder, where: f.name == ^name and f.parent_uuid == ^parent_uuid, limit: 1)
-    |> repo().one()
-  rescue
-    error ->
-      Logger.warning("[CRM] get_folder #{name} failed: #{inspect(error)}")
-      nil
+  # Among live same-named folders: under `parent_uuid`, then at root, then
+  # elsewhere, oldest first.
+  defp get_folder(name, parent_uuid) do
+    quietly("get_folder #{name}", nil, fn ->
+      ResourceFolders.find_named(name, parent_uuid, anywhere: true)
+    end)
   end
 
   defp uuid_of(%Folder{uuid: uuid}), do: uuid
   defp uuid_of(_), do: nil
 
+  # A read on a render path: a failure is logged and answers `default`.
+  defp quietly(what, default, fun) do
+    fun.()
+  rescue
+    error ->
+      Logger.warning("[CRM] #{what} failed: #{inspect(error)}")
+      default
+  catch
+    :exit, reason ->
+      Logger.warning("[CRM] #{what} failed: #{ResourceFolders.describe_failure({:exit, reason})}")
+      default
+  end
+
   # ── Listing ────────────────────────────────────────────────────────
 
   @doc """
   Files attached to `folder_uuid` (home-folder files plus those linked in via
-  `FolderLink`), newest first, excluding trashed. `:only` narrows by type:
-  `:images` (file_type == "image"), `:non_images`, or `:all` (default).
-  Defensive — keeps a tab showing only its own kind even if a stray file landed
-  in the folder.
+  `FolderLink`), newest first, excluding trashed and system-managed ones.
+  `:only` narrows by type: `:images` (file_type == "image"), `:non_images`,
+  or `:all` (default). Defensive — keeps a tab showing only its own kind even
+  if a stray file landed in the folder.
   """
   @spec list_files(binary() | nil, keyword()) :: [File.t()]
   def list_files(nil, _opts), do: []
 
   def list_files(folder_uuid, opts) do
-    linked = from(fl in FolderLink, where: fl.folder_uuid == ^folder_uuid, select: fl.file_uuid)
-
-    base =
-      from(f in File,
-        where:
-          (f.folder_uuid == ^folder_uuid or f.uuid in subquery(linked)) and f.status != "trashed",
-        order_by: [desc: f.inserted_at],
+    quietly("list_files #{folder_uuid}", [], fn ->
+      ResourceFolders.list_files(folder_uuid,
+        only: Keyword.get(opts, :only, :all),
         limit: @list_limit
       )
-
-    query =
-      case Keyword.get(opts, :only, :all) do
-        :images -> where(base, [f], f.file_type == "image")
-        :non_images -> where(base, [f], f.file_type != "image")
-        _ -> base
-      end
-
-    repo().all(query)
-  rescue
-    error ->
-      Logger.warning("[CRM] list_files #{folder_uuid} failed: #{inspect(error)}")
-      []
+    end)
   end
 
   @doc "Whether the file with this uuid is an image (by Storage `file_type`)."
@@ -276,125 +205,55 @@ defmodule PhoenixKitCRM.Attachments do
   # ── Attach / detach ────────────────────────────────────────────────
 
   @doc """
-  Ensures `file_uuid` is attached to `folder_uuid`: a no-op if already home
-  there (the modal's scoped uploads land here directly); adopts an orphan file
-  as home; otherwise adds a `FolderLink` so a file picked from elsewhere appears
-  here without being moved from its owner.
+  Ensures `file_uuid` is attached to `folder_uuid` by core's rule: a no-op if
+  already there (the modal's scoped uploads land here directly); adopts an
+  orphan file as home; otherwise adds a `FolderLink` so a file picked from
+  elsewhere appears here without being moved from its owner. Always `:ok`; a
+  failure is logged.
   """
   @spec attach(binary(), binary()) :: :ok
   def attach(file_uuid, folder_uuid) do
-    case Storage.get_file(file_uuid) do
-      nil ->
+    case ResourceFolders.attach(file_uuid, folder_uuid) do
+      {:ok, _outcome} ->
         :ok
 
-      %File{folder_uuid: ^folder_uuid} ->
-        :ok
-
-      %File{folder_uuid: nil} = file ->
-        file |> Ecto.Changeset.change(%{folder_uuid: folder_uuid}) |> repo().update()
-        :ok
-
-      %File{} ->
-        %FolderLink{}
-        |> FolderLink.changeset(%{folder_uuid: folder_uuid, file_uuid: file_uuid})
-        |> repo().insert(on_conflict: :nothing, conflict_target: [:folder_uuid, :file_uuid])
+      {:error, reason} ->
+        Logger.warning(
+          "[CRM] attach #{file_uuid} failed: #{ResourceFolders.describe_failure(reason)}"
+        )
 
         :ok
     end
-  rescue
-    error ->
-      Logger.warning("[CRM] attach #{file_uuid} failed: #{inspect(error)}")
-      :ok
   end
 
   @doc """
-  Removes a file from `folder_uuid`. Home here and not linked elsewhere →
-  soft-trash (recoverable in the media trash). Home here but also linked
-  elsewhere → promote a link to home. Here only via a `FolderLink` → drop the
-  link. Never hard-deletes a shared asset.
+  Removes a file from `folder_uuid` by core's rule: here only via a
+  `FolderLink` → drop the link; home here and linked into another live
+  folder → move it there; home here and nothing else holds it → soft-trash
+  (recoverable in the media trash). Never hard-deletes a shared asset, never
+  touches a file that is not here.
   """
   @spec detach(binary(), binary() | nil) :: :ok | {:error, term()}
-  def detach(_file_uuid, nil), do: :ok
-
   def detach(file_uuid, folder_uuid) do
-    case Storage.get_file(file_uuid) do
-      nil -> :ok
-      %File{folder_uuid: ^folder_uuid} = file -> detach_home(file)
-      %File{} -> detach_link(file_uuid, folder_uuid)
+    case ResourceFolders.detach(file_uuid, folder_uuid) do
+      {:ok, _outcome} -> :ok
+      {:error, reason} -> {:error, reason}
     end
-  rescue
-    error ->
-      Logger.warning("[CRM] detach #{file_uuid} failed: #{inspect(error)}")
-      {:error, error}
-  end
-
-  defp detach_home(file) do
-    case list_links(file.uuid) do
-      [] ->
-        case soft_trash(file) do
-          {:ok, _} -> :ok
-          err -> err
-        end
-
-      [%FolderLink{} = link | _] ->
-        repo().transaction(fn ->
-          file |> Ecto.Changeset.change(%{folder_uuid: link.folder_uuid}) |> repo().update!()
-          repo().delete!(link)
-        end)
-        |> case do
-          {:ok, _} -> :ok
-          err -> err
-        end
-    end
-  end
-
-  defp detach_link(file_uuid, folder_uuid) do
-    from(fl in FolderLink, where: fl.file_uuid == ^file_uuid and fl.folder_uuid == ^folder_uuid)
-    |> repo().delete_all()
-
-    :ok
-  end
-
-  defp soft_trash(%File{} = file) do
-    file
-    |> Ecto.Changeset.change(%{
-      status: "trashed",
-      trashed_at: DateTime.utc_now() |> DateTime.truncate(:second)
-    })
-    |> repo().update()
-  end
-
-  defp list_links(file_uuid) do
-    from(fl in FolderLink, where: fl.file_uuid == ^file_uuid) |> repo().all()
   end
 
   # ── Lifecycle ──────────────────────────────────────────────────────
 
   @doc """
-  Permanently purges a record's media — deletes the root folder and its whole
-  subtree (the nested `Images` folder + every file) via core's cascading
-  `delete_folder_completely/1`. Best-effort: logs and returns `:ok` on any
-  failure so it never blocks a deletion. Call only on a **permanent** delete
-  (soft-trash keeps the files).
+  Permanently purges a record's media — deletes every folder named after the
+  record (wherever it sits, trashed or not) and its whole subtree (the nested
+  `Images` folder + every file; a file another folder links survives there)
+  via core's cascading `delete_folder_completely/1`. Best-effort: logs and
+  returns `:ok` on any failure so it never blocks a deletion. Call only on a
+  **permanent** delete (soft-trash keeps the files).
   """
   @spec purge_media(resource(), binary()) :: :ok
   def purge_media(resource, uuid),
-    do: purge_folder(root_folder_name(resource, uuid), parent_folder_uuid(resource, nil, uuid))
-
-  defp purge_folder(name, parent_uuid) do
-    case get_folder(name, parent_uuid) do
-      %Folder{} = folder ->
-        Storage.delete_folder_completely(folder)
-        :ok
-
-      _ ->
-        :ok
-    end
-  rescue
-    error ->
-      Logger.warning("[CRM] purge folder #{name} failed: #{inspect(error)}")
-      :ok
-  end
+    do: ResourceFolders.purge_named(root_folder_name(resource, uuid))
 
   # ── Interaction-scoped media (compose-time attachments) ────────────
   #
@@ -422,11 +281,10 @@ defmodule PhoenixKitCRM.Attachments do
           {:ok, binary()} | {:error, term()}
   def ensure_interaction_folder(interaction_uuid, actor_uuid),
     do:
-      find_or_create(
+      ensure_record_folder(
         interaction_folder_name(interaction_uuid),
         parent_folder_uuid(:interaction, actor_uuid, interaction_uuid),
-        actor_uuid,
-        &get_folder/2
+        actor_uuid
       )
 
   @doc "Files attached to an interaction (newest first, excluding trashed)."
@@ -436,81 +294,37 @@ defmodule PhoenixKitCRM.Attachments do
 
   @doc """
   Files for many interactions at once → `%{interaction_uuid => [File.t()]}` (only
-  interactions that have files appear). Two queries total (folders, then files);
-  used to render the timeline without an N+1. Compose-time uploads land home in
-  the interaction folder, so home-folder files are sufficient (no FolderLinks).
+  interactions that have files appear), newest first. Three queries total (the
+  folders, then their home and linked files); used to render the timeline
+  without an N+1. Each interaction's folder is picked exactly as
+  `interaction_folder_uuid/1` picks it, so the timeline and the composer agree.
   """
   @spec list_files_by_interaction([binary()]) :: %{binary() => [File.t()]}
   def list_files_by_interaction([]), do: %{}
 
   def list_files_by_interaction(interaction_uuids) do
-    name_to_iuuid = Map.new(interaction_uuids, &{interaction_folder_name(&1), &1})
-    names = Map.keys(name_to_iuuid)
-    # One subject-less hook call for the whole batch.
-    parent = parent_folder_uuid(:interaction, nil)
+    quietly("list_files_by_interaction", %{}, fn ->
+      name_to_iuuid = Map.new(interaction_uuids, &{interaction_folder_name(&1), &1})
+      # One subject-less hook call for the whole batch.
+      parent = parent_folder_uuid(:interaction, nil)
 
-    # One folder per interaction (DISTINCT ON name), picked exactly as
-    # get_folder/2 picks it, so the timeline and the composer agree.
-    fuuid_to_iuuid =
-      from(f in Folder, where: f.name in ^names, distinct: f.name, select: {f.uuid, f.name})
-      |> prefer_parent(parent)
-      |> repo().all()
-      |> Map.new(fn {fuuid, name} -> {fuuid, Map.get(name_to_iuuid, name)} end)
+      fuuid_to_iuuid =
+        name_to_iuuid
+        |> Map.keys()
+        |> ResourceFolders.find_named_all(parent, anywhere: true)
+        |> Map.new(fn {name, folder} -> {folder.uuid, Map.fetch!(name_to_iuuid, name)} end)
 
-    case Map.keys(fuuid_to_iuuid) do
-      [] -> %{}
-      fuuids -> group_interaction_files(fuuids, fuuid_to_iuuid)
-    end
-  rescue
-    error ->
-      Logger.warning("[CRM] list_files_by_interaction failed: #{inspect(error)}")
-      %{}
-  end
-
-  # Home files (folder_uuid = the interaction folder) PLUS files linked in via a
-  # FolderLink (identical-bytes uploads dedup to a link, not a copy), each mapped
-  # back to its interaction.
-  defp group_interaction_files(fuuids, fuuid_to_iuuid) do
-    home =
-      from(f in File,
-        where: f.folder_uuid in ^fuuids and f.status != "trashed",
-        order_by: [desc: f.inserted_at]
-      )
-      |> repo().all()
-      |> Enum.map(&{Map.get(fuuid_to_iuuid, &1.folder_uuid), &1})
-
-    links =
-      from(fl in FolderLink,
-        where: fl.folder_uuid in ^fuuids,
-        select: {fl.folder_uuid, fl.file_uuid}
-      )
-      |> repo().all()
-
-    (home ++ linked_file_pairs(links, fuuid_to_iuuid))
-    |> Enum.group_by(fn {iuuid, _f} -> iuuid end, fn {_iuuid, f} -> f end)
-  end
-
-  defp linked_file_pairs([], _fuuid_to_iuuid), do: []
-
-  defp linked_file_pairs(links, fuuid_to_iuuid) do
-    files =
-      from(f in File, where: f.uuid in ^Enum.map(links, &elem(&1, 1)) and f.status != "trashed")
-      |> repo().all()
-      |> Map.new(&{&1.uuid, &1})
-
-    links
-    |> Enum.map(fn {fuuid, fid} -> {Map.get(fuuid_to_iuuid, fuuid), Map.get(files, fid)} end)
-    |> Enum.reject(fn {_iuuid, f} -> is_nil(f) end)
+      fuuid_to_iuuid
+      |> Map.keys()
+      |> ResourceFolders.files_by_folder()
+      |> Map.new(fn {fuuid, files} -> {Map.fetch!(fuuid_to_iuuid, fuuid), files} end)
+    end)
   end
 
   @doc "Purge an interaction's attachment folder subtree (best-effort)."
   @spec purge_interaction_media(binary()) :: :ok
   def purge_interaction_media(interaction_uuid),
-    do:
-      purge_folder(
-        interaction_folder_name(interaction_uuid),
-        parent_folder_uuid(:interaction, nil, interaction_uuid)
-      )
+    do: ResourceFolders.purge_named(interaction_folder_name(interaction_uuid))
 
   @doc "Fetch a `File` struct by uuid (nil-safe), for the composer's staged list."
   @spec get_file(binary()) :: File.t() | nil
@@ -525,27 +339,13 @@ defmodule PhoenixKitCRM.Attachments do
 
   # ── Template helpers ───────────────────────────────────────────────
 
-  @doc "Heroicon name for a file based on its Storage type / mime."
+  @doc "Heroicon name for a file based on its Storage type / mime (`Format.file_icon/1`)."
   @spec file_icon(map()) :: String.t()
-  def file_icon(%{file_type: "image"}), do: "hero-photo"
-  def file_icon(%{file_type: "video"}), do: "hero-film"
-  def file_icon(%{file_type: "audio"}), do: "hero-musical-note"
-  def file_icon(%{file_type: "archive"}), do: "hero-archive-box"
-  def file_icon(%{mime_type: "application/pdf"}), do: "hero-document-text"
-  def file_icon(_), do: "hero-document"
+  defdelegate file_icon(file), to: Format
 
-  @doc "Human-readable byte count. Nil-safe."
+  @doc "Human-readable byte count (decimal units). Nil-safe."
   @spec format_file_size(integer() | nil) :: String.t()
-  def format_file_size(bytes) when is_integer(bytes) do
-    cond do
-      bytes >= 1_000_000_000 -> "#{Float.round(bytes / 1_000_000_000, 1)} GB"
-      bytes >= 1_000_000 -> "#{Float.round(bytes / 1_000_000, 1)} MB"
-      bytes >= 1_000 -> "#{Float.round(bytes / 1_000, 1)} KB"
-      true -> "#{bytes} B"
-    end
-  end
-
-  def format_file_size(_), do: "—"
+  def format_file_size(bytes), do: Format.bytes(bytes, base: 1000, unknown: "—")
 
   @doc "Public download URL for a file (nil-safe)."
   @spec download_url(map()) :: String.t() | nil
@@ -570,37 +370,25 @@ defmodule PhoenixKitCRM.Attachments do
   # A record's avatar (contact photo / company logo) is a single image-file
   # pointer kept in its `metadata` (`"avatar_uuid"`) — no new column. The image
   # is one of the record's Images-folder files (the picker is scoped there).
-  # Server-owned: written only via `set_avatar/2` / `clear_avatar/1`. Works for
+  # Server-owned: written only via `set_avatar/3` / `clear_avatar/2`. Works for
   # any record with `metadata` + `status` (Contact, Company).
 
   @doc "The record's avatar file uuid (from metadata), or nil."
   @spec avatar_uuid(struct()) :: binary() | nil
-  def avatar_uuid(%{metadata: m}) when is_map(m) do
-    case Map.get(m, @avatar_key) do
-      uuid when is_binary(uuid) and uuid != "" -> uuid
-      _ -> nil
-    end
-  end
+  def avatar_uuid(%{metadata: _} = record),
+    do: ResourceFolders.pointer_value(record, {:metadata, @avatar_key})
 
   def avatar_uuid(_), do: nil
 
   @doc "The record's avatar `File` struct, or nil if unset / missing / trashed."
   @spec avatar_file(struct()) :: File.t() | nil
-  def avatar_file(record) do
-    case avatar_uuid(record) do
-      nil ->
-        nil
-
-      uuid ->
-        case Storage.get_file(uuid) do
-          %File{status: "trashed"} -> nil
-          %File{} = file -> file
-          _ -> nil
-        end
-    end
+  def avatar_file(%{metadata: _} = record) do
+    ResourceFolders.pointed_file(record, {:metadata, @avatar_key})
   rescue
     _ -> nil
   end
+
+  def avatar_file(_), do: nil
 
   @doc "Thumbnail URL for the record's avatar (or nil)."
   @spec avatar_url(struct()) :: String.t() | nil
@@ -622,41 +410,69 @@ defmodule PhoenixKitCRM.Attachments do
 
   def set_avatar(resource, %{metadata: _, uuid: record_uuid} = record, file_uuid)
       when resource in [:contact, :company] and is_binary(file_uuid) and file_uuid != "" do
-    if avatar_candidate?(resource, record_uuid, file_uuid) do
-      put_metadata(record, @avatar_key, file_uuid)
-    else
-      {:error, :not_record_image}
+    images = folder_uuid(resource, record_uuid, :images)
+
+    # Check and write in one step (the file cannot leave the folder in
+    # between), and only the avatar key is written.
+    case ResourceFolders.point_at(
+           record.__struct__,
+           record_uuid,
+           @avatar_pointer,
+           file_uuid,
+           images,
+           only: :images
+         ) do
+      :ok -> confirm_not_trashed(record, file_uuid)
+      {:error, :not_held} -> {:error, :not_record_image}
+      {:error, reason} -> {:error, reason}
     end
   end
 
   @doc """
-  Whether `file_uuid` is one of the record's own `Images`-folder image files
-  (home or linked, excluding trashed) — the authorization basis for `set_avatar/3`.
+  Clears the record's avatar — only while it is still `file_uuid`, or the
+  one `record` shows when none is given: an avatar another session has set
+  since is left alone. Answers the record as the row now holds it.
   """
-  @spec avatar_candidate?(resource(), binary(), binary()) :: boolean()
-  def avatar_candidate?(resource, record_uuid, file_uuid)
-      when resource in [:contact, :company] and is_binary(file_uuid) and file_uuid != "" do
-    case folder_uuid(resource, record_uuid, :images) do
+  @spec clear_avatar(struct(), binary() | nil) :: {:ok, struct()} | {:error, term()}
+  def clear_avatar(%{metadata: _} = record, file_uuid \\ nil) do
+    case file_uuid || avatar_uuid(record) do
       nil ->
-        false
+        with_fresh_metadata(record)
 
-      images_folder ->
-        Enum.any?(list_files(images_folder, only: :images), &(&1.uuid == file_uuid))
+      shown ->
+        :ok =
+          ResourceFolders.clear_pointer_if(record.__struct__, record.uuid, @avatar_pointer, shown)
+
+        with_fresh_metadata(record)
     end
   end
 
-  def avatar_candidate?(_resource, _record_uuid, _file_uuid), do: false
+  # `point_at/6` checked the file, not the record: a session that loaded the
+  # record before another trashed it still holds an active `status`, so the
+  # clause above let it through. Re-read the row; if it is trashed now, take
+  # the pointer back — only while it is still this file — and refuse.
+  defp confirm_not_trashed(%schema{uuid: uuid} = record, file_uuid) do
+    sentinel = schema.soft_delete_status()
 
-  @doc "Clears the record's avatar pointer."
-  @spec clear_avatar(struct()) :: {:ok, struct()} | {:error, term()}
-  def clear_avatar(%{metadata: _} = record), do: put_metadata(record, @avatar_key, nil)
+    case repo().one(from(r in schema, where: r.uuid == ^uuid, select: {r.status, r.metadata})) do
+      nil ->
+        {:error, :not_found}
 
-  defp put_metadata(record, key, value) do
-    metadata = record.metadata || %{}
+      {^sentinel, _metadata} ->
+        :ok = ResourceFolders.clear_pointer_if(schema, uuid, @avatar_pointer, file_uuid)
+        {:error, :record_trashed}
 
-    metadata =
-      if is_nil(value), do: Map.delete(metadata, key), else: Map.put(metadata, key, value)
+      {status, metadata} ->
+        {:ok, %{record | status: status, metadata: metadata}}
+    end
+  end
 
-    record |> Ecto.Changeset.change(metadata: metadata) |> repo().update()
+  # The pointer is written in place, one key; hand the caller its own struct
+  # (preloads and all) with the metadata as the row now holds it.
+  defp with_fresh_metadata(%schema{uuid: uuid} = record) do
+    case repo().one(from(r in schema, where: r.uuid == ^uuid, select: r.metadata)) do
+      nil -> {:error, :not_found}
+      metadata -> {:ok, %{record | metadata: metadata}}
+    end
   end
 end

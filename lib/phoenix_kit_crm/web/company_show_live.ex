@@ -41,7 +41,9 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     only: [viewer_tz: 1, current_user_uuid: 1, current_user_name: 1]
 
   import PhoenixKitCRM.Web.PartyRoleHelpers, only: [role_label: 1, role_badge_class: 1]
+  alias PhoenixKitWeb.Actor
   alias PhoenixKitWeb.Live.Components.MediaSelectorModal
+  alias PhoenixKitWeb.TableColumns, as: ColumnPrefs
 
   # `PhoenixKitCatalogue.Catalogue.PubSub`'s topic — a string contract, so no
   # compile-time dependency on the (optional) catalogue package is needed.
@@ -93,8 +95,12 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
          |> assign(:memberships, Companies.list_memberships(company.uuid))
          |> sync_member_subscriptions()
          |> assign_new(:show_catalogue_columns, fn -> false end)
-         |> assign_new(:catalogue_columns, fn -> catalogue_default_columns() end)
          |> assign_new(:catalogue_column_catalog, fn -> catalogue_column_catalog() end)
+         |> then(fn s ->
+           assign_new(s, :catalogue_columns, fn ->
+             ColumnPrefs.load(Actor.uuid(s), catalogue_columns_spec(s))
+           end)
+         end)
          |> assign_new(:column_picker_available, fn -> column_picker_available?() end)
          |> assign_catalogue(catalogue_enabled, company)
          |> assign(:avatar_url, Attachments.avatar_url(company))
@@ -104,8 +110,9 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
            Map.get(PartyRoles.active_roles_map("company", [company.uuid]), company.uuid, [])
          )
          |> assign(:page_title, Company.display_name(company))
-         |> assign(:page_section, gettext("Companies"))
-         |> assign(:page_section_path, Paths.companies())
+         |> assign(:page_section, gettext("CRM"))
+         |> assign(:page_section_path, Paths.index())
+         |> assign(:page_crumbs, [%{label: gettext("Companies"), path: Paths.companies()}])
          # Edit lives in the layout's breadcrumb action chip — the in-body
          # header band it used to occupy is gone (it held only the logo, the
          # status badge and this button once the name moved into the header).
@@ -318,7 +325,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
                :company,
                socket.assigns.company.uuid,
                :images,
-               actor_uuid(socket)
+               Activity.actor_uuid(socket)
              ) do
           {:ok, folder_uuid} ->
             {:noreply, assign(socket, avatar_folder_uuid: folder_uuid, show_avatar_picker: true)}
@@ -330,9 +337,10 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   end
 
   def handle_event("remove_avatar", _params, socket) do
+    # Clears only the one this page shows; one set elsewhere since stays.
     case Attachments.clear_avatar(socket.assigns.company) do
-      {:ok, _} ->
-        log_avatar(socket, "removed")
+      {:ok, fresh} ->
+        if Attachments.avatar_uuid(fresh) == nil, do: log_avatar(socket, "removed")
         send(self(), {:avatar_changed})
         {:noreply, socket}
 
@@ -350,37 +358,34 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   def handle_event("hide_column_modal", _params, socket),
     do: {:noreply, assign(socket, :show_catalogue_columns, false)}
 
-  def handle_event("add_column", %{"column_id" => id}, socket) do
-    {:noreply, put_catalogue_columns(socket, socket.assigns.catalogue_columns ++ [id])}
+  # Each admin's own, saved as they change (PhoenixKitWeb.TableColumns).
+  def handle_event(event, params, socket)
+      when event in ~w(add_column remove_column reorder_columns reset_columns) do
+    {:noreply,
+     ColumnPrefs.handle_event(
+       event,
+       params,
+       socket,
+       catalogue_columns_spec(socket),
+       :catalogue_columns
+     )}
   end
-
-  def handle_event("remove_column", %{"column_id" => id}, socket) do
-    {:noreply, put_catalogue_columns(socket, socket.assigns.catalogue_columns -- [id])}
-  end
-
-  def handle_event("reorder_columns", %{"ordered_ids" => ids}, socket) when is_list(ids) do
-    {:noreply, put_catalogue_columns(socket, ids)}
-  end
-
-  def handle_event("reset_columns", _params, socket),
-    do: {:noreply, put_catalogue_columns(socket, catalogue_default_columns())}
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
-  # Only ids the catalogue actually offers, so a forged payload cannot inject
-  # a column name into the table.
-  defp put_catalogue_columns(socket, ids) do
-    catalog = catalogue_column_catalog()
-    # `&1[:id]` rather than `&1.id`: the catalog crosses a module boundary, and
-    # a shape change there should narrow the picker, not raise in mount.
-    known = catalog |> Enum.map(&(is_map(&1) && &1[:id])) |> Enum.reject(&(!&1)) |> MapSet.new()
-
-    socket
-    # Rendered per row; resolving it once per mount instead of once per render
-    # keeps the apply/3 off the hot path.
-    |> assign(:catalogue_column_catalog, catalog)
-    |> assign(:column_picker_available, column_picker_available?())
-    |> assign(:catalogue_columns, ids |> Enum.filter(&MapSet.member?(known, &1)) |> Enum.uniq())
+  # The catalogue's items tables on this page. The catalog crosses a module
+  # boundary, so `&1[:id]` rather than `&1.id`: a shape change there should
+  # narrow the picker, not raise in mount.
+  defp catalogue_columns_spec(socket) do
+    %{
+      key: "crm.company.catalogue_items",
+      columns:
+        Enum.filter(
+          socket.assigns[:catalogue_column_catalog] || [],
+          &(is_map(&1) and is_binary(&1[:id]))
+        ),
+      defaults: catalogue_default_columns()
+    }
   end
 
   defp column_picker_available? do
@@ -406,16 +411,9 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
     :exit, _ -> []
   end
 
-  defp actor_uuid(socket) do
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> uuid
-      _ -> nil
-    end
-  end
-
   defp log_avatar(socket, verb) do
     Activity.log("crm.company_avatar_#{verb}",
-      actor_uuid: actor_uuid(socket),
+      actor_uuid: Activity.actor_uuid(socket),
       resource_type: "crm_company",
       resource_uuid: socket.assigns.company.uuid,
       metadata: %{}

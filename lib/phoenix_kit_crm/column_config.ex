@@ -2,9 +2,9 @@ defmodule PhoenixKitCRM.ColumnConfig do
   @moduledoc """
   Per-scope column configuration for CRM tables and card views.
 
-  Mirrors `PhoenixKit.Users.TableColumns` but is keyed by `(user_uuid, scope)`
-  so each admin can have their own column layout per role page and for the
-  Organizations page. Persistence goes through `PhoenixKitCRM.UserRoleView`.
+  The catalog for each CRM table; each admin's choice is kept by core
+  (`PhoenixKitWeb.TableColumns` over `PhoenixKit.Users.ViewPrefs`, view
+  key `view_key/1`), per role page and for the Organizations page.
 
   ## Scopes
 
@@ -19,7 +19,10 @@ defmodule PhoenixKitCRM.ColumnConfig do
   require Logger
 
   alias PhoenixKit.Users.CustomFields
-  alias PhoenixKitCRM.{UserRoleView, UserRoleViewConfig}
+  alias PhoenixKit.Users.ViewPrefs
+  alias PhoenixKitWeb.TableColumns
+
+  @type scope :: :organizations | {:role, binary()}
 
   @role_standard [
     {"email", %{label: "Email", required: false, type: :email}},
@@ -52,7 +55,7 @@ defmodule PhoenixKitCRM.ColumnConfig do
   columns follow the order declared in this module, custom columns follow the
   `position` ordering from `PhoenixKit.Users.CustomFields`.
   """
-  @spec available_columns(UserRoleView.scope()) ::
+  @spec available_columns(scope()) ::
           %{standard: [{String.t(), map()}], custom: [{String.t(), map()}]}
   def available_columns({:role, _}),
     do: %{standard: translate_labels(@role_standard), custom: custom_field_columns()}
@@ -108,12 +111,12 @@ defmodule PhoenixKitCRM.ColumnConfig do
   end
 
   @doc "Default selected column ids for a scope."
-  @spec default_columns(UserRoleView.scope()) :: [String.t()]
+  @spec default_columns(scope()) :: [String.t()]
   def default_columns({:role, _}), do: @role_default
   def default_columns(:organizations), do: @organizations_default
 
   @doc "All available column ids for validation."
-  @spec all_column_ids(UserRoleView.scope()) :: [String.t()]
+  @spec all_column_ids(scope()) :: [String.t()]
   def all_column_ids(scope) do
     %{standard: standard, custom: custom} = available_columns(scope)
     Enum.map(standard, &elem(&1, 0)) ++ Enum.map(custom, &elem(&1, 0))
@@ -126,35 +129,66 @@ defmodule PhoenixKitCRM.ColumnConfig do
   (`render_cell`, `column_label`) instead of calling `get_column_metadata/2`
   per cell — that path rebuilds `available_columns/1` on every lookup.
   """
-  @spec column_metadata_map(UserRoleView.scope()) :: %{String.t() => map()}
+  @spec column_metadata_map(scope()) :: %{String.t() => map()}
   def column_metadata_map(scope) do
     %{standard: standard, custom: custom} = available_columns(scope)
     Map.new(standard ++ custom)
   end
 
-  @doc "Returns the selected column ids for a user+scope, falling back to defaults."
-  @spec get_columns(binary(), UserRoleView.scope()) :: [String.t()]
-  def get_columns(user_uuid, scope) when is_binary(user_uuid) do
-    config = UserRoleView.get_view_config(user_uuid, scope)
+  @doc """
+  The view key an admin's choice for `scope` is kept under:
+  `"crm.organizations"`, `"crm.role.<uuid>"`.
+  """
+  @spec view_key(scope()) :: String.t()
+  def view_key(:organizations), do: "crm.organizations"
+  def view_key({:role, uuid}), do: "crm.role." <> uuid
 
-    case Map.get(config, "columns") do
-      cols when is_list(cols) and cols != [] -> validate_columns(scope, cols)
-      _ -> default_columns(scope)
+  @doc """
+  The `PhoenixKitWeb.TableColumns` spec for `scope`: its standard and
+  custom columns (grouped for the column picker) and its defaults.
+  """
+  @spec spec(scope()) :: map()
+  def spec(scope) do
+    %{standard: standard, custom: custom} = available_columns(scope)
+    standard_group = gettext("Standard fields")
+    custom_group = gettext("Custom fields")
+
+    %{
+      key: view_key(scope),
+      columns:
+        Enum.map(standard, fn {id, meta} ->
+          %{id: id, label: meta.label, group: standard_group}
+        end) ++
+          Enum.map(custom, fn {id, meta} -> %{id: id, label: meta.label, group: custom_group} end),
+      defaults: default_columns(scope),
+      # Both tables keep their last column. A role page's table has no
+      # always-on column of its own, so it would render rows with no cells;
+      # the Organizations table has the fixed CRM-company cell, but the link
+      # to the account rides the first configurable cell.
+      min: 1
+    }
+  end
+
+  @doc "The columns `user_uuid` sees for `scope` — their own choice, else the defaults."
+  @spec get_columns(binary(), scope()) :: [String.t()]
+  def get_columns(user_uuid, scope) when is_binary(user_uuid),
+    do: TableColumns.load(user_uuid, spec(scope))
+
+  @doc """
+  Saves `columns` as `user_uuid`'s choice for `scope`, keeping only ids the
+  scope offers; an empty list goes back to the defaults. Answers the stored
+  preferences.
+  """
+  @spec update_columns(binary(), scope(), [String.t()]) :: {:ok, map()} | {:error, term()}
+  def update_columns(user_uuid, scope, columns) when is_binary(user_uuid) and is_list(columns) do
+    case validate_columns(scope, columns) do
+      [] -> ViewPrefs.delete_fields(user_uuid, view_key(scope), ["columns"])
+      valid -> ViewPrefs.put(user_uuid, view_key(scope), %{"columns" => valid})
     end
   end
 
-  @doc "Persists the selected column ids for a user+scope. Empty list resets to defaults."
-  @spec update_columns(binary(), UserRoleView.scope(), [String.t()]) ::
-          {:ok, UserRoleViewConfig.t()} | {:error, Ecto.Changeset.t()}
-  def update_columns(user_uuid, scope, columns) when is_binary(user_uuid) and is_list(columns) do
-    valid = validate_columns(scope, columns)
-    current = UserRoleView.get_view_config(user_uuid, scope)
-    new_config = Map.put(current, "columns", valid)
-    UserRoleView.put_view_config(user_uuid, scope, new_config)
-  end
-
   @doc "Returns metadata for a single column id, or nil. The `:label` field is translated via gettext."
-  @spec get_column_metadata(UserRoleView.scope(), String.t()) :: map() | nil
+  @spec get_column_metadata(scope(), String.t()) :: map() | nil
   def get_column_metadata(scope, column_id) do
     %{standard: standard, custom: custom} = available_columns(scope)
 
@@ -169,7 +203,7 @@ defmodule PhoenixKitCRM.ColumnConfig do
   end
 
   @doc "Filter input list to only valid column ids for the scope, preserving order."
-  @spec validate_columns(UserRoleView.scope(), [String.t()]) :: [String.t()]
+  @spec validate_columns(scope(), [String.t()]) :: [String.t()]
   def validate_columns(scope, columns) when is_list(columns) do
     available = MapSet.new(all_column_ids(scope))
     Enum.filter(columns, &MapSet.member?(available, &1))

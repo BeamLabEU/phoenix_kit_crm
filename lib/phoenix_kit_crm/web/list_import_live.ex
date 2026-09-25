@@ -56,9 +56,13 @@ defmodule PhoenixKitCRM.Web.ListImportLive do
         {:noreply,
          socket
          |> assign(:list, list)
-         |> assign(:page_title, gettext("CRM — Import contacts"))
-         |> assign(:page_section, list.name)
-         |> assign(:page_section_path, Paths.list_members(list.uuid))}
+         |> assign(:page_title, gettext("Import contacts"))
+         |> assign(:page_section, gettext("CRM"))
+         |> assign(:page_section_path, Paths.index())
+         |> assign(:page_crumbs, [
+           %{label: gettext("Lists"), path: Paths.lists()},
+           %{label: list.name, path: Paths.list_members(list.uuid)}
+         ])}
     end
   end
 

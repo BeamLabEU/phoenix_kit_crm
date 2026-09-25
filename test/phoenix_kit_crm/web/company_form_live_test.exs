@@ -8,6 +8,13 @@ defmodule PhoenixKitCRM.Web.CompanyFormLiveTest do
     {:ok, conn: put_test_scope(conn, scope), scope: scope}
   end
 
+  # LiveView recovers a form's input after a reconnect only when the form
+  # has an id beside its phx-change.
+  test "the form carries the id LiveView recovers it by", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/en/admin/crm/companies/new")
+    assert has_element?(view, "form#company-form[phx-change=validate]")
+  end
+
   test "renders the new company form", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/en/admin/crm/companies/new")
     assert html =~ "Name"
@@ -17,7 +24,9 @@ defmodule PhoenixKitCRM.Web.CompanyFormLiveTest do
        %{conn: conn} do
     {:ok, view, html} = live(conn, "/en/admin/crm/companies/new")
 
-    assert has_element?(view, "#test-page-section[href='/en/admin/crm/companies']", "Companies")
+    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
+    assert has_element?(view, "#test-page-crumbs a[href='/en/admin/crm/companies']", "Companies")
+    assert has_element?(view, "#test-page-title", "New company")
     refute html =~ "<h1"
     refute html =~ "<header"
   end
@@ -44,5 +53,25 @@ defmodule PhoenixKitCRM.Web.CompanyFormLiveTest do
     view |> form("form", company: %{name: "Renamed Company"}) |> render_submit()
 
     assert Companies.get_company(company.uuid).name == "Renamed Company"
+  end
+
+  # `metadata` is server-owned (the avatar pointer, the trash stash, import
+  # provenance); a crafted form param must neither set nor replace it.
+  test "a crafted metadata param on save is ignored", %{conn: conn} do
+    {:ok, company} =
+      Companies.create_company(%{
+        "name" => "Kept Co",
+        "metadata" => %{"imported_from" => "cat_suppliers"}
+      })
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/companies/#{company.uuid}/edit")
+
+    view
+    |> element("form#company-form")
+    |> render_submit(%{
+      "company" => %{"name" => "Kept Co", "metadata" => %{"avatar_uuid" => Ecto.UUID.generate()}}
+    })
+
+    assert Companies.get_company(company.uuid).metadata == %{"imported_from" => "cat_suppliers"}
   end
 end

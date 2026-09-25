@@ -17,7 +17,14 @@ defmodule PhoenixKitCRM.Web.ListsLive do
   def mount(_params, _session, socket) do
     if connected?(socket), do: CRMPubSub.subscribe(CRMPubSub.topic_lists())
 
-    {:ok, assign(socket, page_title: gettext("CRM — Lists"), filter: "active", lists: [])}
+    {:ok,
+     assign(socket,
+       page_title: gettext("Lists"),
+       page_section: gettext("CRM"),
+       page_section_path: Paths.index(),
+       filter: "active",
+       lists: []
+     )}
   end
 
   @impl true

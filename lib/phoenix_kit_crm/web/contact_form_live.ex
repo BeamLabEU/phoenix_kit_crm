@@ -67,9 +67,7 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
     socket
     |> assign(:companies, companies)
     |> assign(:contact, %Contact{})
-    |> assign(:page_title, gettext("New contact"))
-    |> assign(:page_section, gettext("Contacts"))
-    |> assign(:page_section_path, Paths.contacts())
+    |> assign_header(%Contact{})
     |> assign(:form, to_form(Contacts.change_contact(%Contact{})))
     |> assign(:company_uuid, preselected)
     |> assign(:role_in_company, "")
@@ -79,6 +77,28 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
     |> assign_mirror_defaults(nil, nil)
   end
 
+  # The admin header trail: `CRM / Contacts / New contact` for a new record,
+  # `CRM / Contacts / <contact> / Edit` once it exists — the section is the
+  # module, the crumbs are the levels above, the title is only this page.
+  defp assign_header(socket, %Contact{uuid: nil}) do
+    socket
+    |> assign(:page_title, gettext("New contact"))
+    |> assign(:page_section, gettext("CRM"))
+    |> assign(:page_section_path, Paths.index())
+    |> assign(:page_crumbs, [%{label: gettext("Contacts"), path: Paths.contacts()}])
+  end
+
+  defp assign_header(socket, %Contact{} = contact) do
+    socket
+    |> assign(:page_title, gettext("Edit"))
+    |> assign(:page_section, gettext("CRM"))
+    |> assign(:page_section_path, Paths.index())
+    |> assign(:page_crumbs, [
+      %{label: gettext("Contacts"), path: Paths.contacts()},
+      %{label: Contact.display_name(contact), path: Paths.contact(contact.uuid)}
+    ])
+  end
+
   defp assign_edit_form(socket, contact) do
     membership = Contacts.primary_membership(contact)
     linked_user = linked_user_for(contact)
@@ -86,9 +106,7 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
     socket
     |> assign(:companies, Companies.list_companies())
     |> assign(:contact, contact)
-    |> assign(:page_title, gettext("Edit contact"))
-    |> assign(:page_section, gettext("Contacts"))
-    |> assign(:page_section_path, Paths.contacts())
+    |> assign_header(contact)
     |> assign(:form, to_form(Contacts.change_contact(contact)))
     |> assign(:company_uuid, membership && membership.company_uuid)
     |> assign(:role_in_company, (membership && membership.role_in_company) || "")
@@ -446,9 +464,9 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
       {:ok, contact} ->
         # All three are best-effort secondary ops (each logs + swallows its own
         # failure). roles returns :ok | {:partial, _}; membership/login :ok | :error.
-        roles = sync_roles(contact, socket.assigns.roles_selected, actor_uuid(socket))
+        roles = sync_roles(contact, socket.assigns.roles_selected, Activity.actor_uuid(socket))
         membership = apply_membership(contact, company_uuid, role, dept)
-        login = apply_login(contact, allow_login, email, actor_uuid(socket))
+        login = apply_login(contact, allow_login, email, Activity.actor_uuid(socket))
 
         Activity.log(
           "crm.contact_#{verb(action)}",
@@ -477,7 +495,7 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
            )
            |> assign(:contact, contact)
            |> assign(:live_action, :edit)
-           |> assign(:page_title, gettext("Edit contact"))
+           |> assign_header(contact)
            |> assign(:roles_selected, active_role_values(contact))
            |> assign(:linked_user, linked_user)
            |> assign(:linked_account_path, linked_user && Paths.user_view(linked_user.uuid))
@@ -600,13 +618,11 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
   defp verb(:new), do: "created"
   defp verb(:edit), do: "updated"
 
-  defp actor_uuid(socket), do: Keyword.get(Activity.actor_opts(socket), :actor_uuid)
-
   @impl true
   def render(assigns) do
     ~H"""
     <div class="container flex-col mx-auto px-4 py-6 max-w-2xl">
-      <.form for={@form} phx-change="validate" phx-submit="save">
+      <.form for={@form} id="contact-form" phx-change="validate" phx-submit="save">
         <div class="card bg-base-100 shadow-sm">
           <div class="card-body flex flex-col gap-5">
             <.input field={@form[:name]} label={gettext("Name")} required />
@@ -760,7 +776,9 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
 
   # Forged/malformed payloads can send non-map "contact" or non-string side
   # fields — normalize before they reach a changeset (which would raise).
-  defp safe_map(p) when is_map(p), do: p
+  # `metadata` is server-owned — the avatar pointer, the trash stash, import
+  # provenance — and the changeset replaces it whole: never from a form.
+  defp safe_map(p) when is_map(p), do: Map.delete(p, "metadata")
   defp safe_map(_), do: %{}
   defp safe_text(s) when is_binary(s), do: s
   defp safe_text(_), do: ""

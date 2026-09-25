@@ -1,60 +1,25 @@
 defmodule PhoenixKitCRM.Activity do
   @moduledoc """
-  Thin wrapper around `PhoenixKit.Activity.log/1` so callers don't need to
-  duplicate the `Code.ensure_loaded?/1` guard and rescue clause everywhere.
-  Safe to call from any LiveView — never crashes the caller.
+  CRM's activity logging: `PhoenixKit.Activity.log/3` under the `"crm"`
+  module key, which never crashes the caller. Who is acting is read by
+  `PhoenixKitWeb.Actor` — the scope first, the bare current user second —
+  the same way every module reads it.
 
   Action strings follow `"crm.<resource>_<verb>"`.
   """
 
-  require Logger
-
   @module "crm"
 
-  @doc "Logs a CRM activity entry via `PhoenixKit.Activity`. Swallows errors so it never crashes the caller."
-  @spec log(String.t(), keyword()) ::
-          :ok | :activity_unavailable | {:ok, struct()} | {:error, any()}
-  def log(action, opts) when is_binary(action) and is_list(opts) do
-    if Code.ensure_loaded?(PhoenixKit.Activity) do
-      entry = %{
-        action: action,
-        module: @module,
-        mode: Keyword.get(opts, :mode, "manual"),
-        actor_uuid: Keyword.get(opts, :actor_uuid),
-        resource_type: Keyword.get(opts, :resource_type),
-        resource_uuid: Keyword.get(opts, :resource_uuid),
-        target_uuid: Keyword.get(opts, :target_uuid),
-        metadata: Keyword.get(opts, :metadata, %{})
-      }
+  @doc "Logs a CRM activity entry. See `PhoenixKit.Activity.log/3` for the options."
+  @spec log(String.t(), keyword()) :: {:ok, PhoenixKit.Activity.Entry.t()} | {:error, term()}
+  def log(action, opts) when is_binary(action) and is_list(opts),
+    do: PhoenixKit.Activity.log(@module, action, opts)
 
-      PhoenixKit.Activity.log(entry)
-    else
-      :activity_unavailable
-    end
-  rescue
-    Postgrex.Error ->
-      :ok
+  @doc "The acting user's uuid, or `nil`. See `PhoenixKitWeb.Actor.uuid/1`."
+  @spec actor_uuid(Phoenix.LiveView.Socket.t() | map()) :: String.t() | nil
+  defdelegate actor_uuid(source), to: PhoenixKitWeb.Actor, as: :uuid
 
-    DBConnection.OwnershipError ->
-      :ok
-
-    e ->
-      Logger.warning("[CRM] Activity logging error: #{Exception.message(e)}")
-      {:error, e}
-  catch
-    :exit, _reason -> :ok
-  end
-
-  @doc "Extracts `user.uuid` from the LiveView socket assigns."
-  @spec actor_uuid(Phoenix.LiveView.Socket.t()) :: UUIDv7.t() | String.t() | nil
-  def actor_uuid(socket) do
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> uuid
-      _ -> nil
-    end
-  end
-
-  @doc "Keyword opts carrying the actor uuid, for context calls that log."
-  @spec actor_opts(Phoenix.LiveView.Socket.t()) :: keyword()
-  def actor_opts(socket), do: [actor_uuid: actor_uuid(socket)]
+  @doc "`[actor_uuid: uuid]`, or `[]` when nobody is signed in. See `PhoenixKitWeb.Actor.opts/1`."
+  @spec actor_opts(Phoenix.LiveView.Socket.t() | map()) :: keyword()
+  defdelegate actor_opts(source), to: PhoenixKitWeb.Actor, as: :opts
 end

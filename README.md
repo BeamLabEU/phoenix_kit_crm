@@ -10,7 +10,7 @@ An interaction-tracking CRM: **contacts** (people) and **companies** (legal enti
 - **Companies** — legal entities with a **Members** roster (contacts + their role/department), a logo, soft-delete, and the same Files/Images/Comments/Events tabs. The **Interactions** tab both logs company-level interactions and merges in the members' own, behind an All | Company | People filter.
 - **Interactions** — logged interactions (call/email/meeting/note/other) anchored to exactly one record — a contact **or a company** (the exclusive-arc anchor; `subject` is just the title) — with resolvable involved parties (CRM contacts or staff people) and a profile snapshot frozen at save time. "Anna at Acme" is a company-anchored interaction with Anna as a party, and shows on both pages.
 - **Role opt-in** — choose which non-system roles can access CRM; enabled roles get their own subtab under `/admin/crm/role/:role_uuid`.
-- **Per-user column config** — each admin picks which columns to show; the layout is persisted in `phoenix_kit_crm_user_role_view`.
+- **Per-user column config** — each admin picks which columns to show; the choice is kept in core's per-user view preferences.
 - **Activity logging** — create/update/trash/delete across contacts, companies, and interactions is recorded and surfaced on each record's Events tab.
 - **Auto-discovery** — no parent-app router edits; PhoenixKit picks the module up via the `@phoenix_kit_module` beam attribute.
 

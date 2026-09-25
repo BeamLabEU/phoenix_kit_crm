@@ -14,6 +14,13 @@ defmodule PhoenixKitCRM.Web.ContactFormLiveTest do
   end
 
   # "— none —" read as if there were no companies (boss, 2026-09-19).
+  # LiveView recovers a form's input after a reconnect only when the form
+  # has an id beside its phx-change.
+  test "the form carries the id LiveView recovers it by", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/new")
+    assert has_element?(view, "form#contact-form[phx-change=validate]")
+  end
+
   test "the company select's default says the company is not set", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/new")
 
@@ -31,7 +38,9 @@ defmodule PhoenixKitCRM.Web.ContactFormLiveTest do
        %{conn: conn} do
     {:ok, view, html} = live(conn, "/en/admin/crm/contacts/new")
 
-    assert has_element?(view, "#test-page-section[href='/en/admin/crm/contacts']", "Contacts")
+    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
+    assert has_element?(view, "#test-page-crumbs a[href='/en/admin/crm/contacts']", "Contacts")
+    assert has_element?(view, "#test-page-title", "New contact")
     refute html =~ "<h1"
     refute html =~ "<header"
   end
@@ -69,6 +78,26 @@ defmodule PhoenixKitCRM.Web.ContactFormLiveTest do
     view |> form("form", contact: %{name: "Renamed"}) |> render_submit()
 
     assert Contacts.get_contact(contact.uuid).name == "Renamed"
+  end
+
+  # `metadata` is server-owned (the avatar pointer, the trash stash, import
+  # provenance); a crafted form param must neither set nor replace it.
+  test "a crafted metadata param on save is ignored", %{conn: conn} do
+    {:ok, contact} =
+      Contacts.create_contact(%{
+        "name" => "Kept Kim",
+        "metadata" => %{"import_company" => "Acme"}
+      })
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}/edit")
+
+    view
+    |> element("form#contact-form")
+    |> render_submit(%{
+      "contact" => %{"name" => "Kept Kim", "metadata" => %{"avatar_uuid" => Ecto.UUID.generate()}}
+    })
+
+    assert Contacts.get_contact(contact.uuid).metadata == %{"import_company" => "Acme"}
   end
 
   describe "new contact — company preselected from the company page" do

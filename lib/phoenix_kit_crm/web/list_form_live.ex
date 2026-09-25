@@ -16,7 +16,7 @@ defmodule PhoenixKitCRM.Web.ListFormLive do
   def handle_params(params, _uri, socket) do
     case socket.assigns.live_action do
       :new ->
-        {:noreply, assign_form(socket, %ContactList{}, gettext("New list"))}
+        {:noreply, assign_form(socket, %ContactList{})}
 
       :edit ->
         case Lists.get_list(params["uuid"]) do
@@ -27,18 +27,38 @@ defmodule PhoenixKitCRM.Web.ListFormLive do
              |> push_navigate(to: Paths.lists())}
 
           list ->
-            {:noreply, assign_form(socket, list, gettext("Edit list"))}
+            {:noreply, assign_form(socket, list)}
         end
     end
   end
 
-  defp assign_form(socket, list, title) do
+  defp assign_form(socket, list) do
     socket
     |> assign(:list, list)
-    |> assign(:page_title, title)
-    |> assign(:page_section, gettext("Lists"))
-    |> assign(:page_section_path, Paths.lists())
+    |> assign_header(list)
     |> assign(:form, to_form(Lists.change_list(list), as: :list))
+  end
+
+  # The admin header trail: `CRM / Lists / New list` for a new list,
+  # `CRM / Lists / <list> / Edit` once it exists. A list's own page is its
+  # Members page, so that is where the record crumb points.
+  defp assign_header(socket, %ContactList{uuid: nil}) do
+    socket
+    |> assign(:page_title, gettext("New list"))
+    |> assign(:page_section, gettext("CRM"))
+    |> assign(:page_section_path, Paths.index())
+    |> assign(:page_crumbs, [%{label: gettext("Lists"), path: Paths.lists()}])
+  end
+
+  defp assign_header(socket, %ContactList{} = list) do
+    socket
+    |> assign(:page_title, gettext("Edit"))
+    |> assign(:page_section, gettext("CRM"))
+    |> assign(:page_section_path, Paths.index())
+    |> assign(:page_crumbs, [
+      %{label: gettext("Lists"), path: Paths.lists()},
+      %{label: list.name, path: Paths.list_members(list.uuid)}
+    ])
   end
 
   @impl true

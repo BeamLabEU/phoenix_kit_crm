@@ -54,6 +54,15 @@ defmodule PhoenixKitCRM.Test.Layouts do
     <a :if={assigns[:page_section]} id="test-page-section" href={@page_section_path}>
       {@page_section}
     </a>
+    <%!-- Stand-in for the deeper crumbs (`page_crumbs`) between the section
+         and the title: a link when the crumb has a path, plain text when
+         it is a level with no page of its own. --%>
+    <nav :if={assigns[:page_crumbs]} id="test-page-crumbs">
+      <%= for crumb <- @page_crumbs do %>
+        <a :if={crumb[:path]} href={crumb[:path]}>{crumb.label}</a>
+        <span :if={is_nil(crumb[:path])}>{crumb.label}</span>
+      <% end %>
+    </nav>
     <%!-- Stand-in for the breadcrumb action chip (`page_action` map) the real
          layout renders next to the title — same reason as above. --%>
     <a :if={assigns[:page_action]} id="test-page-action" href={@page_action[:navigate]}>

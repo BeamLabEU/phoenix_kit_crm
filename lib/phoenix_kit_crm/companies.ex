@@ -162,7 +162,7 @@ defmodule PhoenixKitCRM.Companies do
   def trash_company(%Company{status: "trashed"}), do: {:error, :already_trashed}
 
   def trash_company(%Company{} = company) do
-    case company |> SoftDelete.trash_changeset(Company.soft_delete_status()) |> repo().update() do
+    case SoftDelete.trash(repo(), company, Company.soft_delete_status()) do
       {:ok, _} = ok ->
         # Its anchored interactions just left every involving feed (the
         # trashed-company guard) — tell the party contacts' open pages.
@@ -176,7 +176,7 @@ defmodule PhoenixKitCRM.Companies do
 
   @spec restore_company(Company.t()) :: {:ok, Company.t()} | {:error, atom() | Ecto.Changeset.t()}
   def restore_company(%Company{status: "trashed"} = company) do
-    case company |> SoftDelete.restore_changeset(Company.statuses()) |> repo().update() do
+    case SoftDelete.restore(repo(), company, Company.soft_delete_status(), Company.statuses()) do
       {:ok, _} = ok ->
         # The mirror flip: the anchored rows just reappeared.
         Interactions.notify_company_visibility(company.uuid)

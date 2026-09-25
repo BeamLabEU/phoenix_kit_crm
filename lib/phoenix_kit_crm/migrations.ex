@@ -64,7 +64,7 @@ defmodule PhoenixKitCRM.Migrations do
 
   use Ecto.Migration
 
-  @current_version 6
+  @current_version 7
   @marker_prefix "crm_schema:"
   @version_table "phoenix_kit_crm_contacts"
 
@@ -151,6 +151,7 @@ defmodule PhoenixKitCRM.Migrations do
       v4_statements(prefix, p),
       v5_statements(prefix, p),
       v6_statements(p),
+      v7_statements(prefix, p),
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{@current_version}'"
     ])
   end
@@ -518,6 +519,60 @@ defmodule PhoenixKitCRM.Migrations do
   defp v6_statements(p) do
     [
       "ALTER TABLE #{p}phoenix_kit_crm_interactions ADD COLUMN IF NOT EXISTS time_zone character varying(64)"
+    ]
+  end
+
+  # ── V7: each admin's column choices move to core ─────────────────────
+  #
+  # The role pages' and Organizations page's column choices lived in
+  # `phoenix_kit_crm_user_role_view`; they are now core's per-user view
+  # preferences (`phoenix_kit_user_view_prefs`, core V201), keyed
+  # `crm.organizations` / `crm.role.<uuid>`. This copies each saved list
+  # once — only a non-empty one: CRM read an empty list as "use the
+  # defaults", and core reads it as "every column hidden". A choice already
+  # in core wins. It runs once: the `crm_view_prefs_copied_at` setting is
+  # written right after it, and `up/1` replays every version, so a later
+  # run would otherwise bring back a choice the admin has since reset.
+  # It needs core's table, and the core floor (2.38.0, which carries it)
+  # makes sure it is there first: `mix phoenix_kit.update` runs core's
+  # chain before this one. The table guard is a belt on those braces — a
+  # host that somehow reaches V7 without the table skips the copy, and the
+  # chain only replays while a later version is pending, so the copy
+  # happens at the next CRM migration rather than at the next update.
+  # The old table stays (nothing reads it), as every table in this chain
+  # does.
+  defp v7_statements(prefix, p) do
+    [
+      """
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM pg_class t JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE t.relname = 'phoenix_kit_user_view_prefs' AND n.nspname = '#{prefix}'
+            AND t.relkind = 'r'
+        ) AND NOT EXISTS (
+          SELECT 1 FROM #{p}phoenix_kit_settings WHERE key = 'crm_view_prefs_copied_at'
+        ) THEN
+          INSERT INTO #{p}phoenix_kit_user_view_prefs (user_uuid, key, prefs, inserted_at, updated_at)
+          SELECT v.user_uuid,
+                 'crm.' || replace(v.scope, ':', '.'),
+                 jsonb_build_object('columns', v.view_config -> 'columns'),
+                 date_trunc('second', now()),
+                 date_trunc('second', now())
+          FROM #{p}phoenix_kit_crm_user_role_view v
+          JOIN #{p}phoenix_kit_users u ON u.uuid = v.user_uuid
+          WHERE CASE WHEN jsonb_typeof(v.view_config -> 'columns') = 'array'
+                     THEN jsonb_array_length(v.view_config -> 'columns') > 0
+                     ELSE false END
+            AND (v.scope = 'organizations' OR v.scope LIKE 'role:%')
+          ON CONFLICT (user_uuid, key) DO NOTHING;
+
+          INSERT INTO #{p}phoenix_kit_settings (key, value, module)
+          VALUES ('crm_view_prefs_copied_at', now()::text, 'crm')
+          ON CONFLICT (key) DO NOTHING;
+        END IF;
+      END $$
+      """
     ]
   end
 

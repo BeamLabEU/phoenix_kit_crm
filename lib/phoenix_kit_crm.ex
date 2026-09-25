@@ -234,12 +234,7 @@ defmodule PhoenixKitCRM do
   @impl PhoenixKit.Module
   def css_sources, do: [:phoenix_kit_crm]
 
-  # PhoenixKit.Module.media_reorganizer/0 (core ≥ 2.24.0, which ships
-  # Storage.Reorganizer). No `@impl`: the `:phoenix_kit` requirement is still
-  # `~> 2.0` and older cores do not declare the callback, so the annotation
-  # would warn (same reasoning as `js_sources/0`).
-  # `ModuleRegistry.all_media_reorganizers/0` looks this function up by name,
-  # so it is collected either way.
+  @impl PhoenixKit.Module
   def media_reorganizer, do: PhoenixKitCRM.MediaReorganizer
 
   # Project-extension contribution to the `phoenix_kit_projects` hub — the
@@ -283,10 +278,9 @@ defmodule PhoenixKitCRM do
     ]
   end
 
-  # No `@impl` on purpose — older core releases don't declare the `js_sources/0`
-  # callback, and annotating it would warn (and fail `--warnings-as-errors`).
   # Core's `:phoenix_kit_js_sources` compiler folds this into the host's module
-  # JS bundle where present. (Mirrors `phoenix_kit_projects`.)
+  # JS bundle.
+  @impl PhoenixKit.Module
   def js_sources do
     [
       %{

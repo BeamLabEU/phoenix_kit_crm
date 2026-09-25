@@ -14,7 +14,10 @@ comments (when `phoenix_kit_comments` is enabled), and an Events activity feed.
 It implements the `PhoenixKit.Module` behaviour, so a host application
 discovers it by adding the package to `deps` — no other config.
 
-- **Depends on:** `phoenix_kit` `~> 2.0` (Hex), `phoenix_kit_comments` `~> 0.3`
+- **Depends on:** `phoenix_kit` `>= 2.38.0 and < 3.0.0` (Hex — the release that
+  carries `PhoenixKitWeb.Actor`, `Activity.log/3`, `ResourceFolders`,
+  `PhoenixKitWeb.Attachments` and `Users.ViewPrefs`; the compound form keeps
+  the ceiling open across later 2.x minors), `phoenix_kit_comments` `~> 0.3`
   (hard — the contact and company profiles `use PhoenixKitComments.Embed` at
   compile time, so the dep cannot be optional; the Comments *tab* is still
   runtime-gated on `PhoenixKitComments.enabled?/0`). Also `phoenix_live_view`
@@ -29,8 +32,8 @@ discovers it by adding the package to `deps` — no other config.
   dependency in either direction) and `phoenix_kit_comments` (calls
   `resolve_comment_resources/1`, wired through the host's
   `:comment_resource_handlers` config). Keep those two callbacks and the
-  `RoleSettings` / `UserRoleView` / `ColumnConfig` surface stable; siblings may
-  start consuming them.
+  `RoleSettings` / `ColumnConfig` surface stable; siblings may start
+  consuming them.
 - **Admin surface:** one `CRM` tab at `/admin/crm` with subtabs Overview
   (`/admin/crm`), Contacts (`/admin/crm/contacts`), Companies
   (`/admin/crm/companies`), Lists (`/admin/crm/lists`), Compare
@@ -139,17 +142,15 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
   core's `:phoenix_kit_js_sources` compiler folds it into the host's module
   bundle. Never register a hook from an inline `<script>` — morphdom does not
   execute inserted script tags, so the hook vanishes on LiveView navigation.
-  `js_sources/0` deliberately carries **no `@impl`**: older core releases do not
-  declare the callback and annotating it warns, which fails
-  `--warnings-as-errors`.
 - **`css_sources/0` returns `[:phoenix_kit_crm]`.** Tailwind source discovery is
   automatic — core's `:phoenix_kit_css_sources` compiler scans this module's
   templates and writes the host's `assets/css/_phoenix_kit_sources.css`.
 - **`enabled?/0` rescues and returns `false`** so the module degrades gracefully
   when the DB is not reachable (during boot, for instance).
 - **Activity logging:** mutations log `"crm.<verb>"` actions through
-  `PhoenixKitCRM.Activity`, a `Code.ensure_loaded?`-guarded, never-raising
-  wrapper over `PhoenixKit.Activity`; the Events-tab labels live in
+  `PhoenixKitCRM.Activity`, a thin wrapper over core's never-raising
+  `PhoenixKit.Activity.log/3`; the actor comes from `PhoenixKitWeb.Actor`
+  (scope first, then the bare current user). The Events-tab labels live in
   `PhoenixKitCRM.ActivityLabels`. Never put PII (email, phone, free-text body)
   in activity metadata, and never set `target_uuid` to a non-user — it drives
   core notifications.
@@ -211,7 +212,7 @@ lib/phoenix_kit_crm/
 ├── schemas/                                 # Contact, Company, CompanyMembership, Interaction,
 │                                            # InteractionParty, PartyRole, ContactList, ListMember
 ├── role_setting.ex / role_settings.ex       # Which roles have CRM access
-├── user_role_view_config.ex / user_role_view.ex / column_config.ex   # Per-user column config
+├── column_config.ex                    # Column catalog per scope + its TableColumns spec
 ├── migrations.ex                            # Module-owned versioned chain
 ├── soft_delete.ex / search.ex / pub_sub.ex  # Shared helpers
 ├── activity.ex / activity_labels.ex         # Activity wrapper + Events-tab labels
@@ -231,7 +232,7 @@ lib/phoenix_kit_crm/
     ├── interactions_component.ex            # Dual-anchor composer + feed (contact AND company)
     ├── events_component.ex / media_component.ex
     ├── components/{mirror_panel,mirror_conflict_modal,tab_intro}.ex
-    ├── column_management.ex / column_modal.ex
+    ├── column_management.ex
     └── cell_format.ex / interaction_helpers.ex / party_role_helpers.ex
 lib/mix/tasks/                               # One-time backfills: import suppliers / manufacturers
                                              # from the catalogue; rename the legacy client role
@@ -266,10 +267,14 @@ via `PhoenixKitCRM.refresh_sidebar/0` (which unregisters, then re-bootstraps).
 **Per-user column configuration.** `PhoenixKitCRM.ColumnConfig` defines
 available columns and defaults per scope: `:organizations`, and
 `{:role, role_uuid}` (mirroring the standard PhoenixKit user fields — email,
-username, full_name, status, registered, last_confirmed, location). Selections
-persist through `PhoenixKitCRM.UserRoleView`, keyed by
-`(user_uuid, scope_string)`. The picker UI is `Web.ColumnModal`, wired into
-LiveViews with `use PhoenixKitCRM.Web.ColumnManagement`.
+username, full_name, status, registered, last_confirmed, location). Each
+admin's choice is core's (`PhoenixKitWeb.TableColumns` over
+`PhoenixKit.Users.ViewPrefs`), under `ColumnConfig.view_key/1`
+(`crm.organizations`, `crm.role.<uuid>`); the company page's catalogue-items
+columns under `crm.company.catalogue_items`. The picker is core's live
+`column_settings_modal/1`, wired into LiveViews with
+`use PhoenixKitCRM.Web.ColumnManagement`. `phoenix_kit_crm_user_role_view`
+is no longer read — V7 copied its lists into core once.
 
 **PubSub topics** (all via `PhoenixKitCRM.PubSub`):
 
@@ -300,14 +305,14 @@ the hub derives no write surface from it.
 
 **Cross-module surface.** CRM consumes `PhoenixKit.Users.Roles` (eligible-role
 listing excludes the system Owner and Admin roles) and
-`PhoenixKit.Users.Auth.User` (referenced by UUID from
-`phoenix_kit_crm_user_role_view` and from `companies.user_uuid`).
+`PhoenixKit.Users.Auth.User` (referenced by UUID from `companies.user_uuid`),
+and core's `PhoenixKit.Users.ViewPrefs` for column choices.
 
 ## Database & migrations
 
 Owns a versioned chain: `PhoenixKitCRM.Migrations` via `migration_module/0`,
 marker `crm_schema:<N>` as a `COMMENT ON TABLE phoenix_kit_crm_contacts`,
-currently **V06**. `mix phoenix_kit.update` applies it in hosts; the test suite
+currently **V07**. `mix phoenix_kit.update` applies it in hosts; the test suite
 applies it through `PhoenixKitCRM.Test.SchemaMigration` (see Testing).
 A marker-less table reads as version 0 — the core-baseline shape from before
 the chain existed.
@@ -326,7 +331,10 @@ Adoption rules:
   is safe: by the time V01 runs, every adopted table is already at core's
   current shape.
 - **Every statement is idempotent** (`IF NOT EXISTS`, guarded `DO $$ …
-  pg_constraint … $$`, `COMMENT`), so the chain replays safely.
+  pg_constraint … $$`, `COMMENT`), so the chain replays safely. A one-time
+  data copy (V07) guards on the `crm_view_prefs_copied_at` settings row it
+  writes after copying (and on core's table being present), so a replay
+  changes nothing.
   `up_statements/1` returns the SQL as data — the testable single source.
 - **`down/1` drops nothing.** It only unstamps or re-stamps the marker.
 
@@ -340,7 +348,7 @@ Module-owned tables:
 - `phoenix_kit_crm_party_roles` — supplier/customer/manufacturer/partner on companies and contacts (polymorphic soft ref); a CHECK pins the vocabulary and a partial unique index on `(roleable_uuid, role) WHERE is_active` makes a duplicate active role impossible
 - `phoenix_kit_crm_lists` / `phoenix_kit_crm_list_members` — mailing lists and members
 - `phoenix_kit_crm_role_settings` — primary key `role_uuid` (FK → `phoenix_kit_user_roles`); columns `enabled`, `inserted_at`, `updated_at`
-- `phoenix_kit_crm_user_role_view` — UUIDv7 PK; `(user_uuid, scope)` unique; `view_config` is a JSON map
+- `phoenix_kit_crm_user_role_view` — UUIDv7 PK; `(user_uuid, scope)` unique; `view_config` is a JSON map. Kept, not read: V7 copied its column lists into core's view preferences; a later version may drop it
 
 All schemas use UUIDv7 primary keys and `use PhoenixKit.SchemaPrefix`.
 

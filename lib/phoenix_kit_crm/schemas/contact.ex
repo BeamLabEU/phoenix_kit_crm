@@ -85,6 +85,7 @@ defmodule PhoenixKitCRM.Schemas.Contact do
   def changeset(contact, attrs) do
     contact
     |> cast(attrs, @castable)
+    |> PhoenixKitCRM.ServerOwnedMetadata.keep()
     |> validate_required([:name])
     |> validate_inclusion(:status, @statuses)
     |> validate_length(:name, max: 255)

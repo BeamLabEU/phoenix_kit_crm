@@ -78,8 +78,9 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
          |> assign(:membership, Contacts.primary_membership(contact))
          |> assign(:tz, viewer_tz(socket.assigns[:phoenix_kit_current_user]))
          |> assign(:page_title, Contact.display_name(contact))
-         |> assign(:page_section, gettext("Contacts"))
-         |> assign(:page_section_path, Paths.contacts())}
+         |> assign(:page_section, gettext("CRM"))
+         |> assign(:page_section_path, Paths.index())
+         |> assign(:page_crumbs, [%{label: gettext("Contacts"), path: Paths.contacts()}])}
     end
   end
 
@@ -196,7 +197,7 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
          put_flash(socket, :error, gettext("Restore this contact before changing its photo."))}
 
       true ->
-        actor = current_user_uuid(socket.assigns)
+        actor = Activity.actor_uuid(socket)
 
         case Attachments.ensure_folder(:contact, socket.assigns.contact.uuid, :images, actor) do
           {:ok, folder_uuid} ->
@@ -209,9 +210,10 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   end
 
   def handle_event("remove_avatar", _params, socket) do
+    # Clears only the one this page shows; one set elsewhere since stays.
     case Attachments.clear_avatar(socket.assigns.contact) do
-      {:ok, _} ->
-        log_avatar(socket, "removed")
+      {:ok, fresh} ->
+        if Attachments.avatar_uuid(fresh) == nil, do: log_avatar(socket, "removed")
         send(self(), {:avatar_changed})
         {:noreply, socket}
 
@@ -224,7 +226,7 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
 
   defp log_avatar(socket, verb) do
     Activity.log("crm.contact_avatar_#{verb}",
-      actor_uuid: current_user_uuid(socket.assigns),
+      actor_uuid: Activity.actor_uuid(socket),
       resource_type: "crm_contact",
       resource_uuid: socket.assigns.contact.uuid,
       metadata: %{}
