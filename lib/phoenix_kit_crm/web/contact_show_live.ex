@@ -78,8 +78,9 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
          |> assign(:membership, Contacts.primary_membership(contact))
          |> assign(:tz, viewer_tz(socket.assigns[:phoenix_kit_current_user]))
          |> assign(:page_title, Contact.display_name(contact))
-         |> assign(:page_section, gettext("Contacts"))
-         |> assign(:page_section_path, Paths.contacts())}
+         |> assign(:page_section, gettext("CRM"))
+         |> assign(:page_section_path, Paths.index())
+         |> assign(:page_crumbs, [%{label: gettext("Contacts"), path: Paths.contacts()}])}
     end
   end
 

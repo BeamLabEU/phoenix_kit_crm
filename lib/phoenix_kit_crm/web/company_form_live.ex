@@ -30,7 +30,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
     case socket.assigns.live_action do
       :new ->
         company = %Company{}
-        {:noreply, assign_form(socket, company, gettext("New company"))}
+        {:noreply, assign_form(socket, company)}
 
       :edit ->
         case Companies.get_company(params["uuid"]) do
@@ -41,20 +41,18 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
              |> push_navigate(to: Paths.companies())}
 
           company ->
-            {:noreply, assign_form(socket, company, gettext("Edit company"))}
+            {:noreply, assign_form(socket, company)}
         end
     end
   end
 
-  defp assign_form(socket, company, title) do
+  defp assign_form(socket, company) do
     roles_selected = if company.uuid, do: active_role_values(company), else: []
     linked_user = linked_user_for(company)
 
     socket
     |> assign(:company, company)
-    |> assign(:page_title, title)
-    |> assign(:page_section, gettext("Companies"))
-    |> assign(:page_section_path, Paths.companies())
+    |> assign_header(company)
     |> assign(:roles_selected, roles_selected)
     |> assign(:form, to_form(Companies.change_company(company)))
     |> assign(
@@ -69,6 +67,28 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
     |> assign(:mirror_pending_user_uuid, nil)
     |> assign(:show_picker, false)
     |> assign(:picker_candidates, [])
+  end
+
+  # The admin header trail: `CRM / Companies / New company` for a new record,
+  # `CRM / Companies / <company> / Edit` once it exists — the section is the
+  # module, the crumbs are the levels above, the title is only this page.
+  defp assign_header(socket, %Company{uuid: nil}) do
+    socket
+    |> assign(:page_title, gettext("New company"))
+    |> assign(:page_section, gettext("CRM"))
+    |> assign(:page_section_path, Paths.index())
+    |> assign(:page_crumbs, [%{label: gettext("Companies"), path: Paths.companies()}])
+  end
+
+  defp assign_header(socket, %Company{} = company) do
+    socket
+    |> assign(:page_title, gettext("Edit"))
+    |> assign(:page_section, gettext("CRM"))
+    |> assign(:page_section_path, Paths.index())
+    |> assign(:page_crumbs, [
+      %{label: gettext("Companies"), path: Paths.companies()},
+      %{label: Company.display_name(company), path: Paths.company(company.uuid)}
+    ])
   end
 
   defp linked_user_for(%Company{user_uuid: nil}), do: nil
@@ -452,7 +472,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
      )
      |> assign(:company, company)
      |> assign(:live_action, :edit)
-     |> assign(:page_title, gettext("Edit company"))
+     |> assign_header(company)
      |> assign(:roles_selected, active_role_values(company))
      |> assign(:form, to_form(Companies.change_company(company)))
      |> assign(:linked_user, linked_user)

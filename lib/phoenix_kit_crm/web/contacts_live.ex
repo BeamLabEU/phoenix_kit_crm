@@ -15,7 +15,9 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
   def mount(_params, _session, socket) do
     {:ok,
      assign(socket,
-       page_title: gettext("CRM — Contacts"),
+       page_title: gettext("Contacts"),
+       page_section: gettext("CRM"),
+       page_section_path: Paths.index(),
        filter: "all",
        page: 1,
        search: "",

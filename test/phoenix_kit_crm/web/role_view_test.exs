@@ -73,4 +73,15 @@ defmodule PhoenixKitCRM.Web.RoleViewTest do
              "columns"
            ]
   end
+
+  test "the trail is CRM / <role name> — the module is the section, the role is the page",
+       %{conn: conn} do
+    role = crm_role_fixture()
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/roles/#{role.uuid}")
+
+    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
+    assert has_element?(view, "#test-page-title", role.name)
+    refute has_element?(view, "#test-page-title", "CRM —")
+  end
 end

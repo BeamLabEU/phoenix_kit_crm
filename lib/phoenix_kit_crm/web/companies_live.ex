@@ -15,7 +15,9 @@ defmodule PhoenixKitCRM.Web.CompaniesLive do
   def mount(_params, _session, socket) do
     {:ok,
      assign(socket,
-       page_title: gettext("CRM — Companies"),
+       page_title: gettext("Companies"),
+       page_section: gettext("CRM"),
+       page_section_path: Paths.index(),
        filter: "all",
        page: 1,
        search: "",

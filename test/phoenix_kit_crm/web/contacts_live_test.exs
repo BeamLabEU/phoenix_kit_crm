@@ -24,7 +24,8 @@ defmodule PhoenixKitCRM.Web.ContactsLiveTest do
     # LiveView body) — this repo's test layout stands in for that with
     # #test-page-title, so this only proves it's ASSIGNED, not duplicated
     # by an in-body <h1>/<.admin_page_header title=...> as well.
-    assert html =~ ~s(id="test-page-title")
+    assert has_element?(view, "#test-page-title", "Contacts")
+    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
     refute html =~ "<h1"
     refute has_element?(view, "h1")
   end

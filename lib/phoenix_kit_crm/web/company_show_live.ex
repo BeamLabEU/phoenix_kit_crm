@@ -110,8 +110,9 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
            Map.get(PartyRoles.active_roles_map("company", [company.uuid]), company.uuid, [])
          )
          |> assign(:page_title, Company.display_name(company))
-         |> assign(:page_section, gettext("Companies"))
-         |> assign(:page_section_path, Paths.companies())
+         |> assign(:page_section, gettext("CRM"))
+         |> assign(:page_section_path, Paths.index())
+         |> assign(:page_crumbs, [%{label: gettext("Companies"), path: Paths.companies()}])
          # Edit lives in the layout's breadcrumb action chip — the in-body
          # header band it used to occupy is gone (it held only the logo, the
          # status badge and this button once the name moved into the header).

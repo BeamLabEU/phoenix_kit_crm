@@ -65,10 +65,16 @@ defmodule PhoenixKitCRM.Web.ListMembersLive do
         {:noreply,
          socket
          |> assign(:list, list)
-         |> assign(:page_title, gettext("CRM — %{name}", name: list.name))
+         |> assign(:page_title, gettext("Members"))
          |> assign(:page_subtitle, list_subtitle(list))
-         |> assign(:page_section, gettext("Lists"))
-         |> assign(:page_section_path, Paths.lists())
+         |> assign(:page_section, gettext("CRM"))
+         |> assign(:page_section_path, Paths.index())
+         # Members IS the list's page, so the list crumb has nowhere else to
+         # point and renders as text; Import and Edit link it back here.
+         |> assign(:page_crumbs, [
+           %{label: gettext("Lists"), path: Paths.lists()},
+           %{label: list.name}
+         ])
          |> assign(:filter, filter)
          |> assign(:page, page)
          |> assign(:search, search)

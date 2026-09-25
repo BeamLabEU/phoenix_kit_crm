@@ -42,16 +42,20 @@ defmodule PhoenixKitCRM.Web.ListMembersLiveTest do
     assert html =~ "Alice Wonder"
   end
 
-  test "the list name lives in the chrome assign, not a duplicate in-body heading",
+  test "the trail is CRM / Lists / <list> / Members in the chrome, with no in-body heading",
        %{conn: conn} do
     list = list_fixture(%{"name" => "Beta Testers"})
 
     {:ok, view, html} = live(conn, "/en/admin/crm/lists/#{list.uuid}/members")
 
-    assert html =~ ~s(id="test-page-title")
+    assert has_element?(view, "#test-page-title", "Members")
     refute html =~ "<h1"
     refute has_element?(view, "h1")
-    assert has_element?(view, "#test-page-section[href='/en/admin/crm/lists']", "Lists")
+    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
+    assert has_element?(view, "#test-page-crumbs a[href='/en/admin/crm/lists']", "Lists")
+    # Members IS the list's page — its crumb is text, not a link to itself.
+    assert has_element?(view, "#test-page-crumbs span", "Beta Testers")
+    refute has_element?(view, "#test-page-crumbs a", "Beta Testers")
   end
 
   test "the filter strip maps nil to the All tab and patches the others", %{conn: conn} do

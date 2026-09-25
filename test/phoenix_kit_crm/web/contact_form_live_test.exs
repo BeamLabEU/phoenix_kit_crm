@@ -38,7 +38,9 @@ defmodule PhoenixKitCRM.Web.ContactFormLiveTest do
        %{conn: conn} do
     {:ok, view, html} = live(conn, "/en/admin/crm/contacts/new")
 
-    assert has_element?(view, "#test-page-section[href='/en/admin/crm/contacts']", "Contacts")
+    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
+    assert has_element?(view, "#test-page-crumbs a[href='/en/admin/crm/contacts']", "Contacts")
+    assert has_element?(view, "#test-page-title", "New contact")
     refute html =~ "<h1"
     refute html =~ "<header"
   end

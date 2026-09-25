@@ -53,7 +53,9 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
       true ->
         {:ok,
          socket
-         |> assign(:page_title, gettext("CRM — Organizations"))
+         |> assign(:page_title, gettext("Organizations"))
+         |> assign(:page_section, gettext("CRM"))
+         |> assign(:page_section_path, Paths.index())
          |> assign(:scope, :organizations)
          |> assign(:current_user_uuid, PhoenixKitWeb.Actor.uuid(socket))
          |> assign(:users, [])

@@ -24,10 +24,10 @@ defmodule PhoenixKitCRM.Web.ComparisonLive do
   def mount(_params, _session, socket) do
     {:ok,
      socket
-     |> assign(:page_title, gettext("CRM — Comparison"))
+     |> assign(:page_title, gettext("Comparison"))
      |> assign(:page_subtitle, gettext("Read-only reports — nothing here changes any data."))
-     |> assign(:page_section, gettext("Lists"))
-     |> assign(:page_section_path, Paths.lists())
+     |> assign(:page_section, gettext("CRM"))
+     |> assign(:page_section_path, Paths.index())
      |> assign(:expanded_duplicates, MapSet.new())
      |> assign(:duplicate_contacts, %{})
      |> assign(:selected_list_uuids, MapSet.new())

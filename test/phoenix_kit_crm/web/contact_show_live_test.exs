@@ -113,13 +113,32 @@ defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
     assert to =~ "/admin/crm/contacts"
   end
 
-  test "has a chrome breadcrumb back to Contacts (the rich in-body header stays, on purpose)",
+  test "the trail is CRM / Contacts / <contact> (the rich in-body header stays, on purpose)",
        %{conn: conn} do
     {:ok, contact} = Contacts.create_contact(%{"name" => "Grace Hopper"})
 
     {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}")
 
-    assert has_element?(view, "#test-page-section[href='/en/admin/crm/contacts']", "Contacts")
+    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
+    assert has_element?(view, "#test-page-crumbs a[href='/en/admin/crm/contacts']", "Contacts")
+    assert has_element?(view, "#test-page-title", "Grace Hopper")
+  end
+
+  test "the edit page's trail is the contact page's trail plus the contact", %{conn: conn} do
+    {:ok, contact} = Contacts.create_contact(%{"name" => "Grace Hopper"})
+
+    {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}/edit")
+
+    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
+    assert has_element?(view, "#test-page-crumbs a[href='/en/admin/crm/contacts']", "Contacts")
+
+    assert has_element?(
+             view,
+             "#test-page-crumbs a[href='/en/admin/crm/contacts/#{contact.uuid}']",
+             "Grace Hopper"
+           )
+
+    assert has_element?(view, "#test-page-title", "Edit")
   end
 
   # `Andi.CRMBridge` is not a dependency of this package (Andi depends on CRM,

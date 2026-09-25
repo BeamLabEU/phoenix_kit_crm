@@ -30,15 +30,19 @@ defmodule PhoenixKitCRM.Web.ListImportLiveTest do
     assert html =~ "Upload a file"
   end
 
-  test "the way back is the chrome breadcrumb, pointing at THIS list's members (not Lists)",
+  test "the trail is CRM / Lists / <list> / Import contacts, the list crumb pointing at THIS list's members",
        %{conn: conn} do
     list = list_fixture(%{"name" => "Beta Testers"})
 
     {:ok, view, html} = live(conn, "/en/admin/crm/lists/#{list.uuid}/import")
 
+    assert has_element?(view, "#test-page-title", "Import contacts")
+    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
+    assert has_element?(view, "#test-page-crumbs a[href='/en/admin/crm/lists']", "Lists")
+
     assert has_element?(
              view,
-             "#test-page-section[href='/en/admin/crm/lists/#{list.uuid}/members']",
+             "#test-page-crumbs a[href='/en/admin/crm/lists/#{list.uuid}/members']",
              "Beta Testers"
            )
 
