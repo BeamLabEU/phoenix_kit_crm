@@ -1,6 +1,6 @@
 defmodule PhoenixKitCRM.Web.ComparisonLive do
   @moduledoc """
-  CRM comparison (reconciliation) screen — two independent, read-only reports,
+  CRM comparison screen — two independent, read-only reports,
   no auto-actions:
 
     * Directory-wide duplicate emails: contacts sharing the same email
