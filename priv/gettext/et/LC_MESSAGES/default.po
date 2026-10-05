@@ -2740,7 +2740,7 @@ msgstr "Juba kirja pandud aeg jääb projekti arvestusse; siin saab muuta teksti
 #: lib/phoenix_kit_crm/web/interactions_component.ex:1383
 #, elixir-autogen, elixir-format
 msgid "Delete"
-msgstr ""
+msgstr "Kustuta"
 
 #: lib/phoenix_kit_crm/schemas/interaction.ex:169
 #, elixir-autogen, elixir-format

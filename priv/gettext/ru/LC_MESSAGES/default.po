@@ -2772,7 +2772,7 @@ msgstr "Уже записанное время остаётся в журнал�
 #: lib/phoenix_kit_crm/web/interactions_component.ex:1383
 #, elixir-autogen, elixir-format
 msgid "Delete"
-msgstr ""
+msgstr "Удалить"
 
 #: lib/phoenix_kit_crm/schemas/interaction.ex:169
 #, elixir-autogen, elixir-format
