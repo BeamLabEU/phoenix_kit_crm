@@ -34,6 +34,10 @@ defmodule PhoenixKitCRM.PubSub do
   @spec topic_company_interactions(binary()) :: String.t()
   def topic_company_interactions(company_uuid), do: "crm:company:#{company_uuid}:interactions"
 
+  @doc "Topic for all interactions logged on one project, regardless of anchor."
+  @spec topic_project_interactions(binary()) :: String.t()
+  def topic_project_interactions(project_uuid), do: "crm:project:#{project_uuid}:interactions"
+
   @doc "Topic for CRM contact-list live updates (membership changes, counters)."
   @spec topic_lists() :: String.t()
   def topic_lists, do: "crm:lists"
@@ -80,6 +84,7 @@ defmodule PhoenixKitCRM.PubSub do
   def broadcast_interaction(event, %Interaction{} = interaction) do
     broadcast_to_contacts(event, interaction.uuid, involved_contact_uuids(interaction))
     broadcast_to_company_feed(event, interaction.uuid, interaction.company_uuid)
+    broadcast_to_project_feed(event, interaction.uuid, interaction.project_uuid)
   end
 
   @doc """
@@ -113,6 +118,21 @@ defmodule PhoenixKitCRM.PubSub do
   def broadcast_to_company_feed(event, interaction_uuid, company_uuid) do
     Manager.broadcast(
       topic_company_interactions(company_uuid),
+      {:crm, event, %{interaction_uuid: interaction_uuid}}
+    )
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  @doc "Broadcasts to a project's feed after commit; nil projects are a no-op."
+  @spec broadcast_to_project_feed(atom(), binary(), binary() | nil) :: :ok
+  def broadcast_to_project_feed(_event, _interaction_uuid, nil), do: :ok
+
+  def broadcast_to_project_feed(event, interaction_uuid, project_uuid) do
+    Manager.broadcast(
+      topic_project_interactions(project_uuid),
       {:crm, event, %{interaction_uuid: interaction_uuid}}
     )
 

@@ -34,7 +34,7 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
   import PhoenixKitCRM.Web.InteractionHelpers, only: [viewer_tz: 1, current_user_name: 1]
 
   alias PhoenixKit.Users.Auth
-  alias PhoenixKitCRM.{Companies, Interactions, Paths}
+  alias PhoenixKitCRM.{Companies, Interactions, Paths, ProjectsLink}
   alias PhoenixKitCRM.PubSub, as: CRMPubSub
   alias PhoenixKitCRM.Schemas.{Company, Interaction}
   alias PhoenixKitCRM.Web.InteractionsComponent
@@ -106,14 +106,20 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
     assign(socket, company: company, memberships: memberships, recent: recent, loading: false)
   end
 
-  # A meeting logged on the company from anywhere (the CRM's own page, or
-  # another session on this tab) refreshes the feed here.
-  defp subscribe(%{assigns: %{company: %Company{uuid: uuid}}} = socket) do
-    safe(fn -> CRMPubSub.subscribe(CRMPubSub.topic_company_interactions(uuid)) end)
+  # The feed is project-scoped, so its topic must cover every anchor,
+  # including contacts and a former client. Calendar updates arrive on the
+  # projects module's own PubSub server via the optional bridge.
+  defp subscribe(socket) do
+    if is_binary(socket.assigns.project_uuid) do
+      safe(fn ->
+        CRMPubSub.subscribe(CRMPubSub.topic_project_interactions(socket.assigns.project_uuid))
+      end)
+
+      ProjectsLink.subscribe_events(socket.assigns.project_uuid)
+    end
+
     socket
   end
-
-  defp subscribe(socket), do: socket
 
   @impl true
   # The button is only rendered with `can_write`, but the event is a message
@@ -142,6 +148,24 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
   # A meeting logged on the company from anywhere refreshes the feed here.
   def handle_info({:crm, _event, %{interaction_uuid: _}}, socket),
     do: {:noreply, refresh_feed(socket)}
+
+  def handle_info({:projects, event, %{uuid: uuid}}, socket)
+      when event in [:project_event_created, :project_event_updated, :project_event_deleted] do
+    if uuid == socket.assigns.project_uuid do
+      socket = refresh_feed(socket)
+
+      if socket.assigns.composer do
+        send_update(InteractionsComponent,
+          id: "#{composer_id(uuid)}-#{socket.assigns.composer.token}",
+          refresh_token: socket.assigns.refresh_token
+        )
+      end
+
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
+  end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
 

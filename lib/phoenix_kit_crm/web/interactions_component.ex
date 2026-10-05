@@ -87,10 +87,12 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      # The row being edited in the composer (nil = composing a new one).
      |> assign_new(:editing_uuid, fn -> nil end)
      |> assign_new(:edit_logged, fn -> %{} end)
+     |> assign_new(:edit_billable, fn -> false end)
+     |> assign_new(:ledger_read_failed, fn -> false end)
      # Project mode: the planned event this interaction is the record of,
      # and the project's events to pick it from.
      |> assign_new(:c_event_uuid, fn -> "" end)
-     |> assign_planned_events()
+     |> assign_new(:planned_events, fn -> [] end)
      # Planning a meeting (project mode): the small form's state.
      |> assign_new(:planning, fn -> false end)
      |> assign_new(:p_title, fn -> "" end)
@@ -163,6 +165,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
       socket
     else
       socket
+      |> reload_planned_events()
       |> load_interactions()
       |> assign(:loaded_key, key)
       |> assign(:loaded_token, token)
@@ -435,6 +438,9 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     {:noreply, assign(socket, :c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))}
   end
 
+  def handle_event("save_interaction", _params, %{assigns: %{ledger_read_failed: true}} = socket),
+    do: {:noreply, assign(socket, :save_error, ledger_read_error())}
+
   def handle_event("save_interaction", _params, socket) do
     # `c_occurred_at` is the user's LOCAL time (profile tz); store true UTC.
     case local_to_utc(socket.assigns.c_occurred_at, socket.assigns[:tz] || "0") do
@@ -544,8 +550,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   # the one `save_error` shows.
   defp after_save(socket, interaction) do
     socket
-    |> log_attendee_time(interaction)
-    |> reset_composer(keep_error: true)
+    |> finish_ledger_save(interaction)
     # A company-anchored save under the People scope would be invisible —
     # the row is excluded by construction, so the composer clears and
     # nothing appears, indistinguishable from a failed save. Jump to All
@@ -576,13 +581,31 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
            ) do
       {:noreply,
        socket
-       |> log_attendee_time(updated)
-       |> reset_composer(keep_error: true)
+       |> finish_ledger_save(updated)
        |> load_interactions()
        |> done()}
     else
       {:error, changeset} -> {:noreply, assign(socket, :save_error, changeset_message(changeset))}
       _ -> {:noreply, assign(socket, :save_error, default_save_error())}
+    end
+  end
+
+  # The CRM row has committed even when a ledger write fails. Keep its
+  # identity and typed fields so retry saves amend it rather than creating
+  # another meeting. Reload successful entries to avoid logging them twice.
+  defp finish_ledger_save(socket, interaction) do
+    socket = log_attendee_time(socket, interaction)
+
+    if socket.assigns.save_error do
+      billable = socket.assigns.c_billable
+
+      socket
+      |> assign(:editing_uuid, interaction.uuid)
+      |> assign(:staged_files, [])
+      |> assign_logged_time(interaction)
+      |> assign(:c_billable, billable)
+    else
+      reset_composer(socket)
     end
   end
 
@@ -666,16 +689,26 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     )
     |> assign(:c_event_uuid, (i.metadata || %{})["event_uuid"] || "")
     |> assign(:staged_parties, saved_parties(socket.assigns, i.uuid))
-    |> assign_logged_time(i)
     |> assign(:save_error, nil)
+    |> assign_logged_time(i)
   end
 
   # What the ledger already holds for the row, by attendee key (the entry:
   # uuid, minutes, billable), so the edit shows each attendee's figure and
   # can amend it; the billable flag follows the entries already made.
   defp assign_logged_time(%{assigns: %{project_mode: true} = assigns} = socket, interaction) do
-    entries = ProjectsLink.list_time(assigns.project_uuid, interaction.uuid)
+    case ProjectsLink.fetch_time(assigns.project_uuid, interaction.uuid) do
+      {:ok, entries} ->
+        assign_time_entries(socket, entries)
 
+      {:error, _} ->
+        socket |> assign(:ledger_read_failed, true) |> assign(:save_error, ledger_read_error())
+    end
+  end
+
+  defp assign_logged_time(socket, _interaction), do: assign(socket, :edit_logged, %{})
+
+  defp assign_time_entries(%{assigns: assigns} = socket, entries) do
     logged =
       Map.new(entries, fn e ->
         key =
@@ -687,11 +720,15 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
       end)
 
     socket
+    |> assign(:ledger_read_failed, false)
     |> assign(:edit_logged, logged)
     |> assign(:c_billable, Enum.any?(entries, & &1.billable))
+    |> assign(:edit_billable, Enum.any?(entries, & &1.billable))
   end
 
-  defp assign_logged_time(socket, _interaction), do: assign(socket, :edit_logged, %{})
+  defp ledger_read_error do
+    gettext("Time entries could not be loaded. Close and reopen this meeting before saving.")
+  end
 
   # One key per ledger actor, for the attendee chips AND the entries already
   # logged: an edit finds an attendee's entry by it. The two once spelled a
@@ -711,9 +748,8 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     socket
   end
 
-  # Back to an empty composer for a new interaction. `keep_error: true`
-  # leaves the ledger's verdict (set by `log_attendee_time/2`) in place.
-  defp reset_composer(socket, opts \\ []) do
+  # Back to an empty composer after all writes succeeded or on cancel.
+  defp reset_composer(socket) do
     socket
     |> assign(:editing_uuid, nil)
     |> assign(:staged_parties, [])
@@ -725,12 +761,12 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     |> assign(:c_billable, false)
     |> assign(:attendee_minutes, %{})
     |> assign(:edit_logged, %{})
+    |> assign(:edit_billable, false)
+    |> assign(:ledger_read_failed, false)
     |> assign(:c_event_uuid, "")
     |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))
     |> assign(:upload_error, nil)
-    |> then(
-      &if(Keyword.get(opts, :keep_error, false), do: &1, else: assign(&1, :save_error, nil))
-    )
+    |> assign(:save_error, nil)
   end
 
   # ── Project mode: duration, attendees' time, the ledger ──────────────
@@ -773,11 +809,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     end)
   end
 
-  defp assign_planned_events(%{assigns: %{project_uuid: uuid}} = socket) when is_binary(uuid) do
-    assign_new(socket, :planned_events, fn -> ProjectsLink.list_events(uuid, limit: 50) end)
-  end
+  defp reload_planned_events(%{assigns: %{project_uuid: uuid}} = socket) when is_binary(uuid),
+    do: assign(socket, :planned_events, ProjectsLink.list_events(uuid, limit: 50))
 
-  defp assign_planned_events(socket), do: assign_new(socket, :planned_events, fn -> [] end)
+  defp reload_planned_events(socket), do: socket
 
   defp blank_to_nil(v) when is_binary(v),
     do: if(String.trim(v) == "", do: nil, else: String.trim(v))
@@ -891,15 +926,18 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   end
 
   # What an edit does to an attendee's EXISTING entry: nothing when the box
-  # is blank or still shows the logged figure, `:remove` on 0, `{:set, n}`
-  # on a new figure.
-  defp amendment(assigns, %{key: key, logged: %{minutes: minutes}}) do
+  # is blank or unchanged, `:remove` on 0, or a minutes/billable update.
+  defp amendment(assigns, %{key: key, logged: entry}) do
     typed = Map.get(assigns.attendee_minutes, key)
+    minutes = parse_minutes(typed) || entry.minutes
+    # An unchanged aggregate checkbox must preserve mixed ledger flags.
+    billable =
+      if assigns.c_billable == assigns.edit_billable, do: entry.billable, else: assigns.c_billable
 
     cond do
       zero?(typed) -> :remove
-      parse_minutes(typed) in [nil, minutes] -> :keep
-      true -> {:set, parse_minutes(typed)}
+      minutes == entry.minutes and billable == entry.billable -> :keep
+      true -> {:set, minutes, billable}
     end
   end
 
@@ -934,9 +972,9 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
         {%{logged: %{uuid: uuid}}, :remove} ->
           ProjectsLink.delete_time(uuid, actor_uuid: assigns[:current_user_uuid])
 
-        {%{logged: %{uuid: uuid}}, {:set, minutes}} ->
+        {%{logged: %{uuid: uuid}}, {:set, minutes, billable}} ->
           ProjectsLink.update_time(uuid, minutes,
-            billable: assigns.c_billable,
+            billable: billable,
             actor_uuid: assigns[:current_user_uuid]
           )
       end)

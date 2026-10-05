@@ -214,6 +214,7 @@ defmodule PhoenixKitCRM.Contacts do
   def trash_contact(%Contact{} = contact) do
     repo()
     |> SoftDelete.trash(contact, Contact.soft_delete_status())
+    |> notify_project_visibility()
     |> announce_to_companies(:member_left)
   end
 
@@ -221,10 +222,18 @@ defmodule PhoenixKitCRM.Contacts do
   def restore_contact(%Contact{status: "trashed"} = contact) do
     repo()
     |> SoftDelete.restore(contact, Contact.soft_delete_status(), Contact.statuses())
+    |> notify_project_visibility()
     |> announce_to_companies(:member_joined)
   end
 
   def restore_contact(%Contact{}), do: {:error, :not_trashed}
+
+  defp notify_project_visibility({:ok, contact} = result) do
+    PhoenixKitCRM.Interactions.notify_project_visibility(:contact, contact.uuid)
+    result
+  end
+
+  defp notify_project_visibility(result), do: result
 
   @doc """
   Permanently deletes a contact (cascades memberships + interactions at

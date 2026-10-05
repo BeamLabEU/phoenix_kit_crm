@@ -100,6 +100,73 @@ defmodule PhoenixKitCRM.Web.ProjectClientWriteGateTest do
     refute render(view) =~ "as logged on the project"
   end
 
+  test "the project feed follows contact and former-client changes over PubSub", %{conn: conn} do
+    {view, _row} = mount_tab(conn, false)
+    {:ok, contact} = Contacts.create_contact(%{"name" => "Project attendee"})
+    {:ok, former_client} = Companies.create_company(%{"name" => "Former client"})
+
+    for anchor <- [contact_uuid: contact.uuid, company_uuid: former_client.uuid] do
+      {field, uuid} = anchor
+
+      {:ok, row} =
+        Interactions.create_interaction(%{
+          Atom.to_string(field) => uuid,
+          "project_uuid" => @project,
+          "subject" => "Arrived through the project topic"
+        })
+
+      assert render(view) =~ "Arrived through the project topic"
+
+      {:ok, updated} =
+        Interactions.update_interaction(row, %{"subject" => "Updated through the project topic"})
+
+      assert render(view) =~ "Updated through the project topic"
+      {:ok, _} = Interactions.delete_interaction(updated)
+      refute render(view) =~ "Updated through the project topic"
+    end
+  end
+
+  test "trashing and restoring either anchor updates the project feed", %{conn: conn} do
+    {view, _row} = mount_tab(conn, false)
+    {:ok, contact} = Contacts.create_contact(%{"name" => "Visibility contact"})
+    {:ok, company} = Companies.create_company(%{"name" => "Visibility company"})
+
+    for {kind, record, context} <- [
+          {"contact_uuid", contact, Contacts},
+          {"company_uuid", company, Companies}
+        ] do
+      {:ok, _} =
+        Interactions.create_interaction(%{
+          kind => record.uuid,
+          "project_uuid" => @project,
+          "subject" => "Visibility meeting"
+        })
+
+      assert render(view) =~ "Visibility meeting"
+      # Each context's public soft-delete operation emits after commit.
+      {:ok, trashed} =
+        if context == Contacts,
+          do: Contacts.trash_contact(record),
+          else: Companies.trash_company(record)
+
+      refute render(view) =~ "Visibility meeting"
+
+      {:ok, restored} =
+        if context == Contacts,
+          do: Contacts.restore_contact(trashed),
+          else: Companies.restore_company(trashed)
+
+      assert render(view) =~ "Visibility meeting"
+
+      {:ok, _} =
+        if context == Contacts,
+          do: Contacts.delete_contact(restored),
+          else: Companies.delete_company(restored)
+
+      refute render(view) =~ "Visibility meeting"
+    end
+  end
+
   test "with can_write the same delete goes through", %{conn: conn} do
     {view, row} = mount_tab(conn, true)
 

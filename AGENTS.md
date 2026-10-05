@@ -332,6 +332,7 @@ is no longer read — V7 copied its lists into core once.
 |---|---|
 | `crm:contact:<uuid>:interactions` | One contact's feed — as interaction subject or resolved party |
 | `crm:company:<uuid>:interactions` | One company's feed — company-**anchored** interactions only |
+| `crm:project:<uuid>:interactions` | One project's feed — either anchor, including former clients |
 | `crm:company:<uuid>` | One company's page: member roster joins/leaves/renames |
 | `crm:lists` | Contact-list membership changes and counters |
 
@@ -340,7 +341,9 @@ one of `:interaction_created | :interaction_updated | :interaction_deleted`;
 roster messages are `{:crm, event, %{contact_uuid: uuid}}` with `:member_joined
 | :member_left | :member_changed`. A company's soft-delete flip sends
 `{:crm, :company_visibility_changed, %{company_uuid: uuid}}` to each affected
-party contact's feed.
+party contact's feed. Anchor trash/restore also refreshes affected project feeds.
+The Client tab subscribes to calendar updates through `ProjectsLink.subscribe_events/1`,
+which uses the projects module's own PubSub contract.
 
 **Settings.** `crm_enabled` (module on/off, via `enable_system/0` /
 `disable_system/0`) is the only key this module owns. It reads core's

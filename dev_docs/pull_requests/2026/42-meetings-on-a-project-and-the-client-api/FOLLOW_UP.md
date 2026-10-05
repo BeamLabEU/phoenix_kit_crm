@@ -82,3 +82,36 @@ claim of its below was checked against the code here before being acted on.
 ## Open
 
 The three Skipped items that are decisions: billable on edit, trashed anchors on the project feed, the planned-events refresh.
+
+# Workspace follow-up to commit `854ae92` (2026-10-05)
+
+Codex ran the code and extended the previous static review in
+`CODEX_REVIEW.md`. Claude's authorization, actor-key and UUID/type fixes are
+retained. This pass additionally fixes partial-ledger retries, failed ledger
+reads, billable-only edits and mixed billable flags, project visibility and
+notifications, calendar cache refresh, and NUL/blank API input validation.
+The previously reported suite failures are repaired through sandboxed fixture
+setup, scratch-clone portability and parent/component synchronization; no
+ownership-guard assertion or test was removed.
+
+The new drawer tests exercise a successful staff edit, billable-only changes,
+mixed ledger flags, partial failures and retry, ledger read failures, and
+calendar refreshes. Running them with Claude's original component produced
+six tests and five failures; restoring the reviewed component makes all pass.
+The runtime test collaborators are limited to a synchronous module and are
+unloaded afterward; no projects dependency or production test switch was added.
+
+API task linking after commit remains open, including failures after the
+prevalidation succeeds. Project membership of `event_uuid` and concurrent
+first-time ledger writes also remain limitations. See the review for the
+transaction/broadcast reason an outer transaction alone is insufficient.
+
+## Workspace validation
+
+- `mix test --seed 42`: **846 tests, 0 failures**.
+- `mix test --seed 999`: **846 tests, 0 failures**.
+- `mix precommit`: **exit 0** (compile with warnings as errors, unused-lock
+  check, Hex audit, formatting, strict Credo and Dialyzer).
+- `git diff --check`: clean.
+
+Version remains `0.15.1`; no release entry, push, publish or tag was made.

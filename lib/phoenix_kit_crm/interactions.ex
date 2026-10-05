@@ -109,6 +109,7 @@ defmodule PhoenixKitCRM.Interactions do
       {:ok, _} ->
         Interaction
         |> where([i], i.project_uuid == ^project_uuid)
+        |> visible_anchors()
         |> order_by([i], desc: i.occurred_at, desc: i.inserted_at)
         |> maybe_limit(opts[:limit])
         |> repo().all()
@@ -121,6 +122,32 @@ defmodule PhoenixKitCRM.Interactions do
       :error ->
         []
     end
+  end
+
+  @doc "One visible interaction of a project, or nil (including trashed anchors)."
+  @spec get_for_project(binary(), binary()) :: Interaction.t() | nil
+  def get_for_project(project_uuid, interaction_uuid) do
+    with {:ok, project_uuid} <- Ecto.UUID.cast(project_uuid),
+         {:ok, interaction_uuid} <- Ecto.UUID.cast(interaction_uuid) do
+      Interaction
+      |> where([i], i.project_uuid == ^project_uuid and i.uuid == ^interaction_uuid)
+      |> visible_anchors()
+      |> repo().one()
+      |> repo().preload([:parties])
+    else
+      _ -> nil
+    end
+  end
+
+  defp visible_anchors(query) do
+    query
+    |> join(:left, [i], c in Contact, on: c.uuid == i.contact_uuid)
+    |> join(:left, [i, c], co in Company, on: co.uuid == i.company_uuid)
+    |> where(
+      [i, c, co],
+      (not is_nil(i.contact_uuid) and c.status != "trashed") or
+        (not is_nil(i.company_uuid) and co.status != "trashed")
+    )
   end
 
   defp company_scope_condition(:company, company_uuid),
@@ -273,6 +300,27 @@ defmodule PhoenixKitCRM.Interactions do
       |> repo().all()
 
     PubSub.broadcast_company_visibility(company_uuid, contact_uuids)
+    notify_project_visibility(:company, company_uuid)
+  end
+
+  @doc "Refreshes project feeds when an interaction anchor is trashed or restored."
+  @spec notify_project_visibility(:company | :contact, binary()) :: :ok
+  def notify_project_visibility(kind, uuid) when kind in [:company, :contact] do
+    anchor_field = if kind == :company, do: :company_uuid, else: :contact_uuid
+
+    from(i in Interaction,
+      where: field(i, ^anchor_field) == ^uuid and not is_nil(i.project_uuid),
+      distinct: i.project_uuid,
+      select: {i.uuid, i.project_uuid}
+    )
+    |> repo().all()
+    |> Enum.each(fn {interaction_uuid, project_uuid} ->
+      PubSub.broadcast_to_project_feed(:interaction_updated, interaction_uuid, project_uuid)
+    end)
+
+    :ok
+  rescue
+    _ -> :ok
   end
 
   @spec get_interaction(UUIDv7.t() | String.t() | nil) :: Interaction.t() | nil
@@ -388,6 +436,10 @@ defmodule PhoenixKitCRM.Interactions do
         # The anchor is immutable (update_changeset never casts it), so the
         # same company feed that saw the create sees the edit.
         PubSub.broadcast_to_company_feed(:interaction_updated, updated.uuid, updated.company_uuid)
+
+        [interaction.project_uuid, updated.project_uuid]
+        |> Enum.uniq()
+        |> Enum.each(&PubSub.broadcast_to_project_feed(:interaction_updated, updated.uuid, &1))
 
         ok
 

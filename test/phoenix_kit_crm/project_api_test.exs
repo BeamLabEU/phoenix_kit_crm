@@ -118,11 +118,53 @@ defmodule PhoenixKitCRM.ProjectApiTest do
           {%{"parties" => [%{"name" => "x", "staff_person_uuid" => "nope"}]},
            "parties[0].staff_person_uuid"},
           {%{"event_uuid" => String.duplicate("x", 5000)}, "event_uuid"},
-          {%{"event_uuid" => 7}, "event_uuid"}
+          {%{"event_uuid" => 7}, "event_uuid"},
+          {%{"subject" => "bad" <> <<0>>}, "subject"},
+          {%{"body" => "bad" <> <<0>>}, "body"},
+          {%{"time_zone" => "bad" <> <<0>>}, "time_zone"},
+          {%{"parties" => [%{"name" => "bad" <> <<0>>}]}, "parties[0].name"},
+          {%{"parties" => [%{"name" => "   "}]}, "parties[0].name"}
         ] do
       assert {:error, {422, "validation_failed", _, %{^field => [_]}}} =
                ProjectApi.update(ctx(pu), i.uuid, attrs)
     end
+  end
+
+  test "trashed anchors are excluded from project lists, gets and updates", %{
+    company: company,
+    project_uuid: project_uuid,
+    interaction: company_row
+  } do
+    {:ok, contact} = Contacts.create_contact(%{"name" => "Project contact"})
+
+    {:ok, contact_row} =
+      Interactions.create_interaction(%{
+        "contact_uuid" => contact.uuid,
+        "project_uuid" => project_uuid,
+        "subject" => "Contact meeting"
+      })
+
+    assert length(Interactions.list_for_project(project_uuid)) == 2
+    {:ok, _} = Companies.trash_company(company)
+    assert [%{uuid: uuid}] = Interactions.list_for_project(project_uuid, limit: 1)
+    assert uuid == contact_row.uuid
+
+    assert {:error, {404, "not_found", _, _}} =
+             ProjectApi.get(ctx(project_uuid), company_row.uuid)
+
+    assert {:error, {404, "not_found", _, _}} =
+             ProjectApi.update(ctx(project_uuid), company_row.uuid, %{"body" => "hidden"})
+
+    assert Interactions.get_interaction(company_row.uuid).body == nil
+
+    {:ok, _} = Contacts.trash_contact(contact)
+    assert {:ok, %{count: 0}} = ProjectApi.list(ctx(project_uuid), %{})
+
+    assert {:error, {404, "not_found", _, _}} =
+             ProjectApi.get(ctx(project_uuid), contact_row.uuid)
+
+    # Soft delete hides the feed, retaining the history in storage.
+    assert Interactions.get_interaction(contact_row.uuid)
   end
 
   test "create without a client company on the project is a 409 that says what to do", %{

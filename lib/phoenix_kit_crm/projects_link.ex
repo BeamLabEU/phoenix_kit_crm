@@ -139,32 +139,45 @@ defmodule PhoenixKitCRM.ProjectsLink do
   @spec list_time(binary(), binary()) :: [map()]
   def list_time(project_uuid, interaction_uuid)
       when is_binary(project_uuid) and is_binary(interaction_uuid) do
+    case fetch_time(project_uuid, interaction_uuid) do
+      {:ok, entries} -> entries
+      {:error, _} -> []
+    end
+  end
+
+  @doc "Like list_time/2, but preserves read failures so an edit cannot duplicate existing time."
+  @spec fetch_time(binary(), binary()) :: {:ok, [map()]} | {:error, :unavailable}
+  def fetch_time(project_uuid, interaction_uuid)
+      when is_binary(project_uuid) and is_binary(interaction_uuid) do
     if Code.ensure_loaded?(@ledger) and function_exported?(@ledger, :list_entries, 2) do
-      @ledger
-      |> apply(:list_entries, [
-        project_uuid,
-        [limit: 500, metadata: %{"interaction_uuid" => interaction_uuid}]
-      ])
-      |> Enum.filter(fn e ->
-        Map.get(e, :kind) == "time" and
-          (Map.get(e, :metadata) || %{})["interaction_uuid"] == interaction_uuid
-      end)
-      |> Enum.map(fn e ->
-        %{
-          uuid: Map.get(e, :uuid),
-          actor_kind: Map.get(e, :actor_kind),
-          actor_uuid: Map.get(e, :actor_uuid),
-          minutes: e |> Map.get(:amount) |> to_minutes(),
-          billable: Map.get(e, :billable) == true
-        }
-      end)
+      entries =
+        @ledger
+        |> apply(:list_entries, [
+          project_uuid,
+          [limit: 500, metadata: %{"interaction_uuid" => interaction_uuid}]
+        ])
+        |> Enum.filter(fn e ->
+          Map.get(e, :kind) == "time" and
+            (Map.get(e, :metadata) || %{})["interaction_uuid"] == interaction_uuid
+        end)
+        |> Enum.map(fn e ->
+          %{
+            uuid: Map.get(e, :uuid),
+            actor_kind: Map.get(e, :actor_kind),
+            actor_uuid: Map.get(e, :actor_uuid),
+            minutes: e |> Map.get(:amount) |> to_minutes(),
+            billable: Map.get(e, :billable) == true
+          }
+        end)
+
+      {:ok, entries}
     else
-      []
+      {:ok, []}
     end
   rescue
     e ->
       Logger.warning("[CRM] ledger read failed: #{Exception.message(e)}")
-      []
+      {:error, :unavailable}
   end
 
   @doc """
@@ -238,6 +251,21 @@ defmodule PhoenixKitCRM.ProjectsLink do
     e ->
       Logger.warning("[CRM] event create failed: #{Exception.message(e)}")
       {:error, :unavailable}
+  end
+
+  @doc "Subscribes to the projects module's own topic for calendar updates."
+  @spec subscribe_events(binary()) :: :ok | {:error, term()}
+  def subscribe_events(project_uuid) do
+    pubsub = PhoenixKitProjects.PubSub
+
+    if Code.ensure_loaded?(pubsub) and function_exported?(pubsub, :subscribe, 1) and
+         function_exported?(pubsub, :topic_project, 1) do
+      apply(pubsub, :subscribe, [apply(pubsub, :topic_project, [project_uuid])])
+    else
+      {:error, :unavailable}
+    end
+  rescue
+    _ -> {:error, :unavailable}
   end
 
   @doc "One event of the project, or nil."

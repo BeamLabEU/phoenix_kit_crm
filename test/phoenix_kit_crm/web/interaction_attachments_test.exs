@@ -15,6 +15,7 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.File, as: StorageFile
+  alias PhoenixKit.Modules.Storage.Profiles
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.{Attachments, Companies, Contacts, Interactions}
   alias PhoenixKitCRM.Test.Repo
@@ -24,8 +25,7 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
     :persistent_term.erase(:phoenix_kit_buckets_cache)
 
     # Stored files go to every enabled bucket; keep them all in this one.
-    for bucket <- Storage.list_enabled_buckets(),
-        do: {:ok, _} = Storage.update_bucket(bucket, %{enabled: false})
+    for bucket <- Storage.list_enabled_buckets(), do: disable_bucket(bucket)
 
     root = Path.join(System.tmp_dir!(), "crm_attach_#{System.unique_integer([:positive])}")
 
@@ -42,6 +42,18 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
     end)
 
     {:ok, conn: put_test_scope(conn, fake_scope()), bucket: bucket}
+  end
+
+  # Core refuses to disable a bucket while a storage profile uses it.
+  # Detach the sandboxed fixture first; rollback restores the site's rows.
+  defp disable_bucket(bucket) do
+    if Code.ensure_loaded?(Profiles) do
+      for usage <- Map.get(Profiles.bucket_usage([bucket.uuid]), to_string(bucket.uuid), []) do
+        :ok = Profiles.remove_bucket(Profiles.get_profile(usage.profile_uuid), bucket.uuid)
+      end
+    end
+
+    Storage.update_bucket(bucket, %{enabled: false})
   end
 
   test "the contact composer offers the dropzone when storage has a bucket", %{conn: conn} do
@@ -72,7 +84,7 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
     # no — setup runs per test, so disable it) — verify by disabling every
     # bucket first.
     for bucket <- Storage.list_enabled_buckets() do
-      {:ok, _} = Storage.update_bucket(bucket, %{enabled: false})
+      {:ok, _} = disable_bucket(bucket)
     end
 
     {:ok, contact} = Contacts.create_contact(%{"name" => "Bucketless Bella"})
@@ -136,7 +148,7 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
     {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=interactions")
 
     # The bucket goes away between showing the dropzone and the upload.
-    {:ok, bucket} = Storage.update_bucket(bucket, %{enabled: false})
+    {:ok, bucket} = disable_bucket(bucket)
     :persistent_term.erase(:phoenix_kit_buckets_cache)
 
     file =

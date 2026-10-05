@@ -2848,3 +2848,8 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgid "minutes, logged"
 msgstr ""
+
+#. Ledger read failure must not be mistaken for an empty ledger.
+#, elixir-autogen, elixir-format
+msgid "Time entries could not be loaded. Close and reopen this meeting before saving."
+msgstr ""

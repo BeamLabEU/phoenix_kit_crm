@@ -56,6 +56,9 @@ defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
     # The interaction broadcast (create fires it) is what reaches the page.
     PhoenixKitCRM.PubSub.broadcast_interaction(:interaction_created, interaction)
 
+    # The parent queues send_update while handling the broadcast. The first
+    # render synchronizes with the parent; the next observes that update.
+    render(view)
     html = render(view)
     assert html =~ "Attached to interactions"
     assert html =~ "quote.pdf"

@@ -119,6 +119,9 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
         "occurred_at" => DateTime.utc_now() |> DateTime.truncate(:second)
       })
 
+    # The broadcast handler queues a component update. Synchronize with
+    # the parent before asserting the component's subsequent render.
+    render(view)
     assert render(view) =~ "Called about the invoice"
   end
 

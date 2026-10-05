@@ -2862,3 +2862,8 @@ msgstr "Минуты на участника, как записано в про�
 #, elixir-autogen, elixir-format
 msgid "minutes, logged"
 msgstr "минут, записано"
+
+#. Ledger read failure must not be mistaken for an empty ledger.
+#, elixir-autogen, elixir-format
+msgid "Time entries could not be loaded. Close and reopen this meeting before saving."
+msgstr "Не удалось загрузить записи времени. Закройте и снова откройте эту встречу перед сохранением."

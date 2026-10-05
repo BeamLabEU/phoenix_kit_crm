@@ -362,8 +362,8 @@ defmodule PhoenixKitCRM.ProjectApi do
   # ── Internals ───────────────────────────────────────────────────────
 
   defp fetch(project, id) do
-    case Interactions.get_interaction(id) do
-      %Interaction{project_uuid: pu} = i when pu == project.uuid -> {:ok, i}
+    case Interactions.get_for_project(project.uuid, id) do
+      %Interaction{} = i -> {:ok, i}
       _ -> {:error, {404, "not_found", "No such interaction on this project.", nil}}
     end
   end
@@ -428,7 +428,11 @@ defmodule PhoenixKitCRM.ProjectApi do
   defp string(nil, _field, _max), do: {:ok, nil}
 
   defp string(v, field, max) when is_binary(v) do
-    if String.length(v) <= max, do: {:ok, v}, else: invalid(field, "at most #{max} characters")
+    cond do
+      String.contains?(v, <<0>>) -> invalid(field, "must not contain null bytes")
+      String.length(v) > max -> invalid(field, "at most #{max} characters")
+      true -> {:ok, v}
+    end
   end
 
   defp string(_, field, _max), do: invalid(field, "must be a string")
@@ -498,6 +502,8 @@ defmodule PhoenixKitCRM.ProjectApi do
   defp party(_, idx), do: invalid("parties[#{idx}]", "must be an object")
 
   defp resolved_party(name, contact, staff, idx) do
+    name = String.trim(name)
+
     case party_error(name, contact, staff, idx) do
       nil -> {:ok, %{raw_name: name, contact_uuid: contact, staff_person_uuid: staff}}
       error -> error
@@ -513,6 +519,9 @@ defmodule PhoenixKitCRM.ProjectApi do
 
   defp party_error(name, contact, staff, idx) do
     cond do
+      String.contains?(name, <<0>>) ->
+        invalid("parties[#{idx}].name", "must not contain null bytes")
+
       String.length(name) > 255 ->
         invalid("parties[#{idx}].name", "is required, at most 255 characters")
 

@@ -74,6 +74,11 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
   defp clone_from_template!(admin, admin_opts, target_db) do
     Postgrex.query!(admin, "CREATE DATABASE #{target_db}", [])
 
+    on_exit(fn ->
+      {:ok, cleanup} = Postgrex.start_link(admin_opts)
+      Postgrex.query!(cleanup, "DROP DATABASE IF EXISTS #{target_db}", [])
+    end)
+
     dump_path = Path.join(System.tmp_dir!(), "i067_wiring_dump_#{unique_suffix()}.sql")
     on_exit(fn -> File.rm(dump_path) end)
 
@@ -89,6 +94,8 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
           to_string(admin_opts[:port]),
           "-U",
           admin_opts[:username],
+          "--no-owner",
+          "--no-acl",
           "-f",
           dump_path,
           @template_db
@@ -96,6 +103,13 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
         env: pg_env,
         stderr_to_stdout: true
       )
+
+    # template1 may already contain admin-owned extensions (including
+    # untrusted ones this role cannot install). CREATE EXTENSION IF NOT
+    # EXISTS is harmless, but COMMENT ON EXTENSION still requires ownership.
+    # Preserve table comments, including the migration markers under test.
+    dump = File.read!(dump_path)
+    File.write!(dump_path, Regex.replace(~r/^COMMENT ON EXTENSION .*?;$/ms, dump, ""))
 
     {_output, 0} =
       System.cmd(
@@ -147,11 +161,6 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
     # so its presence afterward is actually caused by this run's own boot.
     {:ok, cleaner} = Postgrex.start_link(Keyword.put(admin_opts, :database, scratch_db))
     Postgrex.query!(cleaner, "COMMENT ON TABLE schema_migrations IS NULL", [])
-
-    on_exit(fn ->
-      {:ok, admin} = Postgrex.start_link(admin_opts)
-      Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{scratch_db}", [])
-    end)
 
     %{admin_opts: admin_opts, scratch_db: scratch_db}
   end
@@ -310,11 +319,6 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
     refute before_dump =~ "clock_timestamp",
            "fixture still carries the real uuid_generate_v7 body — the placeholder swap " <>
              "above didn't take, so its real (re-)creation below would be a no-op"
-
-    on_exit(fn ->
-      {:ok, admin} = Postgrex.start_link(admin_opts)
-      Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{foreign_db}", [])
-    end)
 
     env = [
       {"PGDATABASE", foreign_db},
