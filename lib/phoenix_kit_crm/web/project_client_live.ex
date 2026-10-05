@@ -15,12 +15,14 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
   `PhoenixKitCRM.Companies.company_options/0`).
 
   Shows the linked company card and, once connected, the project's own
-  interaction feed and composer (`InteractionsComponent` in project mode,
-  V8): a meeting logged here belongs to the company in the CRM AND to this
-  project, the attendees' minutes go into the project's ledger, and each
-  row lists the tasks created from it. The dead render shows the company's
-  recent interactions only — the composer needs a connected socket and
-  the hub renders the landing tab in the project page's dead render too.
+  interactions (`InteractionsComponent` in project mode, V8): the planned
+  ones with "Log what happened", the feed, and — in a drawer this view
+  owns, since core's drawer sends its close event to the view — the
+  composer, opened by "Log an interaction", by "Log what happened" on a
+  plan (the plan picked) or by Edit on a row. The two component instances
+  talk to this view by message (`{:crm_client, …}`); a save closes the
+  drawer and refreshes the feed. The dead render shows the company's
+  recent interactions only.
 
   Off-router-mountable: no `handle_params/3` (the hub's hard requirement),
   so CRM reads run on the connected mount only.
@@ -55,6 +57,9 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
         current_user_name: current_user_name(%{phoenix_kit_current_user: user}),
         tz: viewer_tz(user),
         refresh_token: nil,
+        # The drawer: nil, or %{editing_uuid, plan_uuid, token} — a fresh
+        # composer instance per open (the token is in its id).
+        composer: nil,
         connected: connected?(socket),
         company: nil,
         memberships: [],
@@ -111,7 +116,39 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
   defp subscribe(socket), do: socket
 
   @impl true
-  def handle_info({:crm, _event, %{interaction_uuid: _}}, socket) do
+  def handle_event("open_composer", _params, socket), do: {:noreply, open(socket, nil, nil)}
+
+  def handle_event("close_composer", _params, socket),
+    do: {:noreply, assign(socket, composer: nil)}
+
+  @impl true
+  # From the feed instance: open the drawer — empty, on a plan, or editing a row.
+  def handle_info({:crm_client, :compose, opts}, socket),
+    do: {:noreply, open(socket, opts[:editing_uuid], opts[:plan_uuid])}
+
+  # From the composer instance: done — close, and have the feed reload.
+  def handle_info({:crm_client, :saved}, socket),
+    do: {:noreply, socket |> assign(composer: nil) |> refresh_feed()}
+
+  def handle_info({:crm_client, :cancel}, socket), do: {:noreply, assign(socket, composer: nil)}
+
+  # A meeting logged on the company from anywhere refreshes the feed here.
+  def handle_info({:crm, _event, %{interaction_uuid: _}}, socket),
+    do: {:noreply, refresh_feed(socket)}
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  defp open(socket, editing_uuid, plan_uuid) do
+    assign(socket,
+      composer: %{
+        editing_uuid: editing_uuid,
+        plan_uuid: plan_uuid,
+        token: System.unique_integer([:positive])
+      }
+    )
+  end
+
+  defp refresh_feed(socket) do
     token = System.unique_integer([:positive])
 
     send_update(InteractionsComponent,
@@ -119,12 +156,11 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
       refresh_token: token
     )
 
-    {:noreply, assign(socket, refresh_token: token)}
+    assign(socket, refresh_token: token)
   end
 
-  def handle_info(_msg, socket), do: {:noreply, socket}
-
   defp feed_id(project_uuid), do: "crm-project-interactions-#{project_uuid}"
+  defp composer_id(project_uuid), do: "crm-project-composer-#{project_uuid}"
 
   @impl true
   def render(assigns) do
@@ -166,6 +202,14 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
                     {ngettext("%{count} member contact", "%{count} member contacts", length(@memberships))}
                   </p>
                 </div>
+                <.button
+                  :if={assigns[:connected] == true and @can_write}
+                  type="button"
+                  phx-click="open_composer"
+                  class="btn-primary btn-sm"
+                >
+                  <.icon name="hero-plus" class="w-4 h-4" /> {gettext("Log an interaction")}
+                </.button>
                 <.link navigate={Paths.company(@company.uuid)} class="btn btn-ghost btn-sm gap-1">
                   <.icon name="hero-arrow-top-right-on-square" class="w-4 h-4" />
                   {gettext("Open in CRM")}
@@ -174,9 +218,8 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
             </div>
           </div>
 
-          <%!-- Connected: the project's own feed and composer (project
-               mode). Every meeting logged here is the company's in the CRM
-               and this project's here. --%>
+          <%!-- Connected: the planned ones and the feed (project mode, no
+               composer — that is the drawer's). --%>
           <.live_component
             :if={assigns[:connected] == true}
             module={InteractionsComponent}
@@ -185,12 +228,49 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
             project_uuid={@project_uuid}
             host_paths={@host_paths}
             can_write={@can_write}
+            show_composer={false}
             current_user_uuid={@current_user_uuid}
             current_user_name={@current_user_name}
             phoenix_kit_current_user={@current_user}
             tz={@tz}
             refresh_token={@refresh_token}
           />
+
+          <%!-- The composer, in a drawer this view owns. A fresh instance per
+               open: the token is in its id, so an edit or a plan is applied
+               on mount and nothing leaks between opens. --%>
+          <.modal
+            :if={assigns[:composer]}
+            show
+            on_close="close_composer"
+            id={composer_id(@project_uuid)}
+            aria-label={gettext("Log an interaction")}
+            placement={:end}
+            max_width="lg"
+          >
+            <:title>
+              <%= if @composer.editing_uuid do %>
+                {gettext("Edit interaction")}
+              <% else %>
+                {gettext("Log an interaction with %{name}", name: @company.name)}
+              <% end %>
+            </:title>
+            <.live_component
+              module={InteractionsComponent}
+              id={"#{composer_id(@project_uuid)}-#{@composer.token}"}
+              company={@company}
+              project_uuid={@project_uuid}
+              host_paths={@host_paths}
+              can_write={@can_write}
+              show_feed={false}
+              open_editing_uuid={@composer.editing_uuid}
+              open_plan_uuid={@composer.plan_uuid}
+              current_user_uuid={@current_user_uuid}
+              current_user_name={@current_user_name}
+              phoenix_kit_current_user={@current_user}
+              tz={@tz}
+            />
+          </.modal>
 
           <div :if={assigns[:connected] != true and @recent != []} class="card border border-base-200 bg-base-100">
             <div class="card-body py-4 gap-2">

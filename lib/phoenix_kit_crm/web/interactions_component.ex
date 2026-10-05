@@ -106,9 +106,35 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      |> assign_new(:upload_error, fn -> nil end)
      |> assign(:staff_enabled, StaffLink.enabled?())
      |> assign(:storage_enabled, storage_enabled?())
+     |> assign_new(:show_feed, fn -> true end)
+     |> assign_new(:show_composer, fn -> true end)
      |> maybe_allow_upload()
-     |> maybe_reload_interactions()}
+     |> maybe_reload_interactions()
+     |> apply_opening()}
   end
+
+  # The drawer instance's opening request — an edit, or a plan to be the
+  # record of — applied once, after the interactions are loaded.
+  defp apply_opening(%{assigns: %{opening_applied: true}} = socket), do: socket
+
+  defp apply_opening(socket) do
+    socket = assign(socket, :opening_applied, true)
+
+    cond do
+      is_binary(socket.assigns[:open_editing_uuid]) ->
+        load_for_edit(socket, socket.assigns.open_editing_uuid)
+
+      is_binary(socket.assigns[:open_plan_uuid]) ->
+        socket |> assign(:c_type, "meeting") |> pick_event(socket.assigns.open_plan_uuid)
+
+      true ->
+        socket
+    end
+  end
+
+  # Whether this instance owns the composer, or must ask the tab to open
+  # its drawer (`{:crm_client, :compose, opts}`).
+  defp composes_here?(socket), do: socket.assigns[:show_composer] != false
 
   # Which record this feed belongs to. Exactly one of the `contact`/`company`
   # host assigns is set; deriving kind + struct once keeps every branch below
@@ -293,30 +319,21 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   # time already logged are left alone (the ledger is append-only). Save
   # then updates the row instead of creating one.
   def handle_event("edit_interaction", %{"uuid" => uuid}, socket) do
-    case Enum.find(socket.assigns.interactions, &(&1.uuid == uuid)) do
-      %Interaction{} = i ->
-        tz = socket.assigns[:tz] || "0"
-
-        {:noreply,
-         socket
-         |> assign(:editing_uuid, i.uuid)
-         |> assign(:c_type, i.interaction_type)
-         |> assign(:c_subject, i.subject || "")
-         |> assign(:c_body, i.body || "")
-         |> assign(:c_occurred_at, DateUtils.format_datetime_local(i.occurred_at, tz))
-         |> assign(
-           :c_duration,
-           if(i.duration_minutes, do: Integer.to_string(i.duration_minutes), else: "")
-         )
-         |> assign(:c_event_uuid, (i.metadata || %{})["event_uuid"] || "")
-         |> assign(:save_error, nil)}
-
-      _ ->
-        {:noreply, socket}
+    if composes_here?(socket) do
+      {:noreply, load_for_edit(socket, uuid)}
+    else
+      send(self(), {:crm_client, :compose, editing_uuid: uuid})
+      {:noreply, socket}
     end
   end
 
-  def handle_event("cancel_edit", _params, socket), do: {:noreply, reset_composer(socket)}
+  def handle_event("cancel_edit", _params, socket) do
+    if socket.assigns[:show_feed] == false, do: send(self(), {:crm_client, :cancel})
+    {:noreply, reset_composer(socket)}
+  end
+
+  def handle_event("unlink_plan", _params, socket),
+    do: {:noreply, assign(socket, :c_event_uuid, "")}
 
   # ── Planning a meeting (project mode) ─────────────────────────────
 
@@ -383,11 +400,12 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   # "Log what happened" on a planned meeting: the composer opens with the
   # plan picked (its when and title prefilled), as a meeting.
   def handle_event("log_planned", %{"uuid" => uuid}, socket) do
-    {:noreply,
-     socket
-     |> reset_composer()
-     |> assign(:c_type, "meeting")
-     |> pick_event(uuid)}
+    if composes_here?(socket) do
+      {:noreply, socket |> reset_composer() |> assign(:c_type, "meeting") |> pick_event(uuid)}
+    else
+      send(self(), {:crm_client, :compose, plan_uuid: uuid})
+      {:noreply, socket}
+    end
   end
 
   def handle_event("set_now", _params, socket) do
@@ -491,7 +509,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     file_uuids = Enum.map(socket.assigns.staged_files, & &1.uuid)
 
     case Interactions.create_interaction(attrs, party_inputs, file_uuids) do
-      {:ok, interaction} -> {:noreply, after_save(socket, interaction)}
+      {:ok, interaction} -> {:noreply, socket |> after_save(interaction) |> done()}
       {:error, changeset} -> {:noreply, assign(socket, :save_error, changeset_message(changeset))}
     end
   rescue
@@ -541,7 +559,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
            Interactions.update_interaction(i, attrs, nil,
              actor_uuid: socket.assigns[:current_user_uuid]
            ) do
-      {:noreply, socket |> reset_composer() |> load_interactions()}
+      {:noreply, socket |> reset_composer() |> load_interactions() |> done()}
     else
       {:error, changeset} -> {:noreply, assign(socket, :save_error, changeset_message(changeset))}
       _ -> {:noreply, assign(socket, :save_error, default_save_error())}
@@ -583,6 +601,35 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   defp planned_label(_interaction, _assigns), do: nil
 
+  defp load_for_edit(socket, uuid) do
+    case Enum.find(socket.assigns.interactions, &(&1.uuid == uuid)) do
+      %Interaction{} = i ->
+        tz = socket.assigns[:tz] || "0"
+
+        socket
+        |> assign(:editing_uuid, i.uuid)
+        |> assign(:c_type, i.interaction_type)
+        |> assign(:c_subject, i.subject || "")
+        |> assign(:c_body, i.body || "")
+        |> assign(:c_occurred_at, DateUtils.format_datetime_local(i.occurred_at, tz))
+        |> assign(
+          :c_duration,
+          if(i.duration_minutes, do: Integer.to_string(i.duration_minutes), else: "")
+        )
+        |> assign(:c_event_uuid, (i.metadata || %{})["event_uuid"] || "")
+        |> assign(:save_error, nil)
+
+      _ ->
+        socket
+    end
+  end
+
+  # The drawer instance is done: the tab closes it and refreshes the feed.
+  defp done(socket) do
+    if socket.assigns[:show_feed] == false, do: send(self(), {:crm_client, :saved})
+    socket
+  end
+
   # Back to an empty composer for a new interaction. `keep_error: true`
   # leaves the ledger's verdict (set by `log_attendee_time/2`) in place.
   defp reset_composer(socket, opts \\ []) do
@@ -614,7 +661,6 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     |> assign(:c_duration, p["duration_minutes"] || socket.assigns.c_duration)
     |> assign(:c_billable, p["billable"] in ["true", "on"])
     |> assign(:attendee_minutes, Map.get(params, "attendee_minutes", %{}))
-    |> pick_event(p["event_uuid"])
   end
 
   defp assign_project_fields(socket, _p, _params), do: socket
@@ -670,13 +716,6 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     |> Enum.sort_by(& &1.starts_at, {:asc, DateTime})
   end
 
-  defp planned_event_options(events, tz) do
-    [{gettext("— not planned —"), ""}] ++
-      Enum.map(events, fn e ->
-        {"#{format_local(e.starts_at, tz)} · #{e.title}", e.uuid}
-      end)
-  end
-
   defp put_project_attrs(attrs, %{assigns: %{project_mode: true} = assigns}) do
     attrs
     |> Map.put("project_uuid", assigns.project_uuid)
@@ -696,7 +735,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     |> Enum.with_index()
     |> Enum.flat_map(fn {party, idx} ->
       cond do
-        party[:is_me] and is_binary(assigns[:current_user_uuid]) ->
+        party[:is_me] == true and is_binary(assigns[:current_user_uuid]) ->
           [
             %{
               key: "me",
@@ -1110,13 +1149,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   defp owns_row?(%{anchor_kind: :contact, anchor: a}, row), do: row.contact_uuid == a.uuid
   defp owns_row?(%{anchor_kind: :company, anchor: a}, row), do: row.company_uuid == a.uuid
 
-  defp composer_title(%{editing_uuid: uuid, project_mode: true}) when is_binary(uuid),
-    do: gettext("Edit this meeting")
-
   defp composer_title(%{editing_uuid: uuid}) when is_binary(uuid), do: gettext("Edit interaction")
-
-  defp composer_title(%{project_mode: true, anchor: company}),
-    do: gettext("Log a meeting with %{name} on this project", name: Company.display_name(company))
 
   defp composer_title(%{anchor_kind: :contact}), do: gettext("Log an interaction")
 
@@ -1147,6 +1180,15 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   attr(:host_paths, :map, default: %{})
   attr(:can_write, :boolean, default: true)
   attr(:refresh_token, :any, default: nil)
+  # The hub's Client tab splits this component in two instances: the feed
+  # (with the planned ones) inline, the composer in a drawer the tab owns;
+  # the feed asks the tab to open the drawer, the composer tells it when
+  # it is done. `open_editing_uuid` / `open_plan_uuid` are what the drawer
+  # instance applies once on mount.
+  attr(:show_feed, :boolean, default: true)
+  attr(:show_composer, :boolean, default: true)
+  attr(:open_editing_uuid, :string, default: nil)
+  attr(:open_plan_uuid, :string, default: nil)
 
   @impl true
   def render(assigns) do
@@ -1155,12 +1197,12 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
       <%!-- Project mode: the plan. Meetings still to come (or past and not
            logged) with "Log what happened", and a small form that makes a
            project event — the plan the record later points at. --%>
-      <div :if={@project_mode and @can_write} class="card bg-base-100 shadow-sm border border-base-200">
+      <div :if={@project_mode and @can_write and @show_feed} class="card bg-base-100 shadow-sm border border-base-200">
         <div class="card-body gap-3 py-4">
           <div class="flex items-center justify-between gap-2">
-            <h3 class="font-semibold">{gettext("Planned meetings")}</h3>
+            <h3 class="font-semibold">{gettext("Planned")}</h3>
             <.button :if={not @planning} type="button" phx-click="start_planning" phx-target={@myself} class="btn-outline btn-sm">
-              <.icon name="hero-calendar-days" class="w-4 h-4" /> {gettext("Plan a meeting")}
+              <.icon name="hero-calendar-days" class="w-4 h-4" /> {gettext("Plan ahead")}
             </.button>
           </div>
           <% unlogged = unlogged_events(assigns) %>
@@ -1189,7 +1231,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
               <.input id="crm-plan-when" type="datetime-local" name="plan[when]" value={@p_when} label={gettext("When")} class="input-sm" wrapper_class="w-56" required />
               <.input id="crm-plan-location" name="plan[location]" value={@p_location} label={gettext("Where (optional)")} class="input-sm" wrapper_class="flex-1 min-w-48" />
             </div>
-            <p class="text-xs text-base-content/60">{gettext("No end time: nobody knows how long it will take. It goes on the project's calendar; log what happened here afterwards.")}</p>
+            <p class="text-xs text-base-content/60">{gettext("A meeting, a call, a visit — whatever is planned with the client. No end time: nobody knows how long it will take. It goes on the project's calendar; afterwards, \"Log what happened\" opens the composer with it.")}</p>
             <div :if={@plan_error} class="alert alert-error text-sm py-2" role="alert">
               <.icon name="hero-exclamation-triangle" class="w-4 h-4 shrink-0" />
               <span>{@plan_error}</span>
@@ -1203,7 +1245,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
       </div>
 
       <%!-- Composer (hidden for a viewer the hub says may not write) --%>
-      <div :if={@can_write} class="card bg-base-100 shadow-sm border border-base-200">
+      <div :if={@can_write and @show_composer} class="card bg-base-100 shadow-sm border border-base-200">
         <div class="card-body gap-3">
           <h3 class="font-semibold">{composer_title(assigns)}</h3>
 
@@ -1277,15 +1319,14 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                  attendees are the staged parties from our side (staff, "me");
                  each gets the meeting's length unless a figure is typed. --%>
             <div :if={@project_mode} class="flex flex-col gap-2 rounded-box border border-base-200 p-3">
-              <.select
-                :if={@planned_events != []}
-                id="crm-planned-event"
-                name="interaction[event_uuid]"
-                value={@c_event_uuid}
-                label={gettext("Planned as")}
-                options={planned_event_options(@planned_events, @tz)}
-                class="select-sm"
-              />
+              <% plan = Enum.find(@planned_events, &(&1.uuid == @c_event_uuid)) %>
+              <div :if={plan} class="flex items-center gap-2 text-sm">
+                <.icon name="hero-calendar" class="w-4 h-4 text-base-content/50" />
+                <span>{gettext("The record of: %{plan}", plan: "#{format_local(plan.starts_at, @tz)} · #{plan.title}")}</span>
+                <button type="button" phx-click="unlink_plan" phx-target={@myself} class="btn btn-ghost btn-xs" title={gettext("Not the record of this plan")}>
+                  <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
+                </button>
+              </div>
               <div class="flex flex-wrap items-end gap-3">
                 <.input
                   id="crm-duration"
@@ -1524,7 +1565,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
       <%!-- Scope filter (company mode): the company's own interactions vs the
            member rollup. Segmented buttons, not counted index tabs — the feed
            is one query and this is a view split, not navigation. --%>
-      <div :if={@anchor_kind == :company and not @project_mode} class="flex items-center gap-1">
+      <div :if={@show_feed and @anchor_kind == :company and not @project_mode} class="flex items-center gap-1">
         <button
           :for={{scope, label} <- feed_scopes()}
           type="button"
@@ -1539,12 +1580,12 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
       <%!-- Timeline --%>
       <.empty_state
-        :if={@interactions == []}
+        :if={@show_feed and @interactions == []}
         icon="hero-chat-bubble-left-right"
         title={gettext("No interactions logged yet.")}
       />
 
-      <ol :if={@interactions != []} class="flex flex-col gap-3">
+      <ol :if={@show_feed and @interactions != []} class="flex flex-col gap-3">
         <li :for={i <- @interactions} class="card bg-base-100 shadow-sm border border-base-200">
           <div class="card-body py-3 gap-1">
             <div class="flex items-center justify-between gap-2">
