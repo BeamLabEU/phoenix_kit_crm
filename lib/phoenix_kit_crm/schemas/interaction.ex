@@ -23,7 +23,9 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
   @primary_key {:uuid, UUIDv7, autogenerate: true}
   @foreign_key_type UUIDv7
 
-  @types ~w(call email meeting note other)
+  # `message` (V8): a chat or text — Telegram, WhatsApp, SMS — which is
+  # neither a call nor an email and happens more than both.
+  @types ~w(call email meeting message note other)
 
   @type t :: %__MODULE__{
           uuid: UUIDv7.t() | nil,
@@ -36,6 +38,8 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
           time_zone: String.t() | nil,
           subject: String.t() | nil,
           body: String.t() | nil,
+          project_uuid: UUIDv7.t() | nil,
+          duration_minutes: pos_integer() | nil,
           owner_user_uuid: UUIDv7.t() | nil,
           owner_user: User.t() | Ecto.Association.NotLoaded.t() | nil,
           parties: [InteractionParty.t()] | Ecto.Association.NotLoaded.t(),
@@ -53,6 +57,11 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
     field(:time_zone, :string)
     field(:subject, :string)
     field(:body, :string)
+    # V8: the project this was logged on (a soft reference to the projects
+    # module's project — no FK, see `Migrations`), and how long it took.
+    # Per-attendee time is the projects ledger's business, not this row's.
+    field(:project_uuid, UUIDv7)
+    field(:duration_minutes, :integer)
     field(:metadata, :map, default: %{})
 
     belongs_to(:contact, Contact, foreign_key: :contact_uuid, references: :uuid)
@@ -68,7 +77,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
     timestamps(type: :utc_datetime)
   end
 
-  @castable ~w(contact_uuid company_uuid interaction_type occurred_at time_zone subject body owner_user_uuid metadata)a
+  @castable ~w(contact_uuid company_uuid interaction_type occurred_at time_zone subject body project_uuid duration_minutes owner_user_uuid metadata)a
   @anchor_fields ~w(contact_uuid company_uuid)a
 
   @doc """
@@ -91,6 +100,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
     )
     |> validate_length(:subject, max: 255)
     |> validate_length(:time_zone, max: 64)
+    |> validate_number(:duration_minutes, greater_than: 0, less_than_or_equal_to: 1440)
     |> assoc_constraint(:contact)
     |> assoc_constraint(:company)
     |> assoc_constraint(:owner_user)
@@ -116,6 +126,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
     )
     |> validate_length(:subject, max: 255)
     |> validate_length(:time_zone, max: 64)
+    |> validate_number(:duration_minutes, greater_than: 0, less_than_or_equal_to: 1440)
     |> assoc_constraint(:owner_user)
   end
 
@@ -155,6 +166,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
   def type_label("call"), do: gettext("Call")
   def type_label("email"), do: gettext("Email")
   def type_label("meeting"), do: gettext("Meeting")
+  def type_label("message"), do: gettext("Message")
   def type_label("note"), do: gettext("Note")
   def type_label("other"), do: gettext("Other")
   def type_label(other), do: other

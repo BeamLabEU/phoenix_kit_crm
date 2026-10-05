@@ -61,6 +61,27 @@ defmodule PhoenixKitCRM.StaffLink do
   end
 
   @doc """
+  The staff person linked to a user, as `%{uuid, name, job_title}`, or nil
+  when staff is off or the user has no staff record.
+  """
+  @spec person_for_user(binary()) :: map() | nil
+  def person_for_user(user_uuid) when is_binary(user_uuid) do
+    if enabled?() and Code.ensure_loaded?(PhoenixKitStaff.Staff) and
+         function_exported?(PhoenixKitStaff.Staff, :get_person_by_user_uuid, 2) do
+      case apply(PhoenixKitStaff.Staff, :get_person_by_user_uuid, [user_uuid, [preload: [:user]]]) do
+        nil -> nil
+        person -> to_result(person)
+      end
+    end
+  rescue
+    e ->
+      Logger.warning("[CRM] StaffLink.person_for_user error: #{Exception.message(e)}")
+      nil
+  end
+
+  def person_for_user(_), do: nil
+
+  @doc """
   Builds an as-of-now profile snapshot for a staff person, for freezing onto
   an interaction party. Returns `%{}` if staff is unavailable or unknown.
   """

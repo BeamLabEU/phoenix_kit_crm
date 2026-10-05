@@ -64,7 +64,7 @@ defmodule PhoenixKitCRM.Migrations do
 
   use Ecto.Migration
 
-  @current_version 7
+  @current_version 8
   @marker_prefix "crm_schema:"
   @version_table "phoenix_kit_crm_contacts"
 
@@ -152,6 +152,7 @@ defmodule PhoenixKitCRM.Migrations do
       v5_statements(prefix, p),
       v6_statements(p),
       v7_statements(prefix, p),
+      v8_statements(p),
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{@current_version}'"
     ])
   end
@@ -572,6 +573,24 @@ defmodule PhoenixKitCRM.Migrations do
           ON CONFLICT (key) DO NOTHING;
         END IF;
       END $$
+      """
+    ]
+  end
+
+  # ── V8: an interaction can belong to a project, and a meeting has a
+  # length. `project_uuid` is a soft reference to `phoenix_kit_projects`
+  # (no FK — the projects module is optional and released on its own; the
+  # changeset validates the shape, the Client tab lists by it). The partial
+  # index serves exactly that listing, newest first. `duration_minutes` is
+  # the meeting's length once; per-attendee time is the projects ledger's.
+  defp v8_statements(p) do
+    [
+      "ALTER TABLE #{p}phoenix_kit_crm_interactions ADD COLUMN IF NOT EXISTS project_uuid uuid",
+      "ALTER TABLE #{p}phoenix_kit_crm_interactions ADD COLUMN IF NOT EXISTS duration_minutes integer",
+      """
+      CREATE INDEX IF NOT EXISTS idx_crm_interactions_project
+        ON #{p}phoenix_kit_crm_interactions (project_uuid, occurred_at DESC, inserted_at DESC)
+        WHERE project_uuid IS NOT NULL
       """
     ]
   end

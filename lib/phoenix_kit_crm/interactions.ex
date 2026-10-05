@@ -95,6 +95,34 @@ defmodule PhoenixKitCRM.Interactions do
     end
   end
 
+  @doc """
+  The interactions logged on a project (V8 `project_uuid`), newest first,
+  anchor and parties preloaded. Powers the projects hub's Client tab. The
+  partial index `idx_crm_interactions_project` is exactly this query.
+
+  ## Options
+    * `:limit` — cap the rows read (the tab passes one).
+  """
+  @spec list_for_project(binary(), keyword()) :: [Interaction.t()]
+  def list_for_project(project_uuid, opts \\ []) do
+    case Ecto.UUID.cast(project_uuid) do
+      {:ok, _} ->
+        Interaction
+        |> where([i], i.project_uuid == ^project_uuid)
+        |> order_by([i], desc: i.occurred_at, desc: i.inserted_at)
+        |> maybe_limit(opts[:limit])
+        |> repo().all()
+        |> repo().preload([
+          :contact,
+          :company,
+          parties: from(p in InteractionParty, order_by: p.position)
+        ])
+
+      :error ->
+        []
+    end
+  end
+
   defp company_scope_condition(:company, company_uuid),
     do: dynamic([i], i.company_uuid == ^company_uuid)
 

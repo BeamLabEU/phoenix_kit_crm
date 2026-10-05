@@ -84,6 +84,20 @@ window.PhoenixKitCRMHooks = window.PhoenixKitCRMHooks || {};
     }
     return hi;
   }
+  // Minutes → "4 minutes ago" / "3 hours ago" / "1 day ago" / "2 weeks ago".
+  function ago(min) {
+    var units = [
+      [10080, "week"],
+      [1440, "day"],
+      [60, "hour"],
+      [1, "minute"],
+    ];
+    for (var i = 0; i < units.length; i++) {
+      var n = Math.floor(min / units[i][0]);
+      if (n >= 1) return n + " " + units[i][1] + (n === 1 ? "" : "s") + " ago";
+    }
+    return "a moment ago";
+  }
   function esc(s) {
     var d = document.createElement("div");
     d.textContent = s;
@@ -134,14 +148,11 @@ window.PhoenixKitCRMHooks = window.PhoenixKitCRMHooks || {};
           // Round DOWN to whole minutes (the field has minute precision, so this
           // is the wall-clock minute difference — "4 min ago" until the 5th ticks).
           var diffMin = Math.floor((Date.now() - fieldUtc) / 60000);
-          if (diffMin >= 1) {
-            warns.push(
-              "This is " +
-                diffMin +
-                " minute" +
-                (diffMin === 1 ? "" : "s") +
-                " in the past."
-            );
+          // Editing an existing row: its time IS in the past, that is not
+          // news. Composing: say how long ago in the unit a person would use.
+          var editing = this.el.dataset.editing === "true";
+          if (diffMin >= 1 && !editing) {
+            warns.push("This was " + ago(diffMin) + ".");
           } else if (diffMin < 0) {
             warns.push("This time is in the future.");
           } else {

@@ -273,7 +273,14 @@ defmodule PhoenixKitCRM do
             options: {PhoenixKitCRM.Companies, :company_options}
           }
         ],
-        permission_actions: [:view]
+        # `log_interaction` is the tab's write: logging a meeting on the
+        # project, with the attendees' time into the project's ledger. The
+        # hub resolves it against the project's role floors (an extension
+        # action lands at member) and hands the tab `can_write`.
+        permission_actions: [:view, :log_interaction],
+        # The project's interactions on the projects JSON API
+        # (`/ext/interactions`) — `PhoenixKitCRM.ProjectApi`.
+        api: [PhoenixKitCRM.ProjectApi, PhoenixKitCRM.CompanyApi]
       }
     ]
   end
@@ -289,6 +296,20 @@ defmodule PhoenixKitCRM do
         global: "PhoenixKitCRMHooks"
       }
     ]
+  end
+
+  # The CRM's linkable records, for core's resolver and the `#` typeahead:
+  # contacts and companies resolve (a host used to register these two by
+  # config; declaring them here makes that automatic), and an interaction
+  # is searchable and visible too — `InteractionLinks` is what lets a task
+  # say "from this meeting" and the meeting list the tasks.
+  @impl PhoenixKit.Module
+  def resource_links do
+    %{
+      "crm_contact" => __MODULE__,
+      "crm_company" => __MODULE__,
+      PhoenixKitCRM.InteractionLinks.type() => PhoenixKitCRM.InteractionLinks
+    }
   end
 
   @doc """

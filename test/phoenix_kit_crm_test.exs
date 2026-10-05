@@ -118,7 +118,7 @@ defmodule PhoenixKitCRMTest do
       assert ext.default_enabled == false
       # Read-only tab: the hub derives "can_write" from the first non-:view
       # action, so declaring one here would hand it a write surface it lacks.
-      assert ext.permission_actions == [:view]
+      assert ext.permission_actions == [:view, :log_interaction]
     end
 
     test "every tab survives the hub's tab normalizer" do
