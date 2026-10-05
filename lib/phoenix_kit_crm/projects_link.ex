@@ -46,7 +46,7 @@ defmodule PhoenixKitCRM.ProjectsLink do
   """
   @spec link_task(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def link_task(task_uuid, interaction, opts \\ []) when is_binary(task_uuid) do
-    if Code.ensure_loaded?(@projects) and function_exported?(@projects, :link_assignment_to, 5) do
+    if Code.ensure_loaded?(@projects) and function_exported?(@projects, :link_interaction, 4) do
       # credo:disable-for-next-line Credo.Check.Refactor.Apply
       case apply(@projects, :get_assignment, [task_uuid]) do
         nil ->
@@ -55,19 +55,39 @@ defmodule PhoenixKitCRM.ProjectsLink do
         a ->
           label = PhoenixKitCRM.InteractionLinks.label(interaction)
           # credo:disable-for-next-line Credo.Check.Refactor.Apply
-          apply(@projects, :link_assignment_to, [
-            a,
-            "crm_interaction",
-            interaction.uuid,
-            label,
-            opts
-          ])
+          apply(@projects, :link_interaction, [a, interaction.uuid, label, opts])
       end
     else
       {:error, :unavailable}
     end
   rescue
     _ -> {:error, :unavailable}
+  end
+
+  @doc """
+  The tasks linked to an interaction, as `[%{uuid, title}]` — from the
+  projects module's own link table when it is there, else from core's
+  mention backlinks (the tokens in task descriptions).
+  """
+  @spec tasks_for_interaction(String.t()) :: [%{uuid: String.t(), title: String.t()}]
+  def tasks_for_interaction(interaction_uuid) when is_binary(interaction_uuid) do
+    if Code.ensure_loaded?(@projects) and function_exported?(@projects, :tasks_for_interaction, 1) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      @projects
+      |> apply(:tasks_for_interaction, [interaction_uuid])
+      |> Enum.map(fn a ->
+        # credo:disable-for-next-line Credo.Check.Refactor.Apply
+        %{uuid: a.uuid, title: apply(@assignment, :label, [a])}
+      end)
+    else
+      "crm_interaction"
+      |> PhoenixKit.Mentions.list_backlinks(interaction_uuid, limit: 100)
+      |> Enum.filter(&(&1.source_type == "project_task"))
+      |> Enum.map(&%{uuid: &1.source_uuid, title: task_label(&1.source_uuid)})
+      |> Enum.reject(&is_nil(&1.title))
+    end
+  rescue
+    _ -> []
   end
 
   @doc """

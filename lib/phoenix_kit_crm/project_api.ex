@@ -190,17 +190,9 @@ defmodule PhoenixKitCRM.ProjectApi do
     }
   end
 
-  # The tasks whose description carries this interaction's token — what
-  # came out of it — through core's mention index.
-  defp linked_tasks(%Interaction{uuid: uuid}) do
-    "crm_interaction"
-    |> PhoenixKit.Mentions.list_backlinks(uuid, limit: 100)
-    |> Enum.filter(&(&1.source_type == "project_task"))
-    |> Enum.map(&%{uuid: &1.source_uuid, title: ProjectsLink.task_label(&1.source_uuid)})
-    |> Enum.reject(&is_nil(&1.title))
-  rescue
-    _ -> []
-  end
+  # The tasks that came out of this interaction (the projects module's
+  # link table, else the mention backlinks).
+  defp linked_tasks(%Interaction{uuid: uuid}), do: ProjectsLink.tasks_for_interaction(uuid)
 
   @doc "Endpoint rows for the projects API docs."
   @spec docs() :: [map()]
