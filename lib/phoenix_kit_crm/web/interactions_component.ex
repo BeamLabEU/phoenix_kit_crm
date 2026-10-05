@@ -978,7 +978,6 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                   step="1"
                   class="input-sm"
                   wrapper_class="w-40"
-                  placeholder="120"
                 />
                 <.checkbox
                   id="crm-billable"
@@ -992,6 +991,9 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
               <% attendees = attendees(assigns) %>
               <p :if={attendees == []} class="text-xs text-base-content/60">
                 {gettext("Add yourself or a staff member under Involved parties to log their time on the project.")}
+              </p>
+              <p :if={attendees != []} class="text-xs text-base-content/60">
+                {gettext("Minutes per attendee — blank means the whole duration.")}
               </p>
               <div :for={a <- attendees} class="flex items-center gap-2">
                 <span class="text-sm min-w-32">{a.name}</span>
@@ -1280,6 +1282,14 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                 class="badge badge-outline badge-sm link link-hover"
               >
                 {l.title}
+              </.link>
+              <.link
+                :if={i.company_uuid}
+                navigate={Paths.company(i.company_uuid) <> "?tab=interactions"}
+                class="btn btn-ghost btn-xs gap-1"
+                title={gettext("This meeting on the company's page in the CRM")}
+              >
+                <.icon name="hero-arrow-top-right-on-square" class="w-3 h-3" /> {gettext("Open in CRM")}
               </.link>
               <% add_url = @can_write && add_task_url(assigns, i) %>
               <.link :if={add_url} navigate={add_url} class="btn btn-ghost btn-xs gap-1">

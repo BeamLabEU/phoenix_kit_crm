@@ -147,10 +147,10 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
           <div class="card border border-base-200 bg-base-100">
             <div class="card-body py-4 gap-2">
               <div class="flex items-center gap-3">
-                <div class="avatar placeholder">
-                  <div class="bg-primary/10 text-primary rounded-full w-10 h-10">
-                    <span class="text-sm font-bold">{initial(@company.name)}</span>
-                  </div>
+                <%!-- A plain centred disc: daisyUI 5 renamed `.avatar.placeholder`
+                     and the initial sat in the corner of the circle. --%>
+                <div class="bg-primary/10 text-primary rounded-full w-10 h-10 flex items-center justify-center shrink-0">
+                  <span class="text-sm font-bold">{initial(@company.name)}</span>
                 </div>
                 <div class="min-w-0 grow">
                   <div class="flex items-center gap-2 min-w-0">
