@@ -1520,15 +1520,15 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                 />
               </div>
               <% attendees = attendees(assigns) %>
-              <p :if={@editing_uuid and @edit_logged != %{}} class="text-xs text-base-content/60">
+              <p :if={is_binary(@editing_uuid) and @edit_logged != %{}} class="text-xs text-base-content/60">
                 {gettext("Already in the project's ledger: %{entries}.",
                   entries: logged_summary(@edit_logged, assigns)
                 )}
               </p>
-              <p :if={@editing_uuid and attendees == [] and @edit_logged == %{}} class="text-xs text-base-content/60">
+              <p :if={is_binary(@editing_uuid) and attendees == [] and @edit_logged == %{}} class="text-xs text-base-content/60">
                 {gettext("Nobody from your side is on this record, so there is no time to log.")}
               </p>
-              <p :if={@editing_uuid and attendees != []} class="text-xs text-base-content/60">
+              <p :if={is_binary(@editing_uuid) and attendees != []} class="text-xs text-base-content/60">
                 {gettext("Saving logs these attendees' time on the project — blank means the whole duration, 0 means none.")}
               </p>
               <p :if={attendees == [] and is_nil(@editing_uuid)} class="text-xs text-base-content/60">
