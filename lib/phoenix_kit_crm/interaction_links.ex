@@ -29,7 +29,7 @@ defmodule PhoenixKitCRM.InteractionLinks do
   alias PhoenixKit.RepoHelper
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.Scope
-  alias PhoenixKitCRM.Paths
+  alias PhoenixKitCRM.{Paths, ProjectsLink}
   alias PhoenixKitCRM.Schemas.{Company, Contact, Interaction}
 
   @type_key "crm_interaction"
@@ -67,10 +67,16 @@ defmodule PhoenixKitCRM.InteractionLinks do
 
   def resolve_comment_resources(_), do: %{}
 
-  @doc "Interactions matching `query` by subject or anchor name, for a searcher who may open the CRM."
+  @doc """
+  Interactions matching `query` by subject or anchor name, for a searcher
+  who may open the CRM. Typed inside a project (`opts[:context]` carries
+  `%{"project" => uuid}`), only the interactions of that project and the
+  sub-projects under it — the field says what is relevant; CRM access
+  still decides whether anything is offered at all.
+  """
   @spec search_resources(String.t(), keyword()) :: [map()]
   def search_resources(query, opts) do
-    if crm_access?(opts), do: do_search(query), else: []
+    if crm_access?(opts), do: do_search(query, Keyword.get(opts, :context)), else: []
   rescue
     e ->
       Logger.warning("[CRM.InteractionLinks] search failed: #{Exception.message(e)}")
@@ -85,12 +91,13 @@ defmodule PhoenixKitCRM.InteractionLinks do
     _ -> []
   end
 
-  defp do_search(query) do
+  defp do_search(query, context) do
     pattern = "%#{escape_like(query)}%"
 
     Interaction
     |> join(:left, [i], c in Contact, on: c.uuid == i.contact_uuid)
     |> join(:left, [i, _c], co in Company, on: co.uuid == i.company_uuid)
+    |> within_project(context)
     |> where(
       [i, c, co],
       ilike(i.subject, ^pattern) or ilike(c.name, ^pattern) or ilike(co.name, ^pattern)
@@ -105,6 +112,12 @@ defmodule PhoenixKitCRM.InteractionLinks do
       %{type: @type_key, uuid: i.uuid, title: label(i), subtitle: subtitle(i)}
     end)
   end
+
+  defp within_project(queryable, %{"project" => uuid}) when is_binary(uuid) do
+    where(queryable, [i], i.project_uuid in ^ProjectsLink.subtree_uuids(uuid))
+  end
+
+  defp within_project(queryable, _context), do: queryable
 
   defp subtitle(%Interaction{} = i) do
     who =

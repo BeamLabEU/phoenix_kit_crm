@@ -19,6 +19,24 @@ defmodule PhoenixKitCRM.ProjectsLink do
 
   @ledger PhoenixKitProjects.Ledger
   @events PhoenixKitProjects.ProjectEvents
+  @projects PhoenixKitProjects.Projects
+
+  @doc """
+  A project and every sub-project nested under it (the root first), or
+  just the uuid itself when the projects module is not there — a `#`
+  typed inside a project offers the interactions of that tree.
+  """
+  @spec subtree_uuids(String.t()) :: [String.t()]
+  def subtree_uuids(project_uuid) when is_binary(project_uuid) do
+    if Code.ensure_loaded?(@projects) and function_exported?(@projects, :subtree_uuids, 1) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      apply(@projects, :subtree_uuids, [project_uuid])
+    else
+      [project_uuid]
+    end
+  rescue
+    _ -> [project_uuid]
+  end
 
   @doc "Whether the projects ledger is loaded and takes time entries."
   @spec available?() :: boolean()
