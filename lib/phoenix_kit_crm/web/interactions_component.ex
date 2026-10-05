@@ -258,8 +258,17 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     {results, has_more} =
       search_parties(q, socket.assigns.staff_enabled, parse_limit(params["limit"]), excluded)
 
+    results = with_me_row(results, q, socket.assigns)
+
     {:noreply,
      push_event(socket, "crm_party_results", %{q: q, results: results, has_more: has_more})}
+  end
+
+  # The viewer picked themselves from the search — the same party "Add me"
+  # stages, so their time is theirs (not a staff row's) and the badge shows.
+  def handle_event("stage_party", %{"kind" => "me"}, socket) do
+    socket = stage_me(socket)
+    {:noreply, push_event(socket, "crm_party_staged", %{})}
   end
 
   def handle_event("stage_party", %{"kind" => kind, "uuid" => uuid, "label" => label}, socket)
@@ -285,10 +294,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   end
 
   def handle_event("add_me", _params, socket) do
-    case me_party(socket.assigns[:current_user_uuid], socket.assigns[:current_user_name]) do
-      nil -> {:noreply, socket}
-      party -> {:noreply, maybe_append(socket, party)}
-    end
+    {:noreply, stage_me(socket)}
   end
 
   def handle_event("remove_party", %{"idx" => idx}, socket) do
@@ -1014,8 +1020,16 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
       else: append_party(socket, party)
   end
 
-  # "Add me" → the current user's linked CRM contact if any, else free text.
-  # Tagged `is_me` for the "(you)" badge suffix (display-only; dropped on save).
+  defp stage_me(socket) do
+    case me_party(socket.assigns[:current_user_uuid], socket.assigns[:current_user_name]) do
+      nil -> socket
+      party -> maybe_append(socket, party)
+    end
+  end
+
+  # "Add me" → the current user's linked CRM contact if any, else their staff
+  # record, else free text. Tagged `is_me` for the "(you)" badge suffix
+  # (display-only; dropped on save) and for the attendee time entry.
   defp me_party(uuid, name) when is_binary(uuid) do
     base =
       case Contacts.get_by_user_uuid(uuid) do
@@ -1028,13 +1042,68 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
           }
 
         _ ->
-          text_party(name)
+          case StaffLink.person_for_user(uuid) do
+            %{uuid: staff_uuid, name: staff_name} ->
+              %{
+                raw_name: staff_name || name,
+                kind: "staff",
+                contact_uuid: nil,
+                staff_person_uuid: staff_uuid
+              }
+
+            _ ->
+              text_party(name)
+          end
       end
 
     mark_me(base)
   end
 
   defp me_party(_uuid, name), do: mark_me(text_party(name))
+
+  # A row for the viewer at the top of the search when the query is part of
+  # their name (as the account or their contact/staff record spells it),
+  # unless they are staged already. The row stands in for their contact or
+  # staff result, which is always dropped, so picking them goes through
+  # `me_party` and their time is logged as theirs.
+  defp with_me_row(results, q, assigns) do
+    case me_party(assigns[:current_user_uuid], assigns[:current_user_name]) do
+      nil ->
+        results
+
+      me ->
+        rest = Enum.reject(results, &same_person?(&1, me))
+
+        if me_staged?(assigns.staged_parties) or
+             not me_matches?(me, q, assigns[:current_user_name]) do
+          rest
+        else
+          row = %{
+            kind: "me",
+            uuid: "me",
+            label: me.raw_name,
+            sublabel: gettext("(you)"),
+            icon: "hero-user-circle"
+          }
+
+          [row | rest]
+        end
+    end
+  end
+
+  defp me_matches?(me, q, account_name) do
+    down = String.downcase(q)
+
+    down != "" and
+      Enum.any?([me.raw_name, account_name], fn
+        name when is_binary(name) -> String.contains?(String.downcase(name), down)
+        _ -> false
+      end)
+  end
+
+  defp same_person?(%{kind: "contact", uuid: uuid}, %{contact_uuid: uuid}), do: true
+  defp same_person?(%{kind: "staff", uuid: uuid}, %{staff_person_uuid: uuid}), do: true
+  defp same_person?(_, _), do: false
 
   defp text_party(name) when is_binary(name) and name != "" do
     %{raw_name: name, kind: "text", contact_uuid: nil, staff_person_uuid: nil}

@@ -358,6 +358,44 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     assert Interactions.get_interaction(member_own.uuid)
   end
 
+  test "searching the party picker for the viewer's own name offers them as a 'me' row",
+       %{conn: conn} do
+    {:ok, company} = Companies.create_company(%{"name" => "Initech"})
+    user = org_user_fixture(%{})
+    conn = put_test_scope(conn, fake_scope(user_uuid: user.uuid))
+
+    # The viewer's own contact record — what "Add me" stages for them.
+    {:ok, me} = Contacts.create_contact(%{"name" => "Taavi Tester"})
+    {:ok, me, _status} = Contacts.connect_user(me, user.email)
+    {:ok, _other} = Contacts.create_contact(%{"name" => "Taavi Other"})
+
+    {:ok, view, _html} =
+      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+
+    target = "#crm-company-interactions-#{company.uuid}"
+
+    view |> with_target(target) |> render_hook("search_party", %{"q" => "taav"})
+
+    assert_push_event(view, "crm_party_results", %{results: results})
+    assert [%{kind: "me", label: "Taavi Tester"} | rest] = results
+    # the viewer's contact is folded into the me row, the namesake stays
+    assert Enum.map(rest, & &1.label) == ["Taavi Other"]
+
+    view
+    |> with_target(target)
+    |> render_hook("stage_party", %{"kind" => "me", "uuid" => "me", "label" => "Taavi Tester"})
+
+    assert render(view) =~ "Taavi Tester"
+    assert render(view) =~ "(you)"
+
+    # staged → no second offer
+    view |> with_target(target) |> render_hook("search_party", %{"q" => "taav"})
+    assert_push_event(view, "crm_party_results", %{results: results})
+    refute Enum.any?(results, &(&1.kind == "me"))
+    assert Enum.map(results, & &1.label) == ["Taavi Other"]
+    assert me.user_uuid == user.uuid
+  end
+
   test "Events, Files, Images and Comments tabs each carry their intro", %{conn: conn} do
     {:ok, company} = Companies.create_company(%{"name" => "Initech"})
     base = "/en/admin/crm/companies/#{company.uuid}"
