@@ -20,6 +20,57 @@ defmodule PhoenixKitCRM.InteractionsTest do
     )
   end
 
+  describe "a meeting on a project (V8)" do
+    test "carries the project and its length, and lists by project newest first" do
+      c = contact_fixture()
+      project_uuid = Ecto.UUID.generate()
+
+      {:ok, first} =
+        Interactions.create_interaction(
+          interaction_attrs(c, %{
+            "interaction_type" => "meeting",
+            "project_uuid" => project_uuid,
+            "duration_minutes" => 120,
+            "occurred_at" => ~U[2026-10-04 14:00:00Z]
+          })
+        )
+
+      {:ok, second} =
+        Interactions.create_interaction(
+          interaction_attrs(c, %{
+            "project_uuid" => project_uuid,
+            "occurred_at" => ~U[2026-10-05 09:00:00Z]
+          })
+        )
+
+      {:ok, _elsewhere} = Interactions.create_interaction(interaction_attrs(c))
+
+      assert first.duration_minutes == 120
+      assert first.project_uuid == project_uuid
+
+      assert Enum.map(Interactions.list_for_project(project_uuid), & &1.uuid) ==
+               [second.uuid, first.uuid]
+
+      assert Enum.map(Interactions.list_for_project(project_uuid, limit: 1), & &1.uuid) ==
+               [second.uuid]
+
+      assert Interactions.list_for_project("not-a-uuid") == []
+    end
+
+    test "a length must be a positive number of minutes within a day" do
+      c = contact_fixture()
+
+      for bad <- [0, -5, 1441] do
+        assert {:error, cs} =
+                 Interactions.create_interaction(
+                   interaction_attrs(c, %{"duration_minutes" => bad})
+                 )
+
+        assert Keyword.has_key?(cs.errors, :duration_minutes)
+      end
+    end
+  end
+
   describe "create_interaction/3" do
     test "creates an interaction anchored to its subject contact" do
       c = contact_fixture()

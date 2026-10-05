@@ -162,6 +162,28 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
   `num_nonnulls(...) = 1`). "Anchor" is the deliberate word — `subject` is the
   title. The anchor is IMMUTABLE after create (`update_changeset/2` never casts
   it) and composers stamp it server-side.
+- **A meeting on a project (V8):** an interaction may carry `project_uuid`
+  (a SOFT reference to `phoenix_kit_projects` — no FK, the projects module
+  is optional and released on its own) and `duration_minutes`. The projects
+  hub's Client tab (`Web.ProjectClientLive`) hosts `InteractionsComponent`
+  in **project mode**: the feed is `Interactions.list_for_project/2`, the
+  composer takes a duration, billable, and minutes per attendee from our
+  side (staff people and "me"), and each attendee's minutes become an entry
+  in the project's work ledger through `ProjectsLink` (`apply/3` behind
+  `function_exported?/3`, exactly like `StaffLink`; actor = the attendee,
+  `metadata.entered_by_uuid` = the author, `metadata.interaction_uuid`).
+  The CRM never reads the ledger back: a row shows its own length, not the
+  time logged. Per-attendee minutes default to the duration; a client
+  contact or a free-text party is an attendee, never time.
+- **Interactions are mentionable** (`InteractionLinks`, type
+  `crm_interaction`, declared in `resource_links/0` with contacts and
+  companies): a task whose description carries
+  `#[crm_interaction:<uuid>|<label>]` is listed on the meeting through
+  core's reverse index (`PhoenixKit.Mentions.list_backlinks/3`) — no join
+  table. The chip's link lands on the anchor's page, interactions tab. One
+  permission gates search and visibility: CRM module access, nothing per
+  record. The hub hands the tab `host_paths["new_task"]`; "Add task" on a
+  row opens it with the chip pre-filled.
 - **PubSub:** the module's own topics live on core's internal manager
   (`PhoenixKitCRM.PubSub.subscribe/1`, messages `{:crm, event, payload}`).
   Broadcasts are best-effort, rescued, and sent **after** the DB commit — a
@@ -190,6 +212,10 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
 - **`phoenix_kit_crm_role_settings` has no `id`/`uuid` column** — its primary
   key is `role_uuid` (`@primary_key {:role_uuid, :binary_id, autogenerate:
   false}`). Queries that assume the usual key shape fail at runtime.
+- **`project_uuid` on an interaction has no FK.** A deleted project leaves
+  its interactions pointing at nothing; the Client tab is gone with the
+  project, the rows stay the company's. Do not add a cascade here — the
+  projects module is optional.
 - **Runtime role subtabs can vanish.** They live in the runtime-only
   `:phoenix_kit_crm_roles` namespace, which
   `PhoenixKit.Dashboard.Registry.load_admin_defaults/0` wipes if it is called
@@ -207,6 +233,8 @@ lib/phoenix_kit_crm/
 ├── paths.ex / routes.ex                     # URL helpers; parameterized admin routes
 ├── contacts.ex / companies.ex               # Contexts: CRUD, soft-delete, search, mirror writes
 ├── interactions.ex                          # Context: interactions + involved parties
+├── interaction_links.ex                     # `crm_interaction` for core's Mentions/ResourceLinks
+├── projects_link.ex                         # Soft (apply/3) writes into the projects ledger
 ├── party_roles.ex                           # supplier/customer/manufacturer/partner on a party
 ├── lists.ex + lists/{import,import_report}.ex  # Contact lists, CSV/plaintext import engine
 ├── schemas/                                 # Contact, Company, CompanyMembership, Interaction,
@@ -312,7 +340,7 @@ and core's `PhoenixKit.Users.ViewPrefs` for column choices.
 
 Owns a versioned chain: `PhoenixKitCRM.Migrations` via `migration_module/0`,
 marker `crm_schema:<N>` as a `COMMENT ON TABLE phoenix_kit_crm_contacts`,
-currently **V07**. `mix phoenix_kit.update` applies it in hosts; the test suite
+currently **V08**. `mix phoenix_kit.update` applies it in hosts; the test suite
 applies it through `PhoenixKitCRM.Test.SchemaMigration` (see Testing).
 A marker-less table reads as version 0 — the core-baseline shape from before
 the chain existed.
@@ -343,7 +371,7 @@ Module-owned tables:
 - `phoenix_kit_crm_contacts` — people (the primary entity); soft-delete via `status`
 - `phoenix_kit_crm_companies` — legal entities; soft-delete via `status`; `user_uuid` is the mirror link
 - `phoenix_kit_crm_company_memberships` — contact↔company associations (role / department)
-- `phoenix_kit_crm_interactions` — logged interactions, anchored to a contact XOR a company
+- `phoenix_kit_crm_interactions` — logged interactions, anchored to a contact XOR a company; V8 adds `project_uuid` (soft ref, partial index `idx_crm_interactions_project`) and `duration_minutes`
 - `phoenix_kit_crm_interaction_parties` — an interaction's involved parties and their frozen snapshots
 - `phoenix_kit_crm_party_roles` — supplier/customer/manufacturer/partner on companies and contacts (polymorphic soft ref); a CHECK pins the vocabulary and a partial unique index on `(roleable_uuid, role) WHERE is_active` makes a duplicate active role impossible
 - `phoenix_kit_crm_lists` / `phoenix_kit_crm_list_members` — mailing lists and members
@@ -429,9 +457,24 @@ for s in 0 1 2 3 17 42 99 999; do mix test --seed $s; done
 
 ## Feature notes
 
-None. Feature behaviour is documented in `@moduledoc`s; the design records
-behind the party-role vocabulary, the interaction tracker and the
-suppliers/clients model live under `dev_docs/design/` and `dev_docs/research/`.
+Feature behaviour is documented in `@moduledoc`s; the design records behind
+the party-role vocabulary, the interaction tracker and the suppliers/clients
+model live under `dev_docs/design/` and `dev_docs/research/`.
+
+### Meetings on a project (V8, 2026-10-05)
+
+The case: "two of us met the client for two hours, we discussed X, tasks A,
+B, C came out of it" — logged once, visible in the CRM and on the project,
+with the time in the project's ledger and the tasks linked back. The pieces
+are in Conventions above (project mode, `ProjectsLink`, `InteractionLinks`).
+Decided with a three-seat panel (grok, zai, codex): a real column over
+jsonb for the project link; mention-only task links (an origin field is a
+second truth that drifts — set it later only from the add-task flow if a
+report needs it); time on others' behalf with the author in the metadata
+and per-person minutes apart from the meeting's duration; events stay the
+plan and interactions the record (an event → "log what happened" prefill
+is the next slice, not built). Not built either: the "Add to project…"
+menu on the hub, a date on the hub's own log-time modal.
 
 ## Versioning & releases
 

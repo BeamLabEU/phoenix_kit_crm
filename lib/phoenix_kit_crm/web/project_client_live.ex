@@ -7,46 +7,62 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
   Rendered by the projects hub via `live_render` with the hub's
   embed-session contract: `"project_uuid"` (the host project),
   `"config"` (this instance's config — `company_uuid` links the client),
-  `"current_user_uuid"` / `"locale"`. Linkage is CONFIG-based — no FK, no
-  dependency on the projects package; the admin picks the company in the
-  project's Modules & features panel (a select over
+  `"current_user_uuid"` / `"locale"`, `"can_write"` (the hub's verdict on
+  the viewer for the extension's `log_interaction` action) and
+  `"host_paths"` (where the hub's own pages are). Linkage is CONFIG-based —
+  no FK, no dependency on the projects package; the admin picks the company
+  in the project's Modules & features panel (a select over
   `PhoenixKitCRM.Companies.company_options/0`).
 
-  Shows the linked company card, its member contacts, and the most recent
-  interactions with the client — the company's own (company-anchored, V05)
-  merged with its members' — with link-outs to the CRM admin. Read-only here — mutations live in CRM. The
-  extension declares no write action, so the hub hands this tab
-  `"can_write" => false` and there is nothing to gate.
+  Shows the linked company card and, once connected, the project's own
+  interaction feed and composer (`InteractionsComponent` in project mode,
+  V8): a meeting logged here belongs to the company in the CRM AND to this
+  project, the attendees' minutes go into the project's ledger, and each
+  row lists the tasks created from it. The dead render shows the company's
+  recent interactions only — the composer needs a connected socket and
+  the hub renders the landing tab in the project page's dead render too.
 
   Off-router-mountable: no `handle_params/3` (the hub's hard requirement),
-  so CRM reads run on the connected mount only — the hub renders the
-  landing tab in the project page's dead render too, and an unguarded
-  mount would run every query twice.
+  so CRM reads run on the connected mount only.
   """
 
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitCRM.Gettext
 
+  import PhoenixKitCRM.Web.InteractionHelpers, only: [viewer_tz: 1, current_user_name: 1]
+
+  alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.{Companies, Interactions, Paths}
+  alias PhoenixKitCRM.PubSub, as: CRMPubSub
   alias PhoenixKitCRM.Schemas.{Company, Interaction}
+  alias PhoenixKitCRM.Web.InteractionsComponent
 
   @recent_limit 5
 
   @impl true
   def mount(_params, session, socket) do
     maybe_put_locale(session)
+    user = current_user(session)
 
     socket =
       assign(socket,
         project_uuid: session["project_uuid"],
         company_uuid: config_company_uuid(session),
+        can_write: session["can_write"] == true,
+        host_paths: session["host_paths"] || %{},
+        current_user: user,
+        current_user_uuid: user && user.uuid,
+        current_user_name: current_user_name(%{phoenix_kit_current_user: user}),
+        tz: viewer_tz(user),
+        refresh_token: nil,
+        connected: connected?(socket),
         company: nil,
         memberships: [],
         recent: [],
         loading: true
       )
 
-    {:ok, if(connected?(socket), do: load(socket), else: socket)}
+    {:ok, if(connected?(socket), do: socket |> load() |> subscribe(), else: socket)}
   end
 
   defp config_company_uuid(session) do
@@ -55,6 +71,12 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
       _ -> nil
     end
   end
+
+  defp current_user(%{"current_user_uuid" => uuid}) when is_binary(uuid) and uuid != "" do
+    safe(fn -> Auth.get_user(uuid) end)
+  end
+
+  defp current_user(_), do: nil
 
   defp load(%{assigns: %{company_uuid: nil}} = socket), do: assign(socket, loading: false)
 
@@ -65,10 +87,8 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
       if company do
         memberships = safe(fn -> Companies.list_memberships(company.uuid) end) || []
 
-        # Limit in the QUERY: this tab shows the newest few. "Recent
-        # interactions with this client" means the company's OWN
-        # (company-anchored, V05) merged with its members' — list_for_company
-        # limits the combined window in SQL.
+        # The connected render hands the feed to the component; the recent
+        # list is the dead render's and a fallback, limited in SQL.
         recent =
           safe(fn -> Interactions.list_for_company(company.uuid, limit: @recent_limit) end) ||
             []
@@ -80,6 +100,31 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
 
     assign(socket, company: company, memberships: memberships, recent: recent, loading: false)
   end
+
+  # A meeting logged on the company from anywhere (the CRM's own page, or
+  # another session on this tab) refreshes the feed here.
+  defp subscribe(%{assigns: %{company: %Company{uuid: uuid}}} = socket) do
+    safe(fn -> CRMPubSub.subscribe(CRMPubSub.topic_company_interactions(uuid)) end)
+    socket
+  end
+
+  defp subscribe(socket), do: socket
+
+  @impl true
+  def handle_info({:crm, _event, %{interaction_uuid: _}}, socket) do
+    token = System.unique_integer([:positive])
+
+    send_update(InteractionsComponent,
+      id: feed_id(socket.assigns.project_uuid),
+      refresh_token: token
+    )
+
+    {:noreply, assign(socket, refresh_token: token)}
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  defp feed_id(project_uuid), do: "crm-project-interactions-#{project_uuid}"
 
   @impl true
   def render(assigns) do
@@ -129,7 +174,25 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
             </div>
           </div>
 
-          <div :if={@recent != []} class="card border border-base-200 bg-base-100">
+          <%!-- Connected: the project's own feed and composer (project
+               mode). Every meeting logged here is the company's in the CRM
+               and this project's here. --%>
+          <.live_component
+            :if={assigns[:connected] == true}
+            module={InteractionsComponent}
+            id={feed_id(@project_uuid)}
+            company={@company}
+            project_uuid={@project_uuid}
+            host_paths={@host_paths}
+            can_write={@can_write}
+            current_user_uuid={@current_user_uuid}
+            current_user_name={@current_user_name}
+            phoenix_kit_current_user={@current_user}
+            tz={@tz}
+            refresh_token={@refresh_token}
+          />
+
+          <div :if={assigns[:connected] != true and @recent != []} class="card border border-base-200 bg-base-100">
             <div class="card-body py-4 gap-2">
               <h4 class="text-sm font-semibold opacity-70">{gettext("Recent interactions")}</h4>
               <div class="divide-y divide-base-200">
@@ -145,7 +208,7 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
             </div>
           </div>
 
-          <div :if={@recent == []} class="text-sm opacity-60">
+          <div :if={assigns[:connected] != true and @recent == []} class="text-sm opacity-60">
             {gettext("No interactions with this client yet.")}
           </div>
         <% true -> %>

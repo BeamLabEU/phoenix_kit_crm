@@ -12,6 +12,20 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   THIS page anchors — a row that merely spills in (a party involvement, a
   member's own interaction) is read-only here and managed from its anchor's
   page.
+
+  ## Project mode (V8)
+
+  With a `project_uuid` the component is the projects hub's Client tab: the
+  feed is the PROJECT's interactions (`Interactions.list_for_project/2`),
+  the composer defaults to a meeting and gains a duration, a billable
+  switch and minutes per attendee from our side (the staged staff people
+  and "me"); each of those becomes an entry in the project's work ledger
+  through `ProjectsLink` (actor = the attendee, the author in
+  `metadata.entered_by_uuid`). A row then shows its length, the time it
+  logged, and — through core's mention index — the tasks whose
+  description points at it, plus "Add task" to make one with the `#` chip
+  already in place (`host_paths["new_task"]`, handed in by the hub).
+  `can_write: false` (the hub's verdict on the viewer) hides every write.
   """
   use PhoenixKitWeb, :live_component
   use Gettext, backend: PhoenixKitCRM.Gettext
@@ -23,9 +37,13 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   import PhoenixKitCRM.Web.InteractionHelpers,
     only: [party_badge: 1, format_local: 2, offset_minutes_now: 1]
 
+  alias PhoenixKit.Mentions
+  alias PhoenixKit.Mentions.Token
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.ResourceFolders
-  alias PhoenixKitCRM.{Attachments, Contacts, Interactions, Paths, StaffLink}
+  alias PhoenixKit.ResourceLinks
+  alias PhoenixKitCRM.{Attachments, Contacts, InteractionLinks, Interactions, Paths}
+  alias PhoenixKitCRM.{ProjectsLink, StaffLink}
   alias PhoenixKitCRM.Schemas.{Company, Contact, Interaction}
   alias PhoenixKitWeb.Actor
   alias PhoenixKitWeb.Attachments, as: CoreAttachments
@@ -61,7 +79,11 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      # is the user's LOCAL wall-clock time (in their profile timezone); it's
      # converted to/from UTC at the storage boundary. (The party search box +
      # dropdown are owned entirely by core's SearchPicker JS hook — no server state.)
-     |> assign_new(:c_type, fn -> "note" end)
+     |> assign(:project_mode, is_binary(socket.assigns[:project_uuid]))
+     |> assign_new(:c_type, fn a -> if a[:project_uuid], do: "meeting", else: "note" end)
+     |> assign_new(:c_duration, fn -> "" end)
+     |> assign_new(:c_billable, fn -> false end)
+     |> assign_new(:attendee_minutes, fn -> %{} end)
      |> assign_new(:c_subject, fn -> "" end)
      |> assign_new(:c_body, fn -> "" end)
      |> assign_new(:c_occurred_at, fn -> local_now_str(tz) end)
@@ -95,7 +117,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   # re-render (e.g. the header avatar changing) re-passes the anchor struct
   # but no new token, so we skip the timeline re-query.
   defp maybe_reload_interactions(socket) do
-    key = {socket.assigns.anchor.uuid, socket.assigns.feed_scope}
+    key = {socket.assigns.anchor.uuid, socket.assigns.feed_scope, socket.assigns[:project_uuid]}
     token = socket.assigns[:refresh_token]
 
     if socket.assigns[:loaded_key] == key and socket.assigns[:loaded_token] == token do
@@ -110,11 +132,14 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   defp load_interactions(socket) do
     interactions =
-      case socket.assigns.anchor_kind do
-        :contact ->
+      case {socket.assigns[:project_uuid], socket.assigns.anchor_kind} do
+        {project_uuid, _} when is_binary(project_uuid) ->
+          Interactions.list_for_project(project_uuid, limit: 100)
+
+        {_, :contact} ->
           Interactions.list_involving(socket.assigns.anchor.uuid)
 
-        :company ->
+        {_, :company} ->
           Interactions.list_for_company(socket.assigns.anchor.uuid,
             scope: socket.assigns.feed_scope
           )
@@ -128,7 +153,46 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     socket
     |> assign(:interactions, interactions)
     |> assign(:interaction_files, interaction_files)
+    |> assign(:interaction_links, backlinks_for(socket, interactions))
   end
+
+  # What points at each row — the tasks whose description carries this
+  # interaction's `#` chip. Core keeps the reverse index; its resolver
+  # turns each source into a title and a path, batched per type. Project
+  # mode only: on a contact or company page the question is not asked.
+  defp backlinks_for(%{assigns: %{project_mode: true}}, interactions) do
+    sources =
+      interactions
+      |> Enum.flat_map(fn i ->
+        InteractionLinks.type()
+        |> Mentions.list_backlinks(i.uuid, limit: 20)
+        |> Enum.map(&{i.uuid, &1.source_type, &1.source_uuid})
+      end)
+      |> Enum.uniq()
+
+    context =
+      sources
+      |> Enum.map(fn {_i, type, uuid} -> %{resource_type: type, resource_uuid: uuid} end)
+      |> ResourceLinks.resolve()
+
+    sources
+    |> Enum.reduce(%{}, fn {interaction_uuid, type, uuid}, acc ->
+      case ResourceLinks.info_for(context, type, uuid) do
+        %{title: title} = info ->
+          link = %{title: title, url: ResourceLinks.url(info)}
+          Map.update(acc, interaction_uuid, [link], &(&1 ++ [link]))
+
+        _ ->
+          acc
+      end
+    end)
+  rescue
+    e ->
+      Logger.warning("[CRM] backlinks failed: #{Exception.message(e)}")
+      %{}
+  end
+
+  defp backlinks_for(_socket, _interactions), do: %{}
 
   defp storage_enabled? do
     Storage.enabled?()
@@ -200,13 +264,14 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     end
   end
 
-  def handle_event("composer_change", %{"interaction" => p}, socket) when is_map(p) do
+  def handle_event("composer_change", %{"interaction" => p} = params, socket) when is_map(p) do
     {:noreply,
      socket
      |> assign(:c_type, p["interaction_type"] || socket.assigns.c_type)
      |> assign(:c_subject, p["subject"] || "")
      |> assign(:c_body, p["body"] || "")
      |> assign(:c_occurred_at, p["occurred_at"] || socket.assigns.c_occurred_at)
+     |> assign_project_fields(p, params)
      |> assign(:save_error, nil)}
   end
 
@@ -297,6 +362,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
         "owner_user_uuid" => socket.assigns[:current_user_uuid]
       }
       |> maybe_put_occurred_at(occurred_at, socket.assigns[:tz] || "0")
+      |> put_project_attrs(socket)
 
     party_inputs =
       Enum.map(socket.assigns.staged_parties, fn p ->
@@ -310,33 +376,8 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     file_uuids = Enum.map(socket.assigns.staged_files, & &1.uuid)
 
     case Interactions.create_interaction(attrs, party_inputs, file_uuids) do
-      {:ok, _interaction} ->
-        # (The audit-log entry, file attach, + realtime broadcast are emitted by
-        # the context.) Reset the composer ONLY on success — every failure path
-        # below leaves the typed fields + staged parties + files untouched.
-        {:noreply,
-         socket
-         |> assign(:staged_parties, [])
-         |> assign(:staged_files, [])
-         |> assign(:c_type, "note")
-         |> assign(:c_subject, "")
-         |> assign(:c_body, "")
-         |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))
-         |> assign(:save_error, nil)
-         |> assign(:upload_error, nil)
-         # A company-anchored save under the People scope would be invisible —
-         # the row is excluded by construction, so the composer clears and
-         # nothing appears, indistinguishable from a failed save. Jump to All
-         # so the just-logged row is on screen.
-         |> then(fn s ->
-           if s.assigns.anchor_kind == :company and s.assigns.feed_scope == :members,
-             do: assign(s, :feed_scope, :all),
-             else: s
-         end)
-         |> load_interactions()}
-
-      {:error, changeset} ->
-        {:noreply, assign(socket, :save_error, changeset_message(changeset))}
+      {:ok, interaction} -> {:noreply, after_save(socket, interaction)}
+      {:error, changeset} -> {:noreply, assign(socket, :save_error, changeset_message(changeset))}
     end
   rescue
     e ->
@@ -347,6 +388,196 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
       {:noreply, assign(socket, :save_error, default_save_error())}
   end
+
+  # (The audit-log entry, file attach, + realtime broadcast are emitted by
+  # the context.) Reset the composer ONLY on success — every failure path
+  # leaves the typed fields + staged parties + files untouched. In project
+  # mode the attendees' time goes to the ledger first, so its verdict is
+  # the one `save_error` shows.
+  defp after_save(socket, interaction) do
+    socket
+    |> log_attendee_time(interaction)
+    |> assign(:staged_parties, [])
+    |> assign(:staged_files, [])
+    |> assign(:c_type, if(socket.assigns.project_mode, do: "meeting", else: "note"))
+    |> assign(:c_subject, "")
+    |> assign(:c_body, "")
+    |> assign(:c_duration, "")
+    |> assign(:c_billable, false)
+    |> assign(:attendee_minutes, %{})
+    |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))
+    |> assign(:upload_error, nil)
+    # A company-anchored save under the People scope would be invisible —
+    # the row is excluded by construction, so the composer clears and
+    # nothing appears, indistinguishable from a failed save. Jump to All
+    # so the just-logged row is on screen.
+    |> then(fn s ->
+      if s.assigns.anchor_kind == :company and s.assigns.feed_scope == :members,
+        do: assign(s, :feed_scope, :all),
+        else: s
+    end)
+    |> load_interactions()
+  end
+
+  # ── Project mode: duration, attendees' time, the ledger ──────────────
+
+  # The composer's project fields, from the change event: the length in
+  # minutes, billable, and a minutes override per attendee (keyed as
+  # `attendee_key/1` keys them in the markup). Only read in project mode.
+  defp assign_project_fields(%{assigns: %{project_mode: true}} = socket, p, params) do
+    socket
+    |> assign(:c_duration, p["duration_minutes"] || socket.assigns.c_duration)
+    |> assign(:c_billable, p["billable"] in ["true", "on"])
+    |> assign(:attendee_minutes, Map.get(params, "attendee_minutes", %{}))
+  end
+
+  defp assign_project_fields(socket, _p, _params), do: socket
+
+  defp put_project_attrs(attrs, %{assigns: %{project_mode: true} = assigns}) do
+    attrs
+    |> Map.put("project_uuid", assigns.project_uuid)
+    |> Map.put("duration_minutes", parse_minutes(assigns.c_duration))
+  end
+
+  defp put_project_attrs(attrs, _socket), do: attrs
+
+  # Staged parties from OUR side — the ones whose time is the project's to
+  # record: a staff person, or the viewer ("Add me"). Client contacts and
+  # free-text names are attendees, not time.
+  defp attendees(%Phoenix.LiveView.Socket{assigns: assigns}), do: attendees(assigns)
+
+  defp attendees(%{project_mode: true} = assigns) do
+    assigns.staged_parties
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {party, idx} ->
+      cond do
+        party[:is_me] and is_binary(assigns[:current_user_uuid]) ->
+          [
+            %{
+              key: "me",
+              idx: idx,
+              name: party.raw_name,
+              actor_kind: "user",
+              actor_uuid: assigns.current_user_uuid
+            }
+          ]
+
+        is_binary(party[:staff_person_uuid]) ->
+          [
+            %{
+              key: "staff:#{party.staff_person_uuid}",
+              idx: idx,
+              name: party.raw_name,
+              actor_kind: "staff_person",
+              actor_uuid: party.staff_person_uuid
+            }
+          ]
+
+        true ->
+          []
+      end
+    end)
+  end
+
+  defp attendees(_assigns), do: []
+
+  # An attendee's minutes: their own figure when typed, else the meeting's
+  # length. Blank or zero means no entry for them.
+  defp attendee_minutes(assigns, %{key: key}) do
+    case parse_minutes(Map.get(assigns.attendee_minutes, key)) do
+      nil -> parse_minutes(assigns.c_duration)
+      minutes -> minutes
+    end
+  end
+
+  defp parse_minutes(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {n, ""} when n > 0 -> n
+      _ -> nil
+    end
+  end
+
+  defp parse_minutes(n) when is_integer(n) and n > 0, do: n
+  defp parse_minutes(_), do: nil
+
+  # One ledger entry per attendee with minutes, on the project, dated to the
+  # meeting (`started_at` = when it began, `ended_at` = that plus their
+  # minutes), the subject as the note, the author named in the metadata
+  # next to the interaction. The interaction is already saved: a ledger
+  # failure is said, never lets the meeting vanish, and never writes a
+  # second time — the entries are the ledger's, appended once.
+  defp log_attendee_time(%{assigns: %{project_mode: true}} = socket, interaction) do
+    assigns = socket.assigns
+
+    results =
+      socket
+      |> attendees()
+      |> Enum.map(fn attendee -> {attendee, attendee_minutes(assigns, attendee)} end)
+      |> Enum.reject(fn {_attendee, minutes} -> is_nil(minutes) end)
+      |> Enum.map(fn {attendee, minutes} ->
+        ProjectsLink.log_time(assigns.project_uuid, minutes,
+          assignment_uuid: nil,
+          note: time_note(interaction),
+          billable: assigns.c_billable,
+          actor_kind: attendee.actor_kind,
+          actor_uuid: attendee.actor_uuid,
+          source: "manual",
+          started_at: interaction.occurred_at,
+          ended_at:
+            interaction.occurred_at && DateTime.add(interaction.occurred_at, minutes * 60),
+          metadata: %{
+            "interaction_uuid" => interaction.uuid,
+            "entered_by_uuid" => assigns[:current_user_uuid],
+            "attendee" => attendee.name,
+            "via" => "crm"
+          }
+        )
+      end)
+
+    failed = Enum.count(results, &(not match?({:ok, _}, &1)))
+
+    if failed > 0 do
+      Logger.warning("[CRM] #{failed} attendee time entries not written for #{interaction.uuid}")
+
+      assign(
+        socket,
+        :save_error,
+        gettext(
+          "The meeting was saved, but %{count} time entries could not be written to the project.",
+          count: failed
+        )
+      )
+    else
+      assign(socket, :save_error, nil)
+    end
+  end
+
+  defp log_attendee_time(socket, _interaction), do: assign(socket, :save_error, nil)
+
+  defp time_note(%Interaction{subject: subject}) when is_binary(subject) and subject != "",
+    do: subject
+
+  defp time_note(%Interaction{interaction_type: type}), do: Interaction.type_label(type)
+
+  # The `#` chip a task's description carries to say "from this meeting",
+  # and the host's add-task page with it pre-filled. Nil when the hub did
+  # not hand over its path or the label cannot form a token.
+  defp add_task_url(%{host_paths: %{"new_task" => path}}, %Interaction{} = i)
+       when is_binary(path) do
+    case Token.to_string(:resource, InteractionLinks.type(), i.uuid, InteractionLinks.label(i)) do
+      {:ok, token} -> path <> "?" <> URI.encode_query(%{"description" => token})
+      :error -> nil
+    end
+  end
+
+  defp add_task_url(_assigns, _interaction), do: nil
+
+  defp format_minutes(nil), do: nil
+  defp format_minutes(m) when m < 60, do: gettext("%{count}m", count: m)
+  defp format_minutes(m) when rem(m, 60) == 0, do: gettext("%{count}h", count: div(m, 60))
+
+  defp format_minutes(m),
+    do: gettext("%{hours}h %{minutes}m", hours: div(m, 60), minutes: rem(m, 60))
 
   # ── Inline upload (drag-drop / click) ──────────────────────────────
   #
@@ -625,9 +856,12 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   defp owns_row?(%{anchor_kind: :contact, anchor: a}, row), do: row.contact_uuid == a.uuid
   defp owns_row?(%{anchor_kind: :company, anchor: a}, row), do: row.company_uuid == a.uuid
 
-  defp composer_title(:contact, _anchor), do: gettext("Log an interaction")
+  defp composer_title(%{project_mode: true, anchor: company}),
+    do: gettext("Log a meeting with %{name} on this project", name: Company.display_name(company))
 
-  defp composer_title(:company, company),
+  defp composer_title(%{anchor_kind: :contact}), do: gettext("Log an interaction")
+
+  defp composer_title(%{anchor_kind: :company, anchor: company}),
     do: gettext("Log an interaction with %{name}", name: Company.display_name(company))
 
   defp feed_scopes do
@@ -648,15 +882,21 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   attr(:current_user_name, :string, default: nil)
   attr(:phoenix_kit_current_user, :map, default: nil)
   attr(:tz, :string, default: "0")
+  # Project mode (the hub's Client tab): the project the feed and the
+  # composer belong to, the hub's paths, and its verdict on writes.
+  attr(:project_uuid, :string, default: nil)
+  attr(:host_paths, :map, default: %{})
+  attr(:can_write, :boolean, default: true)
+  attr(:refresh_token, :any, default: nil)
 
   @impl true
   def render(assigns) do
     ~H"""
     <div id={@id} class="flex flex-col gap-6">
-      <%!-- Composer --%>
-      <div class="card bg-base-100 shadow-sm border border-base-200">
+      <%!-- Composer (hidden for a viewer the hub says may not write) --%>
+      <div :if={@can_write} class="card bg-base-100 shadow-sm border border-base-200">
         <div class="card-body gap-3">
-          <h3 class="font-semibold">{composer_title(@anchor_kind, @anchor)}</h3>
+          <h3 class="font-semibold">{composer_title(assigns)}</h3>
 
           <.form
             for={%{}}
@@ -722,6 +962,53 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
               value={@c_body}
               label={gettext("What was discussed?")}
             />
+
+            <%!-- Project mode: how long it took, and whose time it was. The
+                 attendees are the staged parties from our side (staff, "me");
+                 each gets the meeting's length unless a figure is typed. --%>
+            <div :if={@project_mode} class="flex flex-col gap-2 rounded-box border border-base-200 p-3">
+              <div class="flex flex-wrap items-end gap-3">
+                <.input
+                  id="crm-duration"
+                  type="number"
+                  name="interaction[duration_minutes]"
+                  value={@c_duration}
+                  label={gettext("Duration (minutes)")}
+                  min="1"
+                  step="1"
+                  class="input-sm"
+                  wrapper_class="w-40"
+                  placeholder="120"
+                />
+                <.checkbox
+                  id="crm-billable"
+                  name="interaction[billable]"
+                  checked={@c_billable}
+                  label={gettext("Billable time")}
+                  class="checkbox-primary checkbox-sm"
+                  wrapper_class="gap-2 pb-2"
+                />
+              </div>
+              <% attendees = attendees(assigns) %>
+              <p :if={attendees == []} class="text-xs text-base-content/60">
+                {gettext("Add yourself or a staff member under Involved parties to log their time on the project.")}
+              </p>
+              <div :for={a <- attendees} class="flex items-center gap-2">
+                <span class="text-sm min-w-32">{a.name}</span>
+                <.input
+                  id={"crm-attendee-#{a.idx}"}
+                  type="number"
+                  name={"attendee_minutes[#{a.key}]"}
+                  value={Map.get(@attendee_minutes, a.key, "")}
+                  min="0"
+                  step="1"
+                  class="input-sm"
+                  wrapper_class="w-28"
+                  placeholder={@c_duration}
+                />
+                <span class="text-xs text-base-content/50">{gettext("minutes")}</span>
+              </div>
+            </div>
           </.form>
 
           <%!-- Attachments — real inline drag-drop / click dropzone (uploads
@@ -904,7 +1191,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
       <%!-- Scope filter (company mode): the company's own interactions vs the
            member rollup. Segmented buttons, not counted index tabs — the feed
            is one query and this is a view split, not navigation. --%>
-      <div :if={@anchor_kind == :company} class="flex items-center gap-1">
+      <div :if={@anchor_kind == :company and not @project_mode} class="flex items-center gap-1">
         <button
           :for={{scope, label} <- feed_scopes()}
           type="button"
@@ -959,7 +1246,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                 <span class="text-xs text-base-content/60">{format_local(i.occurred_at, @tz)}</span>
               </div>
               <button
-                :if={owns_row?(assigns, i)}
+                :if={@can_write and owns_row?(assigns, i)}
                 type="button"
                 phx-click="delete_interaction"
                 phx-value-uuid={i.uuid}
@@ -976,6 +1263,28 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
             <div :if={i.parties != []} class="flex flex-wrap gap-1 mt-1">
               <span class="text-xs text-base-content/50">{gettext("Involved:")}</span>
               <.party_badge :for={p <- i.parties} party={p} />
+            </div>
+
+            <%!-- Project mode: the meeting's length, what came out of it
+                 (the tasks whose description carries this row's # chip),
+                 and the way to add one more. --%>
+            <div :if={@project_mode} class="flex flex-wrap items-center gap-2 mt-1 text-xs">
+              <span :if={i.duration_minutes} class="badge badge-ghost badge-sm gap-1">
+                <.icon name="hero-clock" class="w-3 h-3" /> {format_minutes(i.duration_minutes)}
+              </span>
+              <% links = Map.get(@interaction_links, i.uuid, []) %>
+              <span :if={links != []} class="text-base-content/50">{gettext("Tasks from this:")}</span>
+              <.link
+                :for={l <- links}
+                navigate={l.url}
+                class="badge badge-outline badge-sm link link-hover"
+              >
+                {l.title}
+              </.link>
+              <% add_url = @can_write && add_task_url(assigns, i) %>
+              <.link :if={add_url} navigate={add_url} class="btn btn-ghost btn-xs gap-1">
+                <.icon name="hero-plus" class="w-3 h-3" /> {gettext("Add task")}
+              </.link>
             </div>
 
             <% files = Map.get(@interaction_files, i.uuid, []) %>
