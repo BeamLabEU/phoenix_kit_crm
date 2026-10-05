@@ -67,5 +67,33 @@ defmodule PhoenixKitCRM.Web.ProjectClientEditTest do
     assert html =~ ~s(name="attendee_minutes[me]")
     # the client is an attendee, not time
     refute html =~ ~s(name="attendee_minutes[text)
+    # the saved parties are the chips, the viewer badged
+    assert html =~ "Taavi Tester"
+    assert html =~ "(you)"
+    assert html =~ "A client"
+
+    # Parties can change in an edit: add one, drop one, save.
+    composer = "#" <> composer_id(html)
+
+    view |> with_target(composer) |> render_hook("stage_text", %{"name" => "Her colleague"})
+    view |> with_target(composer) |> render_hook("remove_party", %{"idx" => "1"})
+
+    view
+    |> with_target(composer)
+    |> render_change("composer_change", %{
+      "interaction" => %{"subject" => "Billing call, two of them"},
+      "attendee_minutes" => %{"me" => "0"}
+    })
+
+    view |> with_target(composer) |> render_click("save_interaction", %{})
+
+    updated = Interactions.get_interaction(call.uuid)
+    assert updated.subject == "Billing call, two of them"
+    assert Enum.map(updated.parties, & &1.raw_name) == ["Taavi Tester", "Her colleague"]
+  end
+
+  defp composer_id(html) do
+    [_, id] = Regex.run(~r/id="(crm-project-composer-[^"]+-\d+)"/, html)
+    id
   end
 end

@@ -322,7 +322,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   def handle_event("composer_change", _params, socket), do: {:noreply, socket}
 
-  # Edit: the row's fields go into the composer; parties, files and the
+  # Edit: the row's fields and parties go into the composer; files and the
   # time already logged are left alone (the ledger is append-only). Save
   # then updates the row instead of creating one.
   def handle_event("edit_interaction", %{"uuid" => uuid}, socket) do
@@ -504,15 +504,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
       |> maybe_put_occurred_at(occurred_at, socket.assigns[:tz] || "0")
       |> put_project_attrs(socket)
 
-    party_inputs =
-      Enum.map(socket.assigns.staged_parties, fn p ->
-        %{
-          raw_name: p.raw_name,
-          contact_uuid: p[:contact_uuid],
-          staff_person_uuid: p[:staff_person_uuid]
-        }
-      end)
-
+    party_inputs = party_inputs(socket)
     file_uuids = Enum.map(socket.assigns.staged_files, & &1.uuid)
 
     case Interactions.create_interaction(attrs, party_inputs, file_uuids) do
@@ -563,7 +555,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
            |> maybe_put_occurred_at(occurred_at, socket.assigns[:tz] || "0")
            |> put_duration(socket),
          {:ok, updated} <-
-           Interactions.update_interaction(i, attrs, nil,
+           Interactions.update_interaction(i, attrs, party_inputs(socket),
              actor_uuid: socket.assigns[:current_user_uuid]
            ) do
       {:noreply,
@@ -576,6 +568,18 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
       {:error, changeset} -> {:noreply, assign(socket, :save_error, changeset_message(changeset))}
       _ -> {:noreply, assign(socket, :save_error, default_save_error())}
     end
+  end
+
+  # The staged chips as the context's party inputs (the `is_me` tag and
+  # `kind` are the composer's own and stay here).
+  defp party_inputs(socket) do
+    Enum.map(socket.assigns.staged_parties, fn p ->
+      %{
+        raw_name: p.raw_name,
+        contact_uuid: p[:contact_uuid],
+        staff_person_uuid: p[:staff_person_uuid]
+      }
+    end)
   end
 
   defp put_duration(attrs, %{assigns: %{project_mode: true} = assigns}) do
@@ -629,6 +633,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
           if(i.duration_minutes, do: Integer.to_string(i.duration_minutes), else: "")
         )
         |> assign(:c_event_uuid, (i.metadata || %{})["event_uuid"] || "")
+        |> assign(:staged_parties, saved_parties(socket.assigns, i.uuid))
         |> assign_logged_time(i)
         |> assign(:save_error, nil)
 
@@ -767,11 +772,12 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   # free-text names are attendees, not time.
   defp attendees(%Phoenix.LiveView.Socket{assigns: assigns}), do: attendees(assigns)
 
-  # Editing: the row's saved parties stand in for the staged ones — the
-  # viewer recognised by their contact, staff record or name — minus the
-  # attendees whose time is in the ledger already (it is append-only).
+  # Editing: the chips are the row's saved parties (loaded by
+  # `load_for_edit/2`, the viewer recognised by their contact, staff record
+  # or name) plus whatever was added since — minus the attendees whose time
+  # is in the ledger already (it is append-only).
   defp attendees(%{project_mode: true, editing_uuid: uuid} = assigns) when is_binary(uuid) do
-    %{assigns | staged_parties: saved_parties(assigns, uuid)}
+    assigns
     |> Map.put(:editing_uuid, nil)
     |> attendees()
     |> Enum.reject(&Map.has_key?(assigns[:edit_logged] || %{}, &1.key))
@@ -1525,13 +1531,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                   entries: logged_summary(@edit_logged, assigns)
                 )}
               </p>
-              <p :if={is_binary(@editing_uuid) and attendees == [] and @edit_logged == %{}} class="text-xs text-base-content/60">
-                {gettext("Nobody from your side is on this record, so there is no time to log.")}
-              </p>
               <p :if={is_binary(@editing_uuid) and attendees != []} class="text-xs text-base-content/60">
                 {gettext("Saving logs these attendees' time on the project — blank means the whole duration, 0 means none.")}
               </p>
-              <p :if={attendees == [] and is_nil(@editing_uuid)} class="text-xs text-base-content/60">
+              <p :if={attendees == [] and @edit_logged == %{}} class="text-xs text-base-content/60">
                 {gettext("Add yourself or a staff member under Involved parties to log their time on the project.")}
               </p>
               <p :if={attendees != [] and is_nil(@editing_uuid)} class="text-xs text-base-content/60">
@@ -1637,7 +1640,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
           <%!-- Involved parties — outside the <.form> so Enter in the search box
                 never submits the composer (it only stages parties). --%>
-          <div :if={is_nil(@editing_uuid)} class="flex flex-col gap-2">
+          <div class="flex flex-col gap-2">
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-1">
                   <label for="crm-party-search" class="fieldset-legend font-semibold leading-none">
