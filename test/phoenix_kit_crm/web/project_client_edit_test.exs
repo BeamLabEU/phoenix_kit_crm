@@ -63,7 +63,7 @@ defmodule PhoenixKitCRM.Web.ProjectClientEditTest do
 
     html = render(view)
     assert html =~ "Edit interaction"
-    assert html =~ "Saving logs these attendees"
+    assert html =~ "as logged on the project"
     assert html =~ ~s(name="attendee_minutes[me]")
     # the client is an attendee, not time
     refute html =~ ~s(name="attendee_minutes[text)

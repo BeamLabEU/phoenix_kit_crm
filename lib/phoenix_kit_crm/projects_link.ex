@@ -50,6 +50,7 @@ defmodule PhoenixKitCRM.ProjectsLink do
       end)
       |> Enum.map(fn e ->
         %{
+          uuid: Map.get(e, :uuid),
           actor_kind: Map.get(e, :actor_kind),
           actor_uuid: Map.get(e, :actor_uuid),
           minutes: e |> Map.get(:amount) |> to_minutes(),
@@ -63,6 +64,39 @@ defmodule PhoenixKitCRM.ProjectsLink do
     e ->
       Logger.warning("[CRM] ledger read failed: #{Exception.message(e)}")
       []
+  end
+
+  @doc """
+  Amends one time entry's minutes (and its billable flag through
+  `billable:`), as the ledger's `update_time/3` does — an attendee's figure
+  changed in an edit of the meeting.
+  """
+  @spec update_time(binary(), pos_integer(), keyword()) :: {:ok, map()} | {:error, term()}
+  def update_time(entry_uuid, minutes, opts \\ [])
+      when is_binary(entry_uuid) and is_integer(minutes) and minutes > 0 do
+    if Code.ensure_loaded?(@ledger) and function_exported?(@ledger, :update_time, 3) do
+      apply(@ledger, :update_time, [entry_uuid, minutes, opts])
+    else
+      {:error, :unavailable}
+    end
+  rescue
+    e ->
+      Logger.warning("[CRM] ledger amend failed: #{Exception.message(e)}")
+      {:error, :unavailable}
+  end
+
+  @doc "Removes one time entry (an attendee's figure set to 0 in an edit)."
+  @spec delete_time(binary(), keyword()) :: {:ok, map()} | {:error, term()}
+  def delete_time(entry_uuid, opts \\ []) when is_binary(entry_uuid) do
+    if Code.ensure_loaded?(@ledger) and function_exported?(@ledger, :delete_entry, 2) do
+      apply(@ledger, :delete_entry, [entry_uuid, opts])
+    else
+      {:error, :unavailable}
+    end
+  rescue
+    e ->
+      Logger.warning("[CRM] ledger delete failed: #{Exception.message(e)}")
+      {:error, :unavailable}
   end
 
   defp to_minutes(%Decimal{} = d), do: d |> Decimal.round() |> Decimal.to_integer()

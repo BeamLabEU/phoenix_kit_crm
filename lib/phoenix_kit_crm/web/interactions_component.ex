@@ -642,9 +642,9 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     end
   end
 
-  # What the ledger already holds for the row, by attendee key, so the edit
-  # offers time only to the attendees without an entry; the billable flag
-  # follows the entries already made.
+  # What the ledger already holds for the row, by attendee key (the entry:
+  # uuid, minutes, billable), so the edit shows each attendee's figure and
+  # can amend it; the billable flag follows the entries already made.
   defp assign_logged_time(%{assigns: %{project_mode: true} = assigns} = socket, interaction) do
     entries = ProjectsLink.list_time(assigns.project_uuid, interaction.uuid)
 
@@ -655,7 +655,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
             do: "me",
             else: "#{e.actor_kind}:#{e.actor_uuid}"
 
-        {key, e.minutes}
+        {key, e}
       end)
 
     socket
@@ -774,13 +774,15 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   # Editing: the chips are the row's saved parties (loaded by
   # `load_for_edit/2`, the viewer recognised by their contact, staff record
-  # or name) plus whatever was added since — minus the attendees whose time
-  # is in the ledger already (it is append-only).
+  # or name) plus whatever was added since; an attendee whose time is in
+  # the ledger carries that entry under `:logged`.
   defp attendees(%{project_mode: true, editing_uuid: uuid} = assigns) when is_binary(uuid) do
+    logged = assigns[:edit_logged] || %{}
+
     assigns
     |> Map.put(:editing_uuid, nil)
     |> attendees()
-    |> Enum.reject(&Map.has_key?(assigns[:edit_logged] || %{}, &1.key))
+    |> Enum.map(&Map.put(&1, :logged, Map.get(logged, &1.key)))
   end
 
   defp attendees(%{project_mode: true} = assigns) do
@@ -845,10 +847,23 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   defp attendee_minutes(assigns, %{key: key}) do
     typed = Map.get(assigns.attendee_minutes, key)
 
-    if is_binary(typed) and String.trim(typed) == "0",
-      do: nil,
-      else: parse_minutes(typed) || parse_minutes(assigns.c_duration)
+    if zero?(typed), do: nil, else: parse_minutes(typed) || parse_minutes(assigns.c_duration)
   end
+
+  # What an edit does to an attendee's EXISTING entry: nothing when the box
+  # is blank or still shows the logged figure, `:remove` on 0, `{:set, n}`
+  # on a new figure.
+  defp amendment(assigns, %{key: key, logged: %{minutes: minutes}}) do
+    typed = Map.get(assigns.attendee_minutes, key)
+
+    cond do
+      zero?(typed) -> :remove
+      parse_minutes(typed) in [nil, minutes] -> :keep
+      true -> {:set, parse_minutes(typed)}
+    end
+  end
+
+  defp zero?(typed), do: is_binary(typed) and String.trim(typed) == "0"
 
   defp parse_minutes(value) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
@@ -869,9 +884,25 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   defp log_attendee_time(%{assigns: %{project_mode: true}} = socket, interaction) do
     assigns = socket.assigns
 
+    {logged, new} = socket |> attendees() |> Enum.split_with(&match?(%{logged: %{}}, &1))
+
+    amendments =
+      logged
+      |> Enum.map(fn attendee -> {attendee, amendment(assigns, attendee)} end)
+      |> Enum.reject(fn {_attendee, verdict} -> verdict == :keep end)
+      |> Enum.map(fn
+        {%{logged: %{uuid: uuid}}, :remove} ->
+          ProjectsLink.delete_time(uuid, actor_uuid: assigns[:current_user_uuid])
+
+        {%{logged: %{uuid: uuid}}, {:set, minutes}} ->
+          ProjectsLink.update_time(uuid, minutes,
+            billable: assigns.c_billable,
+            actor_uuid: assigns[:current_user_uuid]
+          )
+      end)
+
     results =
-      socket
-      |> attendees()
+      new
       |> Enum.map(fn attendee -> {attendee, attendee_minutes(assigns, attendee)} end)
       |> Enum.reject(fn {_attendee, minutes} -> is_nil(minutes) end)
       |> Enum.map(fn {attendee, minutes} ->
@@ -894,7 +925,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
         )
       end)
 
-    failed = Enum.count(results, &(not match?({:ok, _}, &1)))
+    failed = Enum.count(amendments ++ results, &(not match?({:ok, _}, &1)))
 
     if failed > 0 do
       Logger.warning("[CRM] #{failed} attendee time entries not written for #{interaction.uuid}")
@@ -1310,28 +1341,9 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   defp composer_title(%{anchor_kind: :company, anchor: company}),
     do: gettext("Log an interaction with %{name}", name: Company.display_name(company))
 
-  # "Max Don 180 min, Sasha Don 180 min" — the entries the row already has,
-  # named by the party they belong to.
-  defp logged_summary(logged, assigns) do
-    names =
-      case Enum.find(assigns.interactions, &(&1.uuid == assigns.editing_uuid)) do
-        %Interaction{parties: parties} when is_list(parties) ->
-          Map.new(parties, fn p -> {"staff_person:#{p.staff_person_uuid}", p.raw_name} end)
-
-        _ ->
-          %{}
-      end
-
-    Enum.map_join(logged, ", ", fn {key, minutes} ->
-      name =
-        case key do
-          "me" -> assigns[:current_user_name] || gettext("you")
-          _ -> Map.get(names, key, key)
-        end
-
-      gettext("%{name} %{minutes} min", name: name, minutes: minutes)
-    end)
-  end
+  # The box of an attendee whose time is logged starts at that figure.
+  defp logged_value(%{logged: %{minutes: minutes}}), do: Integer.to_string(minutes)
+  defp logged_value(_attendee), do: ""
 
   defp feed_scopes do
     [
@@ -1526,15 +1538,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                 />
               </div>
               <% attendees = attendees(assigns) %>
-              <p :if={is_binary(@editing_uuid) and @edit_logged != %{}} class="text-xs text-base-content/60">
-                {gettext("Already in the project's ledger: %{entries}.",
-                  entries: logged_summary(@edit_logged, assigns)
-                )}
-              </p>
               <p :if={is_binary(@editing_uuid) and attendees != []} class="text-xs text-base-content/60">
-                {gettext("Saving logs these attendees' time on the project — blank means the whole duration, 0 means none.")}
+                {gettext("Minutes per attendee, as logged on the project — change a figure to amend it, 0 removes it; an attendee without one gets an entry on save (blank means the whole duration).")}
               </p>
-              <p :if={attendees == [] and @edit_logged == %{}} class="text-xs text-base-content/60">
+              <p :if={attendees == []} class="text-xs text-base-content/60">
                 {gettext("Add yourself or a staff member under Involved parties to log their time on the project.")}
               </p>
               <p :if={attendees != [] and is_nil(@editing_uuid)} class="text-xs text-base-content/60">
@@ -1546,14 +1553,16 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                   id={"crm-attendee-#{a.idx}"}
                   type="number"
                   name={"attendee_minutes[#{a.key}]"}
-                  value={Map.get(@attendee_minutes, a.key, "")}
+                  value={Map.get(@attendee_minutes, a.key, logged_value(a))}
                   min="0"
                   step="1"
                   class="input-sm"
                   wrapper_class="w-28"
                   placeholder={@c_duration}
                 />
-                <span class="text-xs text-base-content/50">{gettext("minutes")}</span>
+                <span class="text-xs text-base-content/50">
+                  {if a[:logged], do: gettext("minutes, logged"), else: gettext("minutes")}
+                </span>
               </div>
             </div>
           </.form>

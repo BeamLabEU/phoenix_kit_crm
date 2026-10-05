@@ -16,6 +16,8 @@ defmodule PhoenixKitCRM.ProjectsLinkTest do
     assert ProjectsLink.get_event(Ecto.UUID.generate(), Ecto.UUID.generate()) == nil
     assert {:error, :unavailable} = ProjectsLink.log_time(Ecto.UUID.generate(), 5, [])
     assert ProjectsLink.list_time(Ecto.UUID.generate(), Ecto.UUID.generate()) == []
+    assert {:error, :unavailable} = ProjectsLink.update_time(Ecto.UUID.generate(), 5)
+    assert {:error, :unavailable} = ProjectsLink.delete_time(Ecto.UUID.generate())
 
     assert {:error, :unavailable} =
              ProjectsLink.create_event(Ecto.UUID.generate(), %{

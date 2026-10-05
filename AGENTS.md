@@ -498,6 +498,21 @@ plan and interactions the record (an event → "log what happened" prefill
 is the next slice, not built). Not built either: the "Add to project…"
 menu on the hub, a date on the hub's own log-time modal.
 
+Edit (later the same day): Edit on a project interaction loads the saved
+parties as chips and the attendees' logged time as prefilled boxes
+(`ProjectsLink.list_time/2` ← the ledger's `list_entries(metadata:)`);
+Save changes amends a changed figure (`update_time/3`), removes one set to
+0 (`delete_time/2`), and logs the attendees without an entry. The party
+search offers the viewer as a "(you)" row on their own name — the same
+party "Add me" stages (contact, else staff record, else free text).
+Template guards on `@editing_uuid` must use `is_binary/1`: `and` on a
+string raised `BadBooleanError` and took the drawer down, twice.
+
+Idea, not built (2026-10-05, Max: "not sure about that, just an idea"):
+next to "Add me", offer the parties recently added on this project (the
+last few distinct contacts/staff from its interactions) as one-click
+chips, so the usual attendees of a project need no search.
+
 ## Versioning & releases
 
 SemVer. The version is single-sourced in `mix.exs` (`@version`); `version/0`
