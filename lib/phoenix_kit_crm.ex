@@ -280,7 +280,7 @@ defmodule PhoenixKitCRM do
         permission_actions: [:view, :log_interaction],
         # The project's interactions on the projects JSON API
         # (`/ext/interactions`) — `PhoenixKitCRM.ProjectApi`.
-        api: PhoenixKitCRM.ProjectApi
+        api: [PhoenixKitCRM.ProjectApi, PhoenixKitCRM.CompanyApi]
       }
     ]
   end

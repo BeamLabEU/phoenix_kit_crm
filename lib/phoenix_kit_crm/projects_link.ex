@@ -20,6 +20,55 @@ defmodule PhoenixKitCRM.ProjectsLink do
   @ledger PhoenixKitProjects.Ledger
   @events PhoenixKitProjects.ProjectEvents
   @projects PhoenixKitProjects.Projects
+  @assignment PhoenixKitProjects.Schemas.Assignment
+
+  @doc "A task's label, when the projects module is there and the task exists."
+  @spec task_label(String.t()) :: String.t() | nil
+  def task_label(uuid) when is_binary(uuid) do
+    if Code.ensure_loaded?(@projects) and function_exported?(@projects, :get_assignment, 1) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      case apply(@projects, :get_assignment, [uuid]) do
+        nil -> nil
+        # credo:disable-for-next-line Credo.Check.Refactor.Apply
+        a -> apply(@assignment, :label, [a])
+      end
+    end
+  rescue
+    _ -> nil
+  end
+
+  @doc """
+  Links a task to an interaction the way the meeting's "Add task" does: the
+  task's description gains the interaction's mention token, and the
+  interaction lists the task among what came out of it. `{:ok, task}`,
+  `{:error, :not_found}` for an unknown task, `{:error, :unavailable}`
+  without the projects module.
+  """
+  @spec link_task(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def link_task(task_uuid, interaction, opts \\ []) when is_binary(task_uuid) do
+    if Code.ensure_loaded?(@projects) and function_exported?(@projects, :link_assignment_to, 5) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      case apply(@projects, :get_assignment, [task_uuid]) do
+        nil ->
+          {:error, :not_found}
+
+        a ->
+          label = PhoenixKitCRM.InteractionLinks.label(interaction)
+          # credo:disable-for-next-line Credo.Check.Refactor.Apply
+          apply(@projects, :link_assignment_to, [
+            a,
+            "crm_interaction",
+            interaction.uuid,
+            label,
+            opts
+          ])
+      end
+    else
+      {:error, :unavailable}
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  end
 
   @doc """
   A project and every sub-project nested under it (the root first), or

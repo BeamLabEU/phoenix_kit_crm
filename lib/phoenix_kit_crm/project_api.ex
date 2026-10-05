@@ -28,7 +28,7 @@ defmodule PhoenixKitCRM.ProjectApi do
   side reaches through `apply/3`.
   """
 
-  alias PhoenixKitCRM.{Companies, Contacts, Interactions, StaffLink}
+  alias PhoenixKitCRM.{Companies, Contacts, Interactions, ProjectsLink, StaffLink}
   alias PhoenixKitCRM.Schemas.{Company, Interaction}
 
   @resource "interactions"
@@ -48,10 +48,38 @@ defmodule PhoenixKitCRM.ProjectApi do
   # ── Reads ───────────────────────────────────────────────────────────
 
   @doc false
-  def list(%{project: project}, _params) do
-    rows = Interactions.list_for_project(project.uuid, limit: 200)
-    {:ok, %{interactions: Enum.map(rows, &to_json/1), count: length(rows)}}
+  def list(%{project: project}, params) do
+    limit = list_limit(params["limit"])
+    since = parse_since(params["since"])
+
+    rows =
+      project.uuid
+      |> Interactions.list_for_project(limit: 200)
+      |> Enum.filter(fn i -> is_nil(since) or DateTime.compare(i.occurred_at, since) == :gt end)
+      |> Enum.take(limit)
+
+    {:ok,
+     %{interactions: Enum.map(rows, &to_json/1), count: length(rows), now: DateTime.utc_now()}}
   end
+
+  defp list_limit(v) when is_binary(v) do
+    case Integer.parse(v) do
+      {n, ""} when n > 0 -> min(n, 200)
+      _ -> 200
+    end
+  end
+
+  defp list_limit(n) when is_integer(n) and n > 0, do: min(n, 200)
+  defp list_limit(_), do: 200
+
+  defp parse_since(v) when is_binary(v) do
+    case DateTime.from_iso8601(v) do
+      {:ok, dt, _} -> dt
+      _ -> nil
+    end
+  end
+
+  defp parse_since(_), do: nil
 
   @doc false
   def get(%{project: project}, id) do
@@ -78,8 +106,13 @@ defmodule PhoenixKitCRM.ProjectApi do
         |> put_metadata(%{}, attrs, ctx)
 
       case Interactions.create_interaction(row_attrs, parties || []) do
-        {:ok, i} -> {:ok, %{interaction: to_json(i)}, 201}
-        {:error, %Ecto.Changeset{} = cs} -> changeset_error(cs)
+        {:ok, i} ->
+          with :ok <- link_tasks(i, attrs["tasks"], ctx) do
+            {:ok, %{interaction: to_json(Interactions.get_interaction(i.uuid) || i)}, 201}
+          end
+
+        {:error, %Ecto.Changeset{} = cs} ->
+          changeset_error(cs)
       end
     end
   end
@@ -92,11 +125,39 @@ defmodule PhoenixKitCRM.ProjectApi do
       row_attrs = put_metadata(fields, i.metadata, attrs, ctx)
 
       case Interactions.update_interaction(i, row_attrs, parties, actor_uuid: ctx[:user_uuid]) do
-        {:ok, updated} -> {:ok, %{interaction: to_json(updated)}}
-        {:error, %Ecto.Changeset{} = cs} -> changeset_error(cs)
+        {:ok, updated} ->
+          with :ok <- link_tasks(updated, attrs["tasks"], ctx) do
+            {:ok, %{interaction: to_json(updated)}}
+          end
+
+        {:error, %Ecto.Changeset{} = cs} ->
+          changeset_error(cs)
       end
     end
   end
+
+  # `tasks: [uuid]` — each task gains this interaction's mention token (the
+  # same link the meeting's "Add task" button makes); an unknown task is a
+  # 404 naming it. Not a replace: a task once linked stays linked.
+  defp link_tasks(_i, nil, _ctx), do: :ok
+
+  defp link_tasks(i, uuids, ctx) when is_list(uuids) do
+    Enum.reduce_while(uuids, :ok, fn uuid, :ok ->
+      case ProjectsLink.link_task(uuid, i, actor_uuid: ctx[:user_uuid]) do
+        {:ok, _} ->
+          {:cont, :ok}
+
+        {:error, :not_found} ->
+          {:halt, {:error, {404, "not_found", "No such task: #{uuid}.", %{task: uuid}}}}
+
+        {:error, _} ->
+          {:halt, {:error, {422, "validation_failed", "The task could not be linked.", nil}}}
+      end
+    end)
+  end
+
+  defp link_tasks(_i, _, _ctx),
+    do: {:error, {422, "validation_failed", "tasks must be a list of task uuids.", nil}}
 
   # ── Shapes ──────────────────────────────────────────────────────────
 
@@ -116,6 +177,7 @@ defmodule PhoenixKitCRM.ProjectApi do
       company_uuid: i.company_uuid,
       contact_uuid: i.contact_uuid,
       event_uuid: (i.metadata || %{})["event_uuid"],
+      tasks: linked_tasks(i),
       parties:
         Enum.map(parties, fn p ->
           %{
@@ -127,6 +189,18 @@ defmodule PhoenixKitCRM.ProjectApi do
       inserted_at: i.inserted_at,
       updated_at: i.updated_at
     }
+  end
+
+  # The tasks whose description carries this interaction's token — what
+  # came out of it — through core's mention index.
+  defp linked_tasks(%Interaction{uuid: uuid}) do
+    "crm_interaction"
+    |> PhoenixKit.Mentions.list_backlinks(uuid, limit: 100)
+    |> Enum.filter(&(&1.source_type == "project_task"))
+    |> Enum.map(&%{uuid: &1.source_uuid, title: ProjectsLink.task_label(&1.source_uuid)})
+    |> Enum.reject(&is_nil(&1.title))
+  rescue
+    _ -> []
   end
 
   @doc "Endpoint rows for the projects API docs."
@@ -177,6 +251,14 @@ defmodule PhoenixKitCRM.ProjectApi do
         type: "string",
         required: false,
         doc: "the project event (the plan) this is the record of; null to unlink"
+      },
+      %{
+        name: "tasks",
+        in: :body,
+        type: "array",
+        required: false,
+        doc:
+          "task uuids that came out of this interaction; each gains its link (never unlinked here)"
       }
     ]
 
@@ -192,7 +274,22 @@ defmodule PhoenixKitCRM.ProjectApi do
         action: "view",
         feature: "crm_client",
         idempotency: nil,
-        params: [],
+        params: [
+          %{
+            name: "since",
+            in: :query,
+            type: "string",
+            required: false,
+            doc: "ISO 8601; only interactions after that moment"
+          },
+          %{
+            name: "limit",
+            in: :query,
+            type: "integer",
+            required: false,
+            doc: "at most this many, newest first (200 at most)"
+          }
+        ],
         example: nil
       },
       %{
@@ -265,7 +362,8 @@ defmodule PhoenixKitCRM.ProjectApi do
 
   # `PhoenixKitProjects.Extensions.config/2` is the hub's; reached by name,
   # the CRM does not depend on the projects package.
-  defp client_company_uuid(project) do
+  @doc false
+  def client_company_uuid(project) do
     mod = PhoenixKitProjects.Extensions
 
     if Code.ensure_loaded?(mod) and function_exported?(mod, :config, 2) do
