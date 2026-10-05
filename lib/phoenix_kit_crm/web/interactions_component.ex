@@ -1007,6 +1007,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                 value={@c_occurred_at}
                 label={gettext("When")}
                 phx-hook="CrmWhenWarnings"
+                data-editing={if(@editing_uuid, do: "true", else: "false")}
                 data-profile-offset-minutes={offset_minutes_now(@tz)}
                 data-profile-zone={PhoenixKit.Settings.get_timezone_label(@tz)}
                 data-profile-zone-id={zone_id(@tz)}

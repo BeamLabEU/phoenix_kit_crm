@@ -23,7 +23,9 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
   @primary_key {:uuid, UUIDv7, autogenerate: true}
   @foreign_key_type UUIDv7
 
-  @types ~w(call email meeting note other)
+  # `message` (V8): a chat or text — Telegram, WhatsApp, SMS — which is
+  # neither a call nor an email and happens more than both.
+  @types ~w(call email meeting message note other)
 
   @type t :: %__MODULE__{
           uuid: UUIDv7.t() | nil,
@@ -164,6 +166,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
   def type_label("call"), do: gettext("Call")
   def type_label("email"), do: gettext("Email")
   def type_label("meeting"), do: gettext("Meeting")
+  def type_label("message"), do: gettext("Message")
   def type_label("note"), do: gettext("Note")
   def type_label("other"), do: gettext("Other")
   def type_label(other), do: other
