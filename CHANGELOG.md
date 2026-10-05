@@ -4,6 +4,50 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.16.0 - 2026-10-05
+
+### Added
+
+- **Meetings and calls logged on a project** (migration V08: `project_uuid`
+  and `duration_minutes` on interactions, run `mix phoenix_kit.update`). The
+  projects hub's Client tab lists the client company's interactions for the
+  project and logs new ones in a drawer: type (a new "message" type), subject,
+  body, when and time zone, duration, and the parties (contacts, staff people,
+  free text, or the viewer as "me"). Each attendee's minutes go to the
+  project's ledger as billable or non-billable time; editing a meeting loads
+  the saved parties and the time already logged, and amends, removes or adds
+  entries.
+- **Planning.** "Plan a meeting" creates a project event; "Log what happened"
+  opens the composer with the plan picked, and the record links back to it.
+- **The projects JSON API**: `/ext/interactions` (list with `since` and
+  `limit`, get, create, update; `parties`, `event_uuid`, `tasks`) and
+  `/ext/companies` (the project's client with the people at it), on the
+  `interactions:read` / `interactions:write` scopes. The Client extension now
+  declares a `log_interaction` action.
+- **Interactions are mentionable** (`crm_interaction`): a task whose
+  description carries the `#` chip is listed on the meeting, and the meeting
+  lists its tasks; "Add task" on a row opens the new-task page with the chip
+  filled in. Contacts and companies resolve through the same
+  `resource_links/0`.
+- A project's feed follows changes live, including rows anchored to a contact
+  or a former client, anchor trash and restore, and meetings moved or planned
+  on the hub's calendar.
+
+### Fixed
+
+- A viewer without write access to the Client tab could delete, log and plan
+  meetings by sending the events directly; the component and the tab now
+  refuse them, and Edit checks the row's anchor the way Delete does.
+- A staff attendee's time was logged again on every edit of a meeting.
+- A failed ledger write is no longer hidden by the closing drawer, a partial
+  failure keeps its retry state, and a failed ledger read cannot duplicate
+  time already logged.
+- Changing only Billable on an edit now updates the existing entries.
+- Interactions of a trashed contact or company no longer list on a project.
+- The projects API answers 422 instead of failing on non-string party names,
+  non-uuid references, a malformed `event_uuid`, blank names and NUL bytes,
+  and checks `tasks` before writing anything.
+
 ## 0.15.1 - 2026-09-28
 
 ### Changed
