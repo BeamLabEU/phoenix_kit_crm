@@ -239,7 +239,18 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     _ -> false
   end
 
+  # The events that write (or open a way to write). `can_write: false` is the
+  # hub's verdict on the viewer; the template hides these controls, but a
+  # LiveView event is just a message the client can send, so the refusal has
+  # to live here too. Only an explicit `false` refuses — the CRM's own pages
+  # never set it.
+  @write_events ~w(save_interaction delete_interaction edit_interaction log_planned start_planning save_plan)
+
   @impl true
+  def handle_event(event, _params, %{assigns: %{can_write: false}} = socket)
+      when event in @write_events,
+      do: {:noreply, socket}
+
   # Core's SearchPicker JS hook owns the search box + dropdown entirely (instant,
   # client-side). It pushes the (client-debounced) query here; we run the DB
   # search and hand rows back to the hook via push_event. No server-side search
@@ -326,11 +337,16 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   # time already logged are left alone (the ledger is append-only). Save
   # then updates the row instead of creating one.
   def handle_event("edit_interaction", %{"uuid" => uuid}, socket) do
-    if composes_here?(socket) do
-      {:noreply, load_for_edit(socket, uuid)}
-    else
-      send(self(), {:crm_client, :compose, editing_uuid: uuid})
-      {:noreply, socket}
+    cond do
+      not editable?(socket, uuid) ->
+        {:noreply, socket}
+
+      composes_here?(socket) ->
+        {:noreply, load_for_edit(socket, uuid)}
+
+      true ->
+        send(self(), {:crm_client, :compose, editing_uuid: uuid})
+        {:noreply, socket}
     end
   end
 
@@ -617,29 +633,41 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   defp planned_label(_interaction, _assigns), do: nil
 
+  # Same two gates as delete: the row is in this feed AND this page is its
+  # anchor — a row that only spills in (a member's own, a party involvement)
+  # is edited from its own page, and the Edit button is only drawn for owned
+  # rows, so a forged event must not reach the others.
+  defp editable?(socket, uuid) do
+    case Enum.find(socket.assigns.interactions, &(&1.uuid == uuid)) do
+      %Interaction{} = i -> owns_row?(socket, i)
+      _ -> false
+    end
+  end
+
   defp load_for_edit(socket, uuid) do
     case Enum.find(socket.assigns.interactions, &(&1.uuid == uuid)) do
-      %Interaction{} = i ->
-        tz = socket.assigns[:tz] || "0"
-
-        socket
-        |> assign(:editing_uuid, i.uuid)
-        |> assign(:c_type, i.interaction_type)
-        |> assign(:c_subject, i.subject || "")
-        |> assign(:c_body, i.body || "")
-        |> assign(:c_occurred_at, DateUtils.format_datetime_local(i.occurred_at, tz))
-        |> assign(
-          :c_duration,
-          if(i.duration_minutes, do: Integer.to_string(i.duration_minutes), else: "")
-        )
-        |> assign(:c_event_uuid, (i.metadata || %{})["event_uuid"] || "")
-        |> assign(:staged_parties, saved_parties(socket.assigns, i.uuid))
-        |> assign_logged_time(i)
-        |> assign(:save_error, nil)
-
-      _ ->
-        socket
+      %Interaction{} = i -> if owns_row?(socket, i), do: edit_row(socket, i), else: socket
+      _ -> socket
     end
+  end
+
+  defp edit_row(socket, %Interaction{} = i) do
+    tz = socket.assigns[:tz] || "0"
+
+    socket
+    |> assign(:editing_uuid, i.uuid)
+    |> assign(:c_type, i.interaction_type)
+    |> assign(:c_subject, i.subject || "")
+    |> assign(:c_body, i.body || "")
+    |> assign(:c_occurred_at, DateUtils.format_datetime_local(i.occurred_at, tz))
+    |> assign(
+      :c_duration,
+      if(i.duration_minutes, do: Integer.to_string(i.duration_minutes), else: "")
+    )
+    |> assign(:c_event_uuid, (i.metadata || %{})["event_uuid"] || "")
+    |> assign(:staged_parties, saved_parties(socket.assigns, i.uuid))
+    |> assign_logged_time(i)
+    |> assign(:save_error, nil)
   end
 
   # What the ledger already holds for the row, by attendee key (the entry:
@@ -653,7 +681,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
         key =
           if e.actor_kind == "user" and e.actor_uuid == assigns[:current_user_uuid],
             do: "me",
-            else: "#{e.actor_kind}:#{e.actor_uuid}"
+            else: actor_key(e.actor_kind, e.actor_uuid)
 
         {key, e}
       end)
@@ -665,9 +693,21 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   defp assign_logged_time(socket, _interaction), do: assign(socket, :edit_logged, %{})
 
+  # One key per ledger actor, for the attendee chips AND the entries already
+  # logged: an edit finds an attendee's entry by it. The two once spelled a
+  # staff person differently ("staff:" vs the ledger's "staff_person:"), so
+  # every edit logged their time a second time.
+  defp actor_key(kind, uuid), do: "#{kind}:#{uuid}"
+
   # The drawer instance is done: the tab closes it and refreshes the feed.
+  # Not while the ledger's verdict is waiting to be read (the meeting saved
+  # but some attendee time did not): the message lives in the composer, so
+  # closing it would hide the only sign that time is missing. The feed
+  # refreshes off the save's broadcast either way.
   defp done(socket) do
-    if socket.assigns[:show_feed] == false, do: send(self(), {:crm_client, :saved})
+    if socket.assigns[:show_feed] == false and is_nil(socket.assigns[:save_error]),
+      do: send(self(), {:crm_client, :saved})
+
     socket
   end
 
@@ -804,7 +844,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
         is_binary(party[:staff_person_uuid]) ->
           [
             %{
-              key: "staff:#{party.staff_person_uuid}",
+              key: actor_key("staff_person", party.staff_person_uuid),
               idx: idx,
               name: party.raw_name,
               actor_kind: "staff_person",

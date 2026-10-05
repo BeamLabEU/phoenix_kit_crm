@@ -103,8 +103,22 @@ defmodule PhoenixKitCRM.ProjectApiTest do
           {%{"parties" => [%{"name" => ""}]}, "parties[0].name"},
           {%{"parties" => [%{"name" => "x", "contact_uuid" => Ecto.UUID.generate()}]},
            "parties[0].contact_uuid"},
-          {%{"parties" => [%{"name" => "x", "contact_uuid" => "a", "staff_person_uuid" => "b"}]},
-           "parties[0]"}
+          {%{
+             "parties" => [
+               %{
+                 "name" => "x",
+                 "contact_uuid" => Ecto.UUID.generate(),
+                 "staff_person_uuid" => Ecto.UUID.generate()
+               }
+             ]
+           }, "parties[0]"},
+          # Types that once raised (`to_string/1` on a map) or slipped through
+          {%{"parties" => [%{"name" => %{"first" => "x"}}]}, "parties[0].name"},
+          {%{"parties" => [%{"name" => "x", "contact_uuid" => 5}]}, "parties[0].contact_uuid"},
+          {%{"parties" => [%{"name" => "x", "staff_person_uuid" => "nope"}]},
+           "parties[0].staff_person_uuid"},
+          {%{"event_uuid" => String.duplicate("x", 5000)}, "event_uuid"},
+          {%{"event_uuid" => 7}, "event_uuid"}
         ] do
       assert {:error, {422, "validation_failed", _, %{^field => [_]}}} =
                ProjectApi.update(ctx(pu), i.uuid, attrs)

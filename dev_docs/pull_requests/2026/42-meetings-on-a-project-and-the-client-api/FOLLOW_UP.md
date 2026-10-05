@@ -38,3 +38,47 @@ interaction lookup from a task in a sub-project.
 ## Open
 
 None.
+
+# Post-merge pass (2026-10-05)
+
+How each finding in the second section of `CLAUDE_REVIEW.md` and in
+`CODEX_REVIEW.md` was resolved. Codex could not run a shell in this
+container (its sandbox needs user namespaces the kernel denies), so it
+reviewed the PR's `lib/` + `test/` diff piped to it, with `AGENTS.md`; every
+claim of its below was checked against the code here before being acted on.
+
+## Fixed
+
+- ~~BUG - HIGH: `can_write` enforced only by the template~~ (Codex #1 too) — `InteractionsComponent.handle_event/3` refuses `save_interaction`, `delete_interaction`, `edit_interaction`, `log_planned`, `start_planning` and `save_plan` when `can_write` is `false` (only an explicit `false`: the CRM's own pages never set it); `ProjectClientLive` refuses `open_composer` and `{:crm_client, :compose, _}` without `can_write: true`. Test: `project_client_write_gate_test.exs` — a forged delete and save leave the row alone (verified failing with the guard stashed), and the same delete with `can_write` goes through.
+- ~~BUG - HIGH: staff attendee's time logged again on every edit~~ (Codex #2, found independently) — one `actor_key/2` builds the key for the chips and for the ledger entries. Test: the edit drawer's minutes box for a staff party is `attendee_minutes[staff_person:<uuid>]`.
+- ~~BUG - MEDIUM: edit skipped the ownership gate~~ (Codex #4) — `editable?/2` on the event, and `load_for_edit/2` for the drawer's `open_editing_uuid`. Test: a contact-anchored project row does not open for edit on the company's tab.
+- ~~BUG - MEDIUM: ledger failure hidden by the closing drawer~~ (Codex #6) — `done/1` does not close while `save_error` is set; the feed refreshes off the save's broadcast either way. Not covered by a test: the ledger (the projects module) is not loaded in this suite.
+- ~~BUG - MEDIUM: non-string party names / non-uuid references → 500 / bad changeset~~ (Codex #3) — typed checks before `to_string`, `uuid_or_nil?/1` on both references. Test rows added to the `update` validation table.
+- ~~BUG - MEDIUM: `event_uuid` unchecked~~ — must be a uuid or null (422 otherwise). Test rows added. Existence on the project is not checked (see Skipped).
+
+## Skipped (with rationale)
+
+- **Billable alone on an edit changes nothing** (Codex #7) — a fix has to know the checkbox's value when the drawer opened: `c_billable` is "any entry billable", so re-applying it on every save would flip the non-billable entries of a mixed set that someone edited in the projects UI. Needs an `edit_billable` assign and the ledger's `update_time/3` semantics (not loaded here to test). Open.
+- **`list_for_project/2` shows rows of a trashed anchor** (Codex #5) — `list_for_company/2`, the pre-PR sibling, does the same, so this is a product question rather than a slip: should a project's history vanish from its Client tab when its client company is trashed? Left for a decision.
+- **Task linking after the interaction write** (Codex #8) — the pre-write `check_tasks/2` (above, `d370885`) closes the reachable cases; what is left is a task deleted between the check and the link.
+- **Planned-events cache** (Codex #9) and **topic coverage** (Codex #10) — a stale "Planned" time until the tab is reopened, and no live refresh for a contact-anchored or former-client row. Both cosmetic; the API and the composer write only company-anchored rows.
+- **`since`/`time_zone`/cross-project `event_uuid`, ledger entries after a delete** — on record in `CLAUDE_REVIEW.md`, no behaviour change.
+
+## Files touched
+
+| File | Change |
+|---|---|
+| `lib/phoenix_kit_crm/web/interactions_component.ex` | write-event guard; `editable?/2`, ownership in `load_for_edit/2`; `actor_key/2`; `done/1` |
+| `lib/phoenix_kit_crm/web/project_client_live.ex` | `open_composer` / `:compose` need `can_write` |
+| `lib/phoenix_kit_crm/project_api.ex` | party and `event_uuid` type checks |
+| `test/phoenix_kit_crm/web/project_client_write_gate_test.exs` | new — forged events, edit ownership |
+| `test/phoenix_kit_crm/web/project_client_edit_test.exs` | staff attendee key |
+| `test/phoenix_kit_crm/project_api_test.exs` | the new validation rows (uuids in the "at most one" row) |
+
+## Verification
+
+`mix precommit` 0 (compile --warnings-as-errors, deps.unlock --check-unused, hex.audit, credo --strict, dialyzer). `mix test`: 836 tests; the failures are environmental and identical on the untouched tree — `InteractionAttachmentsTest` (8; the shared test DB holds a leftover "Default" storage bucket that is in use) and `SchemaOwnerGuardWiringTest` (2) — the four new tests pass.
+
+## Open
+
+The three Skipped items that are decisions: billable on edit, trashed anchors on the project feed, the planned-events refresh.

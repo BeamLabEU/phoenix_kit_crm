@@ -92,6 +92,55 @@ defmodule PhoenixKitCRM.Web.ProjectClientEditTest do
     assert Enum.map(updated.parties, & &1.raw_name) == ["Taavi Tester", "Her colleague"]
   end
 
+  test "a staff attendee's minutes box is keyed the way the ledger names its actor", %{conn: conn} do
+    {:ok, user} =
+      Auth.register_user(%{
+        "email" => "ivo-#{System.unique_integer([:positive])}@example.test",
+        "password" => "Sup3rSecret!24",
+        "first_name" => "Ivo",
+        "last_name" => "Tester"
+      })
+
+    {:ok, company} = Companies.create_company(%{"name" => "Hooli"})
+    staff_uuid = Ecto.UUID.generate()
+
+    {:ok, meeting} =
+      Interactions.create_interaction(
+        %{
+          "company_uuid" => company.uuid,
+          "interaction_type" => "meeting",
+          "subject" => "Staffed meeting",
+          "occurred_at" => DateTime.utc_now(),
+          "project_uuid" => @project,
+          "owner_user_uuid" => user.uuid
+        },
+        [%{raw_name: "Our Staffer", contact_uuid: nil, staff_person_uuid: staff_uuid}]
+      )
+
+    conn = put_test_scope(conn, fake_scope(user_uuid: user.uuid))
+
+    {:ok, view, _html} =
+      live_isolated(conn, ProjectClientLive,
+        session: %{
+          "project_uuid" => @project,
+          "config" => %{"company_uuid" => company.uuid},
+          "can_write" => true,
+          "current_user_uuid" => user.uuid,
+          "locale" => "en"
+        }
+      )
+
+    view
+    |> with_target("#crm-project-interactions-#{@project}")
+    |> render_click("edit_interaction", %{"uuid" => meeting.uuid})
+
+    # `ProjectsLink.list_time/2` keys the entries already logged as
+    # "<actor_kind>:<actor_uuid>" and the ledger's kind for staff is
+    # "staff_person"; a box keyed any other way never finds its entry, and
+    # every edit logs the person's time again.
+    assert render(view) =~ ~s(name="attendee_minutes[staff_person:#{staff_uuid}]")
+  end
+
   defp composer_id(html) do
     [_, id] = Regex.run(~r/id="(crm-project-composer-[^"]+-\d+)"/, html)
     id

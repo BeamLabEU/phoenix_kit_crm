@@ -116,15 +116,22 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
   defp subscribe(socket), do: socket
 
   @impl true
-  def handle_event("open_composer", _params, socket), do: {:noreply, open(socket, nil, nil)}
+  # The button is only rendered with `can_write`, but the event is a message
+  # anyone on the page can send: refuse it here as well.
+  def handle_event("open_composer", _params, %{assigns: %{can_write: true}} = socket),
+    do: {:noreply, open(socket, nil, nil)}
+
+  def handle_event("open_composer", _params, socket), do: {:noreply, socket}
 
   def handle_event("close_composer", _params, socket),
     do: {:noreply, assign(socket, composer: nil)}
 
   @impl true
   # From the feed instance: open the drawer — empty, on a plan, or editing a row.
-  def handle_info({:crm_client, :compose, opts}, socket),
+  def handle_info({:crm_client, :compose, opts}, %{assigns: %{can_write: true}} = socket),
     do: {:noreply, open(socket, opts[:editing_uuid], opts[:plan_uuid])}
+
+  def handle_info({:crm_client, :compose, _opts}, socket), do: {:noreply, socket}
 
   # From the composer instance: done — close, and have the feed reload.
   def handle_info({:crm_client, :saved}, socket),

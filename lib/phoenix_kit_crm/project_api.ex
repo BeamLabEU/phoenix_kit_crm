@@ -401,7 +401,8 @@ defmodule PhoenixKitCRM.ProjectApi do
          {:ok, body} <- string(attrs["body"], "body", 20_000),
          {:ok, occurred_at} <- occurred_at(attrs["occurred_at"]),
          {:ok, tz} <- string(attrs["time_zone"], "time_zone", 64),
-         {:ok, minutes} <- duration(attrs["duration_minutes"]) do
+         {:ok, minutes} <- duration(attrs["duration_minutes"]),
+         :ok <- event_uuid(attrs["event_uuid"]) do
       fields =
         %{}
         |> put_if("interaction_type", type)
@@ -431,6 +432,16 @@ defmodule PhoenixKitCRM.ProjectApi do
   end
 
   defp string(_, field, _max), do: invalid(field, "must be a string")
+
+  # The plan → record link is a uuid or null; anything else was either
+  # silently dropped (a number) or stored as free text on the row (a string).
+  defp event_uuid(nil), do: :ok
+
+  defp event_uuid(v) when is_binary(v) do
+    if match?({:ok, _}, Ecto.UUID.cast(v)), do: :ok, else: invalid("event_uuid", "must be a uuid")
+  end
+
+  defp event_uuid(_), do: invalid("event_uuid", "must be a uuid or null")
 
   defp duration(nil), do: {:ok, nil}
   defp duration(n) when is_integer(n) and n > 0 and n <= 1440, do: {:ok, n}
@@ -470,17 +481,32 @@ defmodule PhoenixKitCRM.ProjectApi do
     do: invalid("parties", "must be a list of {name, contact_uuid?, staff_person_uuid?}")
 
   defp party(%{} = p, idx) do
-    name = to_string(p["name"] || "")
+    name = p["name"] || ""
     contact = p["contact_uuid"]
     staff = p["staff_person_uuid"]
 
+    # Types first: `to_string/1` on a map raises, and a number in a uuid
+    # slot would reach the party's changeset as a non-uuid.
+    cond do
+      not is_binary(name) -> invalid("parties[#{idx}].name", "must be a string")
+      not uuid_or_nil?(contact) -> invalid("parties[#{idx}].contact_uuid", "must be a uuid")
+      not uuid_or_nil?(staff) -> invalid("parties[#{idx}].staff_person_uuid", "must be a uuid")
+      true -> resolved_party(name, contact, staff, idx)
+    end
+  end
+
+  defp party(_, idx), do: invalid("parties[#{idx}]", "must be an object")
+
+  defp resolved_party(name, contact, staff, idx) do
     case party_error(name, contact, staff, idx) do
       nil -> {:ok, %{raw_name: name, contact_uuid: contact, staff_person_uuid: staff}}
       error -> error
     end
   end
 
-  defp party(_, idx), do: invalid("parties[#{idx}]", "must be an object")
+  defp uuid_or_nil?(nil), do: true
+  defp uuid_or_nil?(v) when is_binary(v), do: match?({:ok, _}, Ecto.UUID.cast(v))
+  defp uuid_or_nil?(_), do: false
 
   defp party_error(name, _contact, _staff, idx) when name == "" or byte_size(name) > 1020,
     do: invalid("parties[#{idx}].name", "is required, at most 255 characters")
