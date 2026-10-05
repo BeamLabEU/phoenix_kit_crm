@@ -643,6 +643,15 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   defp add_task_url(_assigns, _interaction), do: nil
 
+  # The row on its anchor's page in the CRM, interactions tab.
+  defp crm_path(%Interaction{company_uuid: uuid}) when is_binary(uuid),
+    do: Paths.company(uuid) <> "?tab=interactions"
+
+  defp crm_path(%Interaction{contact_uuid: uuid}) when is_binary(uuid),
+    do: Paths.contact(uuid) <> "?tab=interactions"
+
+  defp crm_path(_), do: Paths.index()
+
   defp format_minutes(nil), do: nil
   defp format_minutes(m) when m < 60, do: gettext("%{count}m", count: m)
   defp format_minutes(m) when rem(m, 60) == 0, do: gettext("%{count}h", count: div(m, 60))
@@ -1061,7 +1070,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                   checked={@c_billable}
                   label={gettext("Billable time")}
                   class="checkbox-primary checkbox-sm"
-                  wrapper_class="h-8 items-center gap-2"
+                  wrapper_class="h-8 items-center gap-2! -mb-0.5"
                 />
               </div>
               <% attendees = if @editing_uuid, do: [], else: attendees(assigns) %>
@@ -1256,15 +1265,15 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
           </div>
 
           <div class="flex justify-end gap-2">
-            <button
+            <.button
               :if={@editing_uuid}
               type="button"
               phx-click="cancel_edit"
               phx-target={@myself}
-              class="btn btn-ghost btn-sm"
+              class="btn-ghost btn-sm"
             >
               {gettext("Cancel")}
-            </button>
+            </.button>
             <.button
               type="button"
               phx-click="save_interaction"
@@ -1335,29 +1344,45 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                 </.link>
                 <span class="text-xs text-base-content/60">{format_local(i.occurred_at, @tz)}</span>
               </div>
-              <button
-                :if={@can_write and owns_row?(assigns, i)}
-                type="button"
-                phx-click="edit_interaction"
-                phx-value-uuid={i.uuid}
-                phx-target={@myself}
-                class={["btn btn-ghost btn-xs", @editing_uuid == i.uuid && "btn-active"]}
-                title={gettext("Edit")}
-              >
-                <.icon name="hero-pencil-mini" class="w-3 h-3" />
-              </button>
-              <button
-                :if={@can_write and owns_row?(assigns, i)}
-                type="button"
-                phx-click="delete_interaction"
-                phx-value-uuid={i.uuid}
-                phx-target={@myself}
-                phx-disable-with={gettext("Deleting…")}
-                data-confirm={gettext("Delete this interaction?")}
-                class="btn btn-ghost btn-xs text-error"
-              >
-                <.icon name="hero-trash-mini" class="w-3 h-3" />
-              </button>
+              <%!-- One menu per row, core's: edit and delete on the rows this
+                   page anchors; in project mode also the way to the CRM and
+                   a task from this meeting. --%>
+              <% owned = @can_write and owns_row?(assigns, i) %>
+              <% add_url = @project_mode and @can_write && add_task_url(assigns, i) %>
+              <.table_row_menu :if={owned or @project_mode} id={"crm-interaction-menu-#{i.uuid}"}>
+                <.table_row_menu_button
+                  :if={owned}
+                  phx-click="edit_interaction"
+                  phx-value-uuid={i.uuid}
+                  phx-target={@myself}
+                  icon="hero-pencil"
+                  label={gettext("Edit")}
+                />
+                <.table_row_menu_link
+                  :if={@project_mode}
+                  navigate={crm_path(i)}
+                  icon="hero-arrow-top-right-on-square"
+                  label={gettext("Open in CRM")}
+                />
+                <.table_row_menu_link
+                  :if={add_url}
+                  navigate={add_url}
+                  icon="hero-plus"
+                  label={gettext("Add task")}
+                />
+                <.table_row_menu_divider :if={owned} />
+                <.table_row_menu_button
+                  :if={owned}
+                  phx-click="delete_interaction"
+                  phx-value-uuid={i.uuid}
+                  phx-target={@myself}
+                  phx-disable-with={gettext("Deleting…")}
+                  data-confirm={gettext("Delete this interaction?")}
+                  icon="hero-trash"
+                  label={gettext("Delete")}
+                  variant="error"
+                />
+              </.table_row_menu>
             </div>
             <div :if={i.subject} class="font-medium">{i.subject}</div>
             <div :if={i.body} class="text-sm whitespace-pre-wrap">{i.body}</div>
@@ -1381,18 +1406,6 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                 class="badge badge-outline badge-sm link link-hover"
               >
                 {l.title}
-              </.link>
-              <.link
-                :if={i.company_uuid}
-                navigate={Paths.company(i.company_uuid) <> "?tab=interactions"}
-                class="btn btn-ghost btn-xs gap-1"
-                title={gettext("This meeting on the company's page in the CRM")}
-              >
-                <.icon name="hero-arrow-top-right-on-square" class="w-3 h-3" /> {gettext("Open in CRM")}
-              </.link>
-              <% add_url = @can_write && add_task_url(assigns, i) %>
-              <.link :if={add_url} navigate={add_url} class="btn btn-ghost btn-xs gap-1">
-                <.icon name="hero-plus" class="w-3 h-3" /> {gettext("Add task")}
               </.link>
             </div>
 
