@@ -3,20 +3,22 @@ defmodule PhoenixKitCRM.CompanyApiTest do
 
   use PhoenixKitCRM.DataCase, async: true
 
+  alias PhoenixKit.RepoHelper
   alias PhoenixKitCRM.{Companies, CompanyApi, Contacts, Interactions, ProjectApi}
+  alias PhoenixKitCRM.Schemas.CompanyMembership
 
   test "the company resource answers with the client's people; nothing without a client" do
     {:ok, company} = Companies.create_company(%{"name" => "ANDI"})
     {:ok, contact} = Contacts.create_contact(%{"name" => "Maria Kottel", "email" => "m@andi.ee"})
 
     {:ok, _} =
-      %PhoenixKitCRM.Schemas.CompanyMembership{}
-      |> PhoenixKitCRM.Schemas.CompanyMembership.changeset(%{
+      %CompanyMembership{}
+      |> CompanyMembership.changeset(%{
         "company_uuid" => company.uuid,
         "contact_uuid" => contact.uuid,
         "role_in_company" => "owner"
       })
-      |> PhoenixKit.RepoHelper.repo().insert()
+      |> RepoHelper.repo().insert()
 
     json = CompanyApi.to_json(Companies.get_company(company.uuid))
     assert json.name == "ANDI"

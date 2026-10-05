@@ -105,15 +105,9 @@ defmodule PhoenixKitCRM.ProjectApi do
         })
         |> put_metadata(%{}, attrs, ctx)
 
-      case Interactions.create_interaction(row_attrs, parties || []) do
-        {:ok, i} ->
-          with :ok <- link_tasks(i, attrs["tasks"], ctx) do
-            {:ok, %{interaction: to_json(Interactions.get_interaction(i.uuid) || i)}, 201}
-          end
-
-        {:error, %Ecto.Changeset{} = cs} ->
-          changeset_error(cs)
-      end
+      row_attrs
+      |> Interactions.create_interaction(parties || [])
+      |> answer(attrs, ctx, 201)
     end
   end
 
@@ -124,17 +118,22 @@ defmodule PhoenixKitCRM.ProjectApi do
          {:ok, parties} <- parties(attrs["parties"], required: false) do
       row_attrs = put_metadata(fields, i.metadata, attrs, ctx)
 
-      case Interactions.update_interaction(i, row_attrs, parties, actor_uuid: ctx[:user_uuid]) do
-        {:ok, updated} ->
-          with :ok <- link_tasks(updated, attrs["tasks"], ctx) do
-            {:ok, %{interaction: to_json(updated)}}
-          end
-
-        {:error, %Ecto.Changeset{} = cs} ->
-          changeset_error(cs)
-      end
+      i
+      |> Interactions.update_interaction(row_attrs, parties, actor_uuid: ctx[:user_uuid])
+      |> answer(attrs, ctx, nil)
     end
   end
+
+  # A write's answer: the tasks linked, then the row re-read so its
+  # `tasks` are in the shape.
+  defp answer({:ok, i}, attrs, ctx, status) do
+    with :ok <- link_tasks(i, attrs["tasks"], ctx) do
+      json = %{interaction: to_json(Interactions.get_interaction(i.uuid) || i)}
+      if status, do: {:ok, json, status}, else: {:ok, json}
+    end
+  end
+
+  defp answer({:error, %Ecto.Changeset{} = cs}, _attrs, _ctx, _status), do: changeset_error(cs)
 
   # `tasks: [uuid]` — each task gains this interaction's mention token (the
   # same link the meeting's "Add task" button makes); an unknown task is a
