@@ -14,7 +14,7 @@ defmodule PhoenixKitCRM.ProjectApi do
   with its usual checks (scopes `interactions:read` / `interactions:write`,
   the Client extension on, the key's role at `log_interaction`) and hands
   the work here with a `ctx` (`project`, `key`, `user_uuid` = the person
-  who minted the key, `actor`). What an agent may write: `type`, `subject`,
+  the key acts for, else the one who minted it, `actor`). What an agent may write: `type`, `subject`,
   `body`, `occurred_at` (ISO 8601, any offset), `time_zone`,
   `duration_minutes`, `parties` (`{name, contact_uuid?, staff_person_uuid?}`
   — a replace, never a merge), and `event_uuid` (the project event this
