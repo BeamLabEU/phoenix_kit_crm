@@ -59,7 +59,11 @@ defmodule PhoenixKitCRM.ProjectApi do
       |> Enum.take(limit)
 
     {:ok,
-     %{interactions: Enum.map(rows, &to_json/1), count: length(rows), now: DateTime.utc_now()}}
+     %{
+       interactions: Enum.map(rows, &to_json/1),
+       count: length(rows),
+       now: DateTime.utc_now() |> DateTime.truncate(:second)
+     }}
   end
 
   defp list_limit(v) when is_binary(v) do
