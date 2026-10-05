@@ -44,6 +44,25 @@ defmodule PhoenixKitCRM.ProjectsLink do
     _ -> []
   end
 
+  @doc """
+  Plans a meeting: a project event (`title`, `starts_at`, optional
+  `location`, no end — nobody knows how long it will take) created by the
+  projects module, which logs it and shows it on the project's calendar.
+  """
+  @spec create_event(binary(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def create_event(project_uuid, attrs, opts \\ [])
+      when is_binary(project_uuid) and is_map(attrs) do
+    if Code.ensure_loaded?(@events) and function_exported?(@events, :create, 3) do
+      apply(@events, :create, [%{uuid: project_uuid}, attrs, opts])
+    else
+      {:error, :unavailable}
+    end
+  rescue
+    e ->
+      Logger.warning("[CRM] event create failed: #{Exception.message(e)}")
+      {:error, :unavailable}
+  end
+
   @doc "One event of the project, or nil."
   @spec get_event(binary(), binary()) :: map() | nil
   def get_event(project_uuid, event_uuid)

@@ -90,6 +90,12 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      # and the project's events to pick it from.
      |> assign_new(:c_event_uuid, fn -> "" end)
      |> assign_planned_events()
+     # Planning a meeting (project mode): the small form's state.
+     |> assign_new(:planning, fn -> false end)
+     |> assign_new(:p_title, fn -> "" end)
+     |> assign_new(:p_when, fn -> "" end)
+     |> assign_new(:p_location, fn -> "" end)
+     |> assign_new(:plan_error, fn -> nil end)
      |> assign_new(:c_subject, fn -> "" end)
      |> assign_new(:c_body, fn -> "" end)
      |> assign_new(:c_occurred_at, fn -> local_now_str(tz) end)
@@ -311,6 +317,78 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   end
 
   def handle_event("cancel_edit", _params, socket), do: {:noreply, reset_composer(socket)}
+
+  # ── Planning a meeting (project mode) ─────────────────────────────
+
+  def handle_event("start_planning", _params, socket) do
+    tz = socket.assigns[:tz] || "0"
+    company = socket.assigns.anchor
+
+    {:noreply,
+     socket
+     |> assign(:planning, true)
+     |> assign(:p_title, gettext("Meeting with %{name}", name: Company.display_name(company)))
+     |> assign(
+       :p_when,
+       DateUtils.format_datetime_local(DateTime.add(DateTime.utc_now(), 86_400), tz)
+     )
+     |> assign(:p_location, "")
+     |> assign(:plan_error, nil)}
+  end
+
+  def handle_event("cancel_planning", _params, socket),
+    do: {:noreply, assign(socket, :planning, false)}
+
+  def handle_event("plan_change", %{"plan" => p}, socket) do
+    {:noreply,
+     socket
+     |> assign(:p_title, p["title"] || socket.assigns.p_title)
+     |> assign(:p_when, p["when"] || socket.assigns.p_when)
+     |> assign(:p_location, p["location"] || "")
+     |> assign(:plan_error, nil)}
+  end
+
+  def handle_event("save_plan", _params, socket) do
+    tz = socket.assigns[:tz] || "0"
+
+    with starts_at when is_struct(starts_at, DateTime) <- local_to_utc(socket.assigns.p_when, tz),
+         title when title != "" <- String.trim(socket.assigns.p_title),
+         {:ok, _event} <-
+           ProjectsLink.create_event(
+             socket.assigns.project_uuid,
+             %{
+               title: title,
+               starts_at: starts_at,
+               ends_at: nil,
+               all_day: false,
+               location: blank_to_nil(socket.assigns.p_location)
+             },
+             actor_uuid: socket.assigns[:current_user_uuid]
+           ) do
+      {:noreply,
+       socket
+       |> assign(:planning, false)
+       |> assign(
+         :planned_events,
+         ProjectsLink.list_events(socket.assigns.project_uuid, limit: 50)
+       )}
+    else
+      "" -> {:noreply, assign(socket, :plan_error, gettext("Give the meeting a title."))}
+      :error -> {:noreply, assign(socket, :plan_error, gettext("The time could not be read."))}
+      nil -> {:noreply, assign(socket, :plan_error, gettext("Pick when the meeting is."))}
+      _ -> {:noreply, assign(socket, :plan_error, default_save_error())}
+    end
+  end
+
+  # "Log what happened" on a planned meeting: the composer opens with the
+  # plan picked (its when and title prefilled), as a meeting.
+  def handle_event("log_planned", %{"uuid" => uuid}, socket) do
+    {:noreply,
+     socket
+     |> reset_composer()
+     |> assign(:c_type, "meeting")
+     |> pick_event(uuid)}
+  end
 
   def handle_event("set_now", _params, socket) do
     {:noreply, assign(socket, :c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))}
@@ -572,6 +650,25 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   end
 
   defp assign_planned_events(socket), do: assign_new(socket, :planned_events, fn -> [] end)
+
+  defp blank_to_nil(v) when is_binary(v),
+    do: if(String.trim(v) == "", do: nil, else: String.trim(v))
+
+  defp blank_to_nil(_), do: nil
+
+  # Planned meetings no interaction is the record of yet, soonest first —
+  # what the tab lists above the composer with "Log what happened".
+  defp unlogged_events(assigns) do
+    logged =
+      assigns.interactions
+      |> Enum.map(&get_in(&1.metadata || %{}, ["event_uuid"]))
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    assigns.planned_events
+    |> Enum.reject(&MapSet.member?(logged, &1.uuid))
+    |> Enum.sort_by(& &1.starts_at, {:asc, DateTime})
+  end
 
   defp planned_event_options(events, tz) do
     [{gettext("— not planned —"), ""}] ++
@@ -1055,6 +1152,56 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   def render(assigns) do
     ~H"""
     <div id={@id} class="flex flex-col gap-6">
+      <%!-- Project mode: the plan. Meetings still to come (or past and not
+           logged) with "Log what happened", and a small form that makes a
+           project event — the plan the record later points at. --%>
+      <div :if={@project_mode and @can_write} class="card bg-base-100 shadow-sm border border-base-200">
+        <div class="card-body gap-3 py-4">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="font-semibold">{gettext("Planned meetings")}</h3>
+            <.button :if={not @planning} type="button" phx-click="start_planning" phx-target={@myself} class="btn-outline btn-sm">
+              <.icon name="hero-calendar-days" class="w-4 h-4" /> {gettext("Plan a meeting")}
+            </.button>
+          </div>
+          <% unlogged = unlogged_events(assigns) %>
+          <p :if={unlogged == [] and not @planning} class="text-sm text-base-content/60">
+            {gettext("Nothing planned that is not logged yet.")}
+          </p>
+          <ul :if={unlogged != []} class="flex flex-col divide-y divide-base-200">
+            <li :for={e <- unlogged} class="py-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span class="flex items-center gap-2 min-w-0">
+                <.icon name="hero-calendar" class="w-4 h-4 text-base-content/50 shrink-0" />
+                <span class="font-medium">{format_local(e.starts_at, @tz)}</span>
+                <span class="truncate">{e.title}</span>
+                <span :if={e.location} class="text-base-content/60 truncate">· {e.location}</span>
+                <span :if={DateTime.compare(e.starts_at, DateTime.utc_now()) == :gt} class="badge badge-ghost badge-xs">
+                  {gettext("upcoming")}
+                </span>
+              </span>
+              <.button type="button" phx-click="log_planned" phx-value-uuid={e.uuid} phx-target={@myself} class="btn-ghost btn-xs">
+                <.icon name="hero-pencil-square" class="w-3.5 h-3.5" /> {gettext("Log what happened")}
+              </.button>
+            </li>
+          </ul>
+          <.form :if={@planning} for={%{}} as={:plan} id={"#{@id}-plan"} phx-change="plan_change" phx-submit="save_plan" phx-target={@myself} class="flex flex-col gap-3 rounded-box border border-base-200 p-3">
+            <.input id="crm-plan-title" name="plan[title]" value={@p_title} label={gettext("Title")} class="input-sm" required />
+            <div class="flex flex-wrap items-end gap-3">
+              <.input id="crm-plan-when" type="datetime-local" name="plan[when]" value={@p_when} label={gettext("When")} class="input-sm" wrapper_class="w-56" required />
+              <.input id="crm-plan-location" name="plan[location]" value={@p_location} label={gettext("Where (optional)")} class="input-sm" wrapper_class="flex-1 min-w-48" />
+            </div>
+            <p class="text-xs text-base-content/60">{gettext("No end time: nobody knows how long it will take. It goes on the project's calendar; log what happened here afterwards.")}</p>
+            <div :if={@plan_error} class="alert alert-error text-sm py-2" role="alert">
+              <.icon name="hero-exclamation-triangle" class="w-4 h-4 shrink-0" />
+              <span>{@plan_error}</span>
+            </div>
+            <div class="flex justify-end gap-2">
+              <.button type="button" phx-click="cancel_planning" phx-target={@myself} class="btn-ghost btn-sm">{gettext("Cancel")}</.button>
+              <.button type="submit" class="btn-primary btn-sm" phx-disable-with={gettext("Saving…")}>{gettext("Plan it")}</.button>
+            </div>
+          </.form>
+        </div>
+      </div>
+
       <%!-- Composer (hidden for a viewer the hub says may not write) --%>
       <div :if={@can_write} class="card bg-base-100 shadow-sm border border-base-200">
         <div class="card-body gap-3">

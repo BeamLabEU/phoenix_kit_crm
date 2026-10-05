@@ -184,6 +184,12 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
   anchor is always the project's client company (read through
   `PhoenixKitProjects.Extensions.config/2` by name; none → 409 `no_client`).
   Time is never logged here — the projects API's own `/time` is.
+- **Planning on the Client tab:** "Plan a meeting" makes a project event
+  through `ProjectsLink.create_event/3` (title, when, where; no end time —
+  nobody knows how long it will take); the tab lists planned meetings no
+  interaction is the record of yet, each with "Log what happened", which
+  opens the composer with that plan picked. The hub's Calendar tab is the
+  other place a plan is made; both are the same event.
 - **The plan → record link** is `metadata.event_uuid` on the interaction
   (the project event it is the record of): the composer's "Planned as" pick
   (project mode; events through `ProjectsLink.list_events/2`) prefills the
