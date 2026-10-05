@@ -68,7 +68,7 @@ defmodule PhoenixKitCRM.StaffLink do
   def person_for_user(user_uuid) when is_binary(user_uuid) do
     if enabled?() and Code.ensure_loaded?(PhoenixKitStaff.Staff) and
          function_exported?(PhoenixKitStaff.Staff, :get_person_by_user_uuid, 2) do
-      case apply(PhoenixKitStaff.Staff, :get_person_by_user_uuid, [user_uuid, [preload: []]]) do
+      case apply(PhoenixKitStaff.Staff, :get_person_by_user_uuid, [user_uuid, [preload: [:user]]]) do
         nil -> nil
         person -> to_result(person)
       end
