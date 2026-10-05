@@ -84,6 +84,8 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      |> assign_new(:c_duration, fn -> "" end)
      |> assign_new(:c_billable, fn -> false end)
      |> assign_new(:attendee_minutes, fn -> %{} end)
+     # The row being edited in the composer (nil = composing a new one).
+     |> assign_new(:editing_uuid, fn -> nil end)
      |> assign_new(:c_subject, fn -> "" end)
      |> assign_new(:c_body, fn -> "" end)
      |> assign_new(:c_occurred_at, fn -> local_now_str(tz) end)
@@ -277,6 +279,34 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   def handle_event("composer_change", _params, socket), do: {:noreply, socket}
 
+  # Edit: the row's fields go into the composer; parties, files and the
+  # time already logged are left alone (the ledger is append-only). Save
+  # then updates the row instead of creating one.
+  def handle_event("edit_interaction", %{"uuid" => uuid}, socket) do
+    case Enum.find(socket.assigns.interactions, &(&1.uuid == uuid)) do
+      %Interaction{} = i ->
+        tz = socket.assigns[:tz] || "0"
+
+        {:noreply,
+         socket
+         |> assign(:editing_uuid, i.uuid)
+         |> assign(:c_type, i.interaction_type)
+         |> assign(:c_subject, i.subject || "")
+         |> assign(:c_body, i.body || "")
+         |> assign(:c_occurred_at, DateUtils.format_datetime_local(i.occurred_at, tz))
+         |> assign(
+           :c_duration,
+           if(i.duration_minutes, do: Integer.to_string(i.duration_minutes), else: "")
+         )
+         |> assign(:save_error, nil)}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("cancel_edit", _params, socket), do: {:noreply, reset_composer(socket)}
+
   def handle_event("set_now", _params, socket) do
     {:noreply, assign(socket, :c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))}
   end
@@ -291,7 +321,9 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
         {:noreply, assign(socket, :save_error, gettext("The time could not be read."))}
 
       occurred_at ->
-        save_interaction(socket, occurred_at)
+        if socket.assigns.editing_uuid,
+          do: update_interaction(socket, occurred_at),
+          else: save_interaction(socket, occurred_at)
     end
   end
 
@@ -397,16 +429,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   defp after_save(socket, interaction) do
     socket
     |> log_attendee_time(interaction)
-    |> assign(:staged_parties, [])
-    |> assign(:staged_files, [])
-    |> assign(:c_type, if(socket.assigns.project_mode, do: "meeting", else: "note"))
-    |> assign(:c_subject, "")
-    |> assign(:c_body, "")
-    |> assign(:c_duration, "")
-    |> assign(:c_billable, false)
-    |> assign(:attendee_minutes, %{})
-    |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))
-    |> assign(:upload_error, nil)
+    |> reset_composer(keep_error: true)
     # A company-anchored save under the People scope would be invisible —
     # the row is excluded by construction, so the composer clears and
     # nothing appears, indistinguishable from a failed save. Jump to All
@@ -417,6 +440,54 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
         else: s
     end)
     |> load_interactions()
+  end
+
+  defp update_interaction(socket, occurred_at) do
+    uuid = socket.assigns.editing_uuid
+
+    with %Interaction{} = i <- Enum.find(socket.assigns.interactions, &(&1.uuid == uuid)),
+         attrs =
+           %{
+             "interaction_type" => socket.assigns.c_type,
+             "subject" => socket.assigns.c_subject,
+             "body" => socket.assigns.c_body
+           }
+           |> maybe_put_occurred_at(occurred_at, socket.assigns[:tz] || "0")
+           |> put_duration(socket),
+         {:ok, _} <-
+           Interactions.update_interaction(i, attrs, nil,
+             actor_uuid: socket.assigns[:current_user_uuid]
+           ) do
+      {:noreply, socket |> reset_composer() |> load_interactions()}
+    else
+      {:error, changeset} -> {:noreply, assign(socket, :save_error, changeset_message(changeset))}
+      _ -> {:noreply, assign(socket, :save_error, default_save_error())}
+    end
+  end
+
+  defp put_duration(attrs, %{assigns: %{project_mode: true} = assigns}),
+    do: Map.put(attrs, "duration_minutes", parse_minutes(assigns.c_duration))
+
+  defp put_duration(attrs, _socket), do: attrs
+
+  # Back to an empty composer for a new interaction. `keep_error: true`
+  # leaves the ledger's verdict (set by `log_attendee_time/2`) in place.
+  defp reset_composer(socket, opts \\ []) do
+    socket
+    |> assign(:editing_uuid, nil)
+    |> assign(:staged_parties, [])
+    |> assign(:staged_files, [])
+    |> assign(:c_type, if(socket.assigns.project_mode, do: "meeting", else: "note"))
+    |> assign(:c_subject, "")
+    |> assign(:c_body, "")
+    |> assign(:c_duration, "")
+    |> assign(:c_billable, false)
+    |> assign(:attendee_minutes, %{})
+    |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))
+    |> assign(:upload_error, nil)
+    |> then(
+      &if(Keyword.get(opts, :keep_error, false), do: &1, else: assign(&1, :save_error, nil))
+    )
   end
 
   # ── Project mode: duration, attendees' time, the ledger ──────────────
@@ -856,6 +927,11 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   defp owns_row?(%{anchor_kind: :contact, anchor: a}, row), do: row.contact_uuid == a.uuid
   defp owns_row?(%{anchor_kind: :company, anchor: a}, row), do: row.company_uuid == a.uuid
 
+  defp composer_title(%{editing_uuid: uuid, project_mode: true}) when is_binary(uuid),
+    do: gettext("Edit this meeting")
+
+  defp composer_title(%{editing_uuid: uuid}) when is_binary(uuid), do: gettext("Edit interaction")
+
   defp composer_title(%{project_mode: true, anchor: company}),
     do: gettext("Log a meeting with %{name} on this project", name: Company.display_name(company))
 
@@ -985,11 +1061,14 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                   checked={@c_billable}
                   label={gettext("Billable time")}
                   class="checkbox-primary checkbox-sm"
-                  wrapper_class="gap-2 pb-2"
+                  wrapper_class="h-8 items-center gap-2"
                 />
               </div>
-              <% attendees = attendees(assigns) %>
-              <p :if={attendees == []} class="text-xs text-base-content/60">
+              <% attendees = if @editing_uuid, do: [], else: attendees(assigns) %>
+              <p :if={@editing_uuid} class="text-xs text-base-content/60">
+                {gettext("Time already logged stays in the project's ledger; edit the text and the length here.")}
+              </p>
+              <p :if={attendees == [] and is_nil(@editing_uuid)} class="text-xs text-base-content/60">
                 {gettext("Add yourself or a staff member under Involved parties to log their time on the project.")}
               </p>
               <p :if={attendees != []} class="text-xs text-base-content/60">
@@ -1015,7 +1094,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
           <%!-- Attachments — real inline drag-drop / click dropzone (uploads
                 like core's media picker); staged files attach on save. --%>
-          <div :if={@can_attach} class="flex flex-col gap-2">
+          <div :if={@can_attach and is_nil(@editing_uuid)} class="flex flex-col gap-2">
             <form phx-change="validate_attachment" phx-target={@myself} id={"crm-attach-#{@id}"}>
               <div
                 phx-drop-target={@uploads.attachments.ref}
@@ -1095,7 +1174,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
           <%!-- Involved parties — outside the <.form> so Enter in the search box
                 never submits the composer (it only stages parties). --%>
-          <div class="flex flex-col gap-2">
+          <div :if={is_nil(@editing_uuid)} class="flex flex-col gap-2">
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-1">
                   <label for="crm-party-search" class="fieldset-legend font-semibold leading-none">
@@ -1176,7 +1255,16 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
             <span>{@save_error}</span>
           </div>
 
-          <div class="flex justify-end">
+          <div class="flex justify-end gap-2">
+            <button
+              :if={@editing_uuid}
+              type="button"
+              phx-click="cancel_edit"
+              phx-target={@myself}
+              class="btn btn-ghost btn-sm"
+            >
+              {gettext("Cancel")}
+            </button>
             <.button
               type="button"
               phx-click="save_interaction"
@@ -1184,7 +1272,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
               class="btn-primary btn-sm"
               phx-disable-with={gettext("Saving…")}
             >
-              {gettext("Save interaction")}
+              {if @editing_uuid, do: gettext("Save changes"), else: gettext("Save interaction")}
             </.button>
           </div>
         </div>
@@ -1247,6 +1335,17 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                 </.link>
                 <span class="text-xs text-base-content/60">{format_local(i.occurred_at, @tz)}</span>
               </div>
+              <button
+                :if={@can_write and owns_row?(assigns, i)}
+                type="button"
+                phx-click="edit_interaction"
+                phx-value-uuid={i.uuid}
+                phx-target={@myself}
+                class={["btn btn-ghost btn-xs", @editing_uuid == i.uuid && "btn-active"]}
+                title={gettext("Edit")}
+              >
+                <.icon name="hero-pencil-mini" class="w-3 h-3" />
+              </button>
               <button
                 :if={@can_write and owns_row?(assigns, i)}
                 type="button"

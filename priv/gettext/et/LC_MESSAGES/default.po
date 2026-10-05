@@ -115,7 +115,8 @@ msgstr "Rakenda"
 #: lib/phoenix_kit_crm/web/components/mirror_conflict_modal.ex:119
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:702
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:746
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1064
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1143
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1266
 #: lib/phoenix_kit_crm/web/list_form_live.ex:170
 #: lib/phoenix_kit_crm/web/list_members_live.ex:570
 #: lib/phoenix_kit_crm/web/organizations_view.ex:447
@@ -130,8 +131,8 @@ msgstr "Tühista"
 msgid "No"
 msgstr "Ei"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1087
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1145
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1166
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1224
 #: lib/phoenix_kit_crm/web/list_members_live.ex:629
 #: lib/phoenix_kit_crm/web/media_component.ex:329
 #: lib/phoenix_kit_crm/web/media_component.ex:377
@@ -256,7 +257,7 @@ msgstr "Sellel rollil pole CRM-i juurdepääsu."
 msgid "Toggles this module on or off. Same setting as the admin Modules page."
 msgstr "Lülitab selle mooduli sisse või välja. Sama seade nagu administraatori Moodulite lehel."
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1170
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1249
 #, elixir-autogen, elixir-format
 msgid " and staff"
 msgstr " ja personali"
@@ -356,7 +357,7 @@ msgid_plural "%{count} subscribers"
 msgstr[0] "%{count} tellija"
 msgstr[1] "%{count} tellijat"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1139
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1218
 #, elixir-autogen, elixir-format
 msgid "(you)"
 msgstr "(sina)"
@@ -377,7 +378,7 @@ msgstr "Toimingud"
 msgid "Active"
 msgstr "Aktiivne"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1165
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1244
 #, elixir-autogen, elixir-format
 msgid "Add"
 msgstr "Lisa"
@@ -397,7 +398,7 @@ msgstr "Lisa faile"
 msgid "Add images"
 msgstr "Lisa pilte"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1133
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1212
 #, elixir-autogen, elixir-format
 msgid "Add me"
 msgstr "Lisa mind"
@@ -407,12 +408,12 @@ msgstr "Lisa mind"
 msgid "Add to list"
 msgstr "Lisa nimekirja"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1121
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1200
 #, elixir-autogen, elixir-format
 msgid "Added as free text"
 msgstr "Lisatud vabatekstina"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1167
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1246
 #: lib/phoenix_kit_crm/web/list_members_live.ex:442
 #, elixir-autogen, elixir-format
 msgid "Adding…"
@@ -426,7 +427,7 @@ msgstr "Aadress"
 
 #: lib/phoenix_kit_crm/web/companies_live.ex:356
 #: lib/phoenix_kit_crm/web/contacts_live.ex:342
-#: lib/phoenix_kit_crm/web/interactions_component.ex:869
+#: lib/phoenix_kit_crm/web/interactions_component.ex:945
 #: lib/phoenix_kit_crm/web/list_members_live.ex:460
 #, elixir-autogen, elixir-format
 msgid "All"
@@ -495,7 +496,7 @@ msgstr "Suhtlustega seotud"
 msgid "Back"
 msgstr "Tagasi"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1113
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1192
 #, elixir-autogen, elixir-format
 msgid "CRM contact"
 msgstr "CRM kontakt"
@@ -552,8 +553,8 @@ msgstr "Ettevõtted"
 #: lib/phoenix_kit_crm/web/contact_show_live.ex:356
 #: lib/phoenix_kit_crm/web/contacts_live.ex:171
 #: lib/phoenix_kit_crm/web/contacts_live.ex:429
-#: lib/phoenix_kit_crm/web/interactions_component.ex:870
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1230
+#: lib/phoenix_kit_crm/web/interactions_component.ex:946
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1318
 #, elixir-autogen, elixir-format
 msgid "Company"
 msgstr "Ettevõte"
@@ -768,12 +769,12 @@ msgstr "Nimekirja arhiivist taastamine ebaõnnestus"
 msgid "Could not update list"
 msgstr "Nimekirja uuendamine ebaõnnestus"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:707
+#: lib/phoenix_kit_crm/web/interactions_component.ex:778
 #, elixir-autogen, elixir-format
 msgid "Couldn't save this interaction. Your input was kept — please try again."
 msgstr "Selle suhtluse salvestamine ebaõnnestus. Sisestatud andmed on alles — proovi uuesti."
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:698
+#: lib/phoenix_kit_crm/web/interactions_component.ex:769
 #, elixir-autogen, elixir-format
 msgid "Couldn't save: %{detail}"
 msgstr "Salvestamine ebaõnnestus: %{detail}"
@@ -804,14 +805,14 @@ msgstr "Praegune %{noun}"
 msgid "Delete permanently"
 msgstr "Kustuta jäädavalt"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1257
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1356
 #, elixir-autogen, elixir-format
 msgid "Delete this interaction?"
 msgstr "Kas kustutada see suhtlus?"
 
 #: lib/phoenix_kit_crm/web/companies_live.ex:463
 #: lib/phoenix_kit_crm/web/contacts_live.ex:466
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1256
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1355
 #: lib/phoenix_kit_crm/web/media_component.ex:326
 #: lib/phoenix_kit_crm/web/media_component.ex:374
 #, elixir-autogen, elixir-format
@@ -830,7 +831,7 @@ msgstr "Osakond / meeskond"
 msgid "Description"
 msgstr "Kirjeldus"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1029
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1108
 #, elixir-autogen, elixir-format
 msgid "Drag files here or click to upload"
 msgstr "Lohista failid siia või klõpsa üleslaadimiseks"
@@ -851,6 +852,7 @@ msgstr "Korduv failis"
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:93
 #: lib/phoenix_kit_crm/web/contact_show_live.ex:339
 #: lib/phoenix_kit_crm/web/contacts_live.ex:476
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1345
 #: lib/phoenix_kit_crm/web/list_form_live.ex:55
 #: lib/phoenix_kit_crm/web/lists_live.ex:213
 #, elixir-autogen, elixir-format
@@ -903,7 +905,7 @@ msgstr "Fail eemaldatud"
 msgid "Files"
 msgstr "Failid"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1030
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1109
 #, elixir-autogen, elixir-format
 msgid "Files or images"
 msgstr "Failid või pildid"
@@ -970,7 +972,7 @@ msgstr "Imporditud %{created} kontakti, lisatud %{added} liikmesust."
 msgid "Importing… %{done} / %{total}"
 msgstr "Importimine… %{done} / %{total}"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1110
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1189
 #, elixir-autogen, elixir-format
 msgid "In search results:"
 msgstr "Otsingutulemustes:"
@@ -1021,12 +1023,12 @@ msgstr "Suhtlused"
 msgid "Invalid email"
 msgstr "Vigane e-post"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1102
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1181
 #, elixir-autogen, elixir-format
 msgid "Involved parties"
 msgstr "Osalised"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1266
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1365
 #, elixir-autogen, elixir-format
 msgid "Involved:"
 msgstr "Osalised:"
@@ -1088,12 +1090,12 @@ msgstr "Nimekiri uuendatud"
 msgid "Lists"
 msgstr "Nimekirjad"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1168
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1247
 #, elixir-autogen, elixir-format
 msgid "Load more"
 msgstr "Laadi rohkem"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1169
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1248
 #, elixir-autogen, elixir-format
 msgid "Loading…"
 msgstr "Laadimine…"
@@ -1119,7 +1121,7 @@ msgid_plural "Locale applied to %{count} contacts"
 msgstr[0] "Keel rakendati %{count} kontaktile"
 msgstr[1] "Keel rakendati %{count} kontaktile"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:862
+#: lib/phoenix_kit_crm/web/interactions_component.ex:938
 #, elixir-autogen, elixir-format
 msgid "Log an interaction"
 msgstr "Registreeri suhtlus"
@@ -1310,7 +1312,7 @@ msgstr "Faile veel pole."
 msgid "No images yet."
 msgstr "Pilte veel pole."
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1213
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1301
 #, elixir-autogen, elixir-format
 msgid "No interactions logged yet."
 msgstr "Suhtlust pole veel registreeritud."
@@ -1386,7 +1388,7 @@ msgstr "Korraga saab üles laadida ainult ühe faili"
 msgid "Open in Activity log"
 msgstr "Ava tegevuste logis"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:957
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1033
 #, elixir-autogen, elixir-format
 msgid "Optional"
 msgstr "Vabatahtlik"
@@ -1595,7 +1597,7 @@ msgstr "Roll ettevõttes"
 msgid "Save"
 msgstr "Salvesta"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1187
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1275
 #, elixir-autogen, elixir-format
 msgid "Save interaction"
 msgstr "Salvesta suhtlus"
@@ -1607,7 +1609,7 @@ msgstr "Salvestatud."
 
 #: lib/phoenix_kit_crm/web/company_form_live.ex:524
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:703
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1185
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1273
 #: lib/phoenix_kit_crm/web/list_form_live.ex:171
 #, elixir-autogen, elixir-format
 msgid "Saving…"
@@ -1624,7 +1626,7 @@ msgstr "Otsi e-posti/nime järgi"
 msgid "Search name/email"
 msgstr "Otsi nime/e-posti järgi"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1164
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1243
 #, elixir-autogen, elixir-format
 msgid "Searching…"
 msgstr "Otsimine…"
@@ -1645,7 +1647,7 @@ msgstr "Määra kõigepealt sellele nimekirjale keel"
 msgid "Set as %{noun}"
 msgstr "Määra %{noun}-ks"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:947
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1023
 #, elixir-autogen, elixir-format
 msgid "Set to now"
 msgstr "Määra praegune aeg"
@@ -1686,12 +1688,12 @@ msgstr "Nimekirja salvestamine ebaõnnestus. Sisestatud andmed on alles — proo
 msgid "Source"
 msgstr "Allikas"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:798
+#: lib/phoenix_kit_crm/web/interactions_component.ex:869
 #, elixir-autogen, elixir-format
 msgid "Staff"
 msgstr "Töötaja"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1117
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1196
 #, elixir-autogen, elixir-format
 msgid "Staff member"
 msgstr "Töötaja"
@@ -1701,7 +1703,7 @@ msgstr "Töötaja"
 msgid "Starting…"
 msgstr "Alustamine…"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:956
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1032
 #, elixir-autogen, elixir-format
 msgid "Subject"
 msgstr "Teema"
@@ -1775,12 +1777,12 @@ msgstr "Prügikasti"
 msgid "Trashed"
 msgstr "Prügikastis"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:913
+#: lib/phoenix_kit_crm/web/interactions_component.ex:989
 #, elixir-autogen, elixir-format
 msgid "Type"
 msgstr "Tüüp"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1170
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1249
 #, elixir-autogen, elixir-format
 msgid "Type a name — searches contacts%{staff}…"
 msgstr "Sisesta nimi — otsib kontaktide%{staff} hulgast…"
@@ -1827,12 +1829,12 @@ msgstr "Vaata liikmeid"
 msgid "Website"
 msgstr "Veebisait"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:963
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1039
 #, elixir-autogen, elixir-format
 msgid "What was discussed?"
 msgstr "Mida arutati?"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:923
+#: lib/phoenix_kit_crm/web/interactions_component.ex:999
 #, elixir-autogen, elixir-format
 msgid "When"
 msgstr "Millal"
@@ -1848,7 +1850,7 @@ msgstr "Imporditakse"
 msgid "added"
 msgstr "lisatud"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1166
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1245
 #, elixir-autogen, elixir-format
 msgid "as free text"
 msgstr "vabateksti kujul"
@@ -1992,7 +1994,7 @@ msgstr "Klient määramata."
 msgid "No interactions with this client yet."
 msgstr "Selle kliendiga pole veel ühtegi suhtlust olnud."
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1292
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1391
 #: lib/phoenix_kit_crm/web/project_client_live.ex:171
 #, elixir-autogen, elixir-format
 msgid "Open in CRM"
@@ -2559,7 +2561,7 @@ msgstr "Mitteaktiivsed"
 msgid "Interactions with this company itself, and — under People — everything logged on its contacts. Log company-level ones here; a person's own are logged on their page."
 msgstr "Suhtlused selle ettevõtte endaga ning — valiku Inimesed all — kõik, mis on kirja pandud tema kontaktide juures. Ettevõtte-tasandi suhtlus pannakse kirja siin; inimese enda oma tema lehel."
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:865
+#: lib/phoenix_kit_crm/web/interactions_component.ex:941
 #, elixir-autogen, elixir-format
 msgid "Log an interaction with %{name}"
 msgstr "Pane kirja suhtlus ettevõttega %{name}"
@@ -2569,7 +2571,7 @@ msgstr "Pane kirja suhtlus ettevõttega %{name}"
 msgid "No interactions logged yet. Calls, emails, meetings and notes are logged from a contact's or company's page."
 msgstr "Suhtlusi pole veel kirja pandud. Kõned, kirjad, kohtumised ja märkmed pannakse kirja kontakti või ettevõtte lehel."
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:871
+#: lib/phoenix_kit_crm/web/interactions_component.ex:947
 #, elixir-autogen, elixir-format
 msgid "People"
 msgstr "Inimesed"
@@ -2590,27 +2592,27 @@ msgstr "CRM-i ligipääs rollilt eemaldatud"
 msgid "CRM access enabled for a role"
 msgstr "CRM-i ligipääs rollile antud"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:322
+#: lib/phoenix_kit_crm/web/interactions_component.ex:382
 #, elixir-autogen, elixir-format
 msgid "Could not delete this interaction."
 msgstr "Seda suhtlust ei õnnestunud kustutada."
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:635
+#: lib/phoenix_kit_crm/web/interactions_component.ex:706
 #, elixir-autogen, elixir-format
 msgid "File is larger than 25 MB"
 msgstr "Fail on suurem kui 25 MB"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:636
+#: lib/phoenix_kit_crm/web/interactions_component.ex:707
 #, elixir-autogen, elixir-format
 msgid "This file type is not accepted"
 msgstr "Seda failitüüpi ei aktsepteerita"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:639
+#: lib/phoenix_kit_crm/web/interactions_component.ex:710
 #, elixir-autogen, elixir-format
 msgid "Too many files — up to 10 per interaction"
 msgstr "Liiga palju faile — kuni 10 suhtluse kohta"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:641
+#: lib/phoenix_kit_crm/web/interactions_component.ex:712
 #, elixir-autogen, elixir-format
 msgid "Upload failed"
 msgstr "Üleslaadimine ebaõnnestus"
@@ -2620,7 +2622,7 @@ msgstr "Üleslaadimine ebaõnnestus"
 msgid "Browse companies"
 msgstr "Sirvi ettevõtteid"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:291
+#: lib/phoenix_kit_crm/web/interactions_component.ex:321
 #, elixir-autogen, elixir-format
 msgid "The time could not be read."
 msgstr "Aega ei õnnestunud lugeda."
@@ -2650,37 +2652,37 @@ msgstr "Võrdlus"
 msgid "Import contacts"
 msgstr "Kontaktide import"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:577
+#: lib/phoenix_kit_crm/web/interactions_component.ex:648
 #, elixir-autogen, elixir-format
 msgid "%{count}h"
 msgstr "%{count} t"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:576
+#: lib/phoenix_kit_crm/web/interactions_component.ex:647
 #, elixir-autogen, elixir-format
 msgid "%{count}m"
 msgstr "%{count} min"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:580
+#: lib/phoenix_kit_crm/web/interactions_component.ex:651
 #, elixir-autogen, elixir-format
 msgid "%{hours}h %{minutes}m"
 msgstr "%{hours} t %{minutes} min"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1296
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1395
 #, elixir-autogen, elixir-format
 msgid "Add task"
 msgstr "Lisa ülesanne"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:993
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1072
 #, elixir-autogen, elixir-format
 msgid "Add yourself or a staff member under Involved parties to log their time on the project."
 msgstr "Lisa osaliste alla ennast või töötaja, et nende aeg projektile kirja panna."
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:986
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1062
 #, elixir-autogen, elixir-format
 msgid "Billable time"
 msgstr "Arveldatav aeg"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:976
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1052
 #, elixir-autogen, elixir-format
 msgid "Duration (minutes)"
 msgstr "Kestus (minutites)"
@@ -2690,32 +2692,52 @@ msgstr "Kestus (minutites)"
 msgid "Interaction"
 msgstr "Suhtlus"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:860
+#: lib/phoenix_kit_crm/web/interactions_component.ex:936
 #, elixir-autogen, elixir-format
 msgid "Log a meeting with %{name} on this project"
 msgstr "Pane kirja kohtumine ettevõttega %{name} sellel projektil"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1278
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1377
 #, elixir-autogen, elixir-format
 msgid "Tasks from this:"
 msgstr "Sellest tulnud ülesanded:"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:545
+#: lib/phoenix_kit_crm/web/interactions_component.ex:616
 #, elixir-autogen, elixir-format
 msgid "The meeting was saved, but %{count} time entries could not be written to the project."
 msgstr "Kohtumine salvestati, kuid %{count} ajakirjet ei õnnestunud projektile kirjutada."
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1011
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1090
 #, elixir-autogen, elixir-format
 msgid "minutes"
 msgstr "minutit"
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:996
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1075
 #, elixir-autogen, elixir-format
 msgid "Minutes per attendee — blank means the whole duration."
 msgstr "Minutid osaleja kohta — tühi tähendab kogu kestust."
 
-#: lib/phoenix_kit_crm/web/interactions_component.ex:1290
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1389
 #, elixir-autogen, elixir-format
 msgid "This meeting on the company's page in the CRM"
 msgstr "See kohtumine ettevõtte lehel CRM-is"
+
+#: lib/phoenix_kit_crm/web/interactions_component.ex:933
+#, elixir-autogen, elixir-format
+msgid "Edit interaction"
+msgstr "Muuda suhtlust"
+
+#: lib/phoenix_kit_crm/web/interactions_component.ex:931
+#, elixir-autogen, elixir-format
+msgid "Edit this meeting"
+msgstr "Muuda seda kohtumist"
+
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1275
+#, elixir-autogen, elixir-format
+msgid "Save changes"
+msgstr "Salvesta muudatused"
+
+#: lib/phoenix_kit_crm/web/interactions_component.ex:1069
+#, elixir-autogen, elixir-format
+msgid "Time already logged stays in the project's ledger; edit the text and the length here."
+msgstr "Juba kirja pandud aeg jääb projekti arvestusse; siin saab muuta teksti ja kestust."
