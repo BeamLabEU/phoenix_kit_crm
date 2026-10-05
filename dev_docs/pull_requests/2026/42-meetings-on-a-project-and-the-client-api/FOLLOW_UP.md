@@ -81,7 +81,7 @@ claim of its below was checked against the code here before being acted on.
 
 ## Open
 
-The three Skipped items that are decisions: billable on edit, trashed anchors on the project feed, the planned-events refresh.
+~~The three Skipped items that are decisions: billable on edit, trashed anchors on the project feed, the planned-events refresh.~~ All three were taken in `ee71f0b` (next section): billable edits, the trashed-anchor guard on the project feed (`visible_anchors/1`, also on the API's fetch), and the calendar/project-feed refresh. Still open after it: the task link after the interaction commits, `event_uuid` project membership, and concurrent first-time ledger writes.
 
 # Workspace follow-up to commit `854ae92` (2026-10-05)
 
