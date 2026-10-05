@@ -36,6 +36,33 @@ defmodule PhoenixKitCRM.CompanyApiTest do
     assert [%{id: "listCompanies"}, %{id: "getCompany"}] = CompanyApi.docs()
   end
 
+  test "tasks on an interaction are checked before anything is written" do
+    {:ok, company} = Companies.create_company(%{"name" => "ANDI"})
+    project_uuid = Ecto.UUID.generate()
+
+    {:ok, i} =
+      Interactions.create_interaction(%{
+        "company_uuid" => company.uuid,
+        "project_uuid" => project_uuid,
+        "interaction_type" => "call",
+        "subject" => "Before"
+      })
+
+    ctx = %{project: %{uuid: project_uuid}, user_uuid: nil, key: nil, actor: nil}
+
+    # a malformed list is a 422; an unknown task (nothing is within reach here) a 404 — and the row is untouched
+    assert {:error, {422, "validation_failed", _, _}} =
+             ProjectApi.update(ctx, i.uuid, %{"subject" => "After", "tasks" => [123]})
+
+    assert {:error, {404, "not_found", _, _}} =
+             ProjectApi.update(ctx, i.uuid, %{
+               "subject" => "After",
+               "tasks" => [Ecto.UUID.generate()]
+             })
+
+    assert Interactions.get_interaction(i.uuid).subject == "Before"
+  end
+
   test "the interactions list honours since and limit, newest first" do
     {:ok, company} = Companies.create_company(%{"name" => "ANDI"})
     project_uuid = Ecto.UUID.generate()

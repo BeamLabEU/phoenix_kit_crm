@@ -99,7 +99,8 @@ defmodule PhoenixKitCRM.ProjectApi do
   def create(%{project: project, user_uuid: user_uuid} = ctx, attrs) do
     with {:ok, company_uuid} <- client_company(project),
          {:ok, fields} <- validate(attrs, :create),
-         {:ok, parties} <- parties(attrs["parties"], required: false) do
+         {:ok, parties} <- parties(attrs["parties"], required: false),
+         :ok <- check_tasks(project, attrs["tasks"]) do
       row_attrs =
         fields
         |> Map.merge(%{
@@ -119,7 +120,8 @@ defmodule PhoenixKitCRM.ProjectApi do
   def update(%{project: project} = ctx, id, attrs) do
     with {:ok, i} <- fetch(project, id),
          {:ok, fields} <- validate(attrs, :update),
-         {:ok, parties} <- parties(attrs["parties"], required: false) do
+         {:ok, parties} <- parties(attrs["parties"], required: false),
+         :ok <- check_tasks(project, attrs["tasks"]) do
       row_attrs = put_metadata(fields, i.metadata, attrs, ctx)
 
       i
@@ -139,9 +141,35 @@ defmodule PhoenixKitCRM.ProjectApi do
 
   defp answer({:error, %Ecto.Changeset{} = cs}, _attrs, _ctx, _status), do: changeset_error(cs)
 
-  # `tasks: [uuid]` — each task gains this interaction's mention token (the
-  # same link the meeting's "Add task" button makes); an unknown task is a
-  # 404 naming it. Not a replace: a task once linked stays linked.
+  # `tasks: [uuid]` is checked BEFORE the interaction is written: a list of
+  # uuids, each a task of this project or a sub-project under it — a task
+  # elsewhere on the site is not this interaction's to touch (404), a
+  # malformed list a 422. Then each gains the link (`ProjectsLink.link_task/3`:
+  # the projects module's own table, plus the mention token). Not a
+  # replace: a task once linked stays linked.
+  defp check_tasks(_project, nil), do: :ok
+
+  defp check_tasks(project, uuids) when is_list(uuids) do
+    if Enum.all?(uuids, &(is_binary(&1) and match?({:ok, _}, Ecto.UUID.cast(&1)))) do
+      reach = ProjectsLink.subtree_uuids(project.uuid)
+
+      case Enum.find(uuids, &(ProjectsLink.task_project(&1) not in reach)) do
+        nil ->
+          :ok
+
+        uuid ->
+          {:error, {404, "not_found", "No such task on this project: #{uuid}.", %{task: uuid}}}
+      end
+    else
+      {:error,
+       {422, "validation_failed", "tasks must be a list of task uuids.",
+        %{tasks: ["must be uuids"]}}}
+    end
+  end
+
+  defp check_tasks(_project, _),
+    do: {:error, {422, "validation_failed", "tasks must be a list of task uuids.", nil}}
+
   defp link_tasks(_i, nil, _ctx), do: :ok
 
   defp link_tasks(i, uuids, ctx) when is_list(uuids) do
@@ -159,8 +187,7 @@ defmodule PhoenixKitCRM.ProjectApi do
     end)
   end
 
-  defp link_tasks(_i, _, _ctx),
-    do: {:error, {422, "validation_failed", "tasks must be a list of task uuids.", nil}}
+  defp link_tasks(_i, _, _ctx), do: :ok
 
   # ── Shapes ──────────────────────────────────────────────────────────
 

@@ -22,6 +22,20 @@ defmodule PhoenixKitCRM.ProjectsLink do
   @projects PhoenixKitProjects.Projects
   @assignment PhoenixKitProjects.Schemas.Assignment
 
+  @doc "The project a task belongs to, when the projects module is there and the task exists."
+  @spec task_project(String.t()) :: String.t() | nil
+  def task_project(uuid) when is_binary(uuid) do
+    if Code.ensure_loaded?(@projects) and function_exported?(@projects, :get_assignment, 1) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      case apply(@projects, :get_assignment, [uuid]) do
+        nil -> nil
+        a -> a.project_uuid
+      end
+    end
+  rescue
+    _ -> nil
+  end
+
   @doc "A task's label, when the projects module is there and the task exists."
   @spec task_label(String.t()) :: String.t() | nil
   def task_label(uuid) when is_binary(uuid) do
@@ -38,11 +52,11 @@ defmodule PhoenixKitCRM.ProjectsLink do
   end
 
   @doc """
-  Links a task to an interaction the way the meeting's "Add task" does: the
-  task's description gains the interaction's mention token, and the
-  interaction lists the task among what came out of it. `{:ok, task}`,
-  `{:error, :not_found}` for an unknown task, `{:error, :unavailable}`
-  without the projects module.
+  Links a task to an interaction: a row in the projects module's own link
+  table plus the mention token in the task's description, so the interaction
+  lists the task among what came out of it. `{:ok, task}`, `{:error,
+  :not_found}` for an unknown task, `{:error, :unavailable}` without the
+  projects module. The caller checks the task is within reach first.
   """
   @spec link_task(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def link_task(task_uuid, interaction, opts \\ []) when is_binary(task_uuid) do
