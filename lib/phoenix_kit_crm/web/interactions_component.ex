@@ -86,6 +86,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      |> assign_new(:attendee_minutes, fn -> %{} end)
      # The row being edited in the composer (nil = composing a new one).
      |> assign_new(:editing_uuid, fn -> nil end)
+     |> assign_new(:edit_logged, fn -> %{} end)
      # Project mode: the planned event this interaction is the record of,
      # and the project's events to pick it from.
      |> assign_new(:c_event_uuid, fn -> "" end)
@@ -561,11 +562,16 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
            }
            |> maybe_put_occurred_at(occurred_at, socket.assigns[:tz] || "0")
            |> put_duration(socket),
-         {:ok, _} <-
+         {:ok, updated} <-
            Interactions.update_interaction(i, attrs, nil,
              actor_uuid: socket.assigns[:current_user_uuid]
            ) do
-      {:noreply, socket |> reset_composer() |> load_interactions() |> done()}
+      {:noreply,
+       socket
+       |> log_attendee_time(updated)
+       |> reset_composer(keep_error: true)
+       |> load_interactions()
+       |> done()}
     else
       {:error, changeset} -> {:noreply, assign(socket, :save_error, changeset_message(changeset))}
       _ -> {:noreply, assign(socket, :save_error, default_save_error())}
@@ -623,12 +629,36 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
           if(i.duration_minutes, do: Integer.to_string(i.duration_minutes), else: "")
         )
         |> assign(:c_event_uuid, (i.metadata || %{})["event_uuid"] || "")
+        |> assign_logged_time(i)
         |> assign(:save_error, nil)
 
       _ ->
         socket
     end
   end
+
+  # What the ledger already holds for the row, by attendee key, so the edit
+  # offers time only to the attendees without an entry; the billable flag
+  # follows the entries already made.
+  defp assign_logged_time(%{assigns: %{project_mode: true} = assigns} = socket, interaction) do
+    entries = ProjectsLink.list_time(assigns.project_uuid, interaction.uuid)
+
+    logged =
+      Map.new(entries, fn e ->
+        key =
+          if e.actor_kind == "user" and e.actor_uuid == assigns[:current_user_uuid],
+            do: "me",
+            else: "#{e.actor_kind}:#{e.actor_uuid}"
+
+        {key, e.minutes}
+      end)
+
+    socket
+    |> assign(:edit_logged, logged)
+    |> assign(:c_billable, Enum.any?(entries, & &1.billable))
+  end
+
+  defp assign_logged_time(socket, _interaction), do: assign(socket, :edit_logged, %{})
 
   # The drawer instance is done: the tab closes it and refreshes the feed.
   defp done(socket) do
@@ -649,6 +679,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     |> assign(:c_duration, "")
     |> assign(:c_billable, false)
     |> assign(:attendee_minutes, %{})
+    |> assign(:edit_logged, %{})
     |> assign(:c_event_uuid, "")
     |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))
     |> assign(:upload_error, nil)
@@ -736,6 +767,16 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   # free-text names are attendees, not time.
   defp attendees(%Phoenix.LiveView.Socket{assigns: assigns}), do: attendees(assigns)
 
+  # Editing: the row's saved parties stand in for the staged ones — the
+  # viewer recognised by their contact, staff record or name — minus the
+  # attendees whose time is in the ledger already (it is append-only).
+  defp attendees(%{project_mode: true, editing_uuid: uuid} = assigns) when is_binary(uuid) do
+    %{assigns | staged_parties: saved_parties(assigns, uuid)}
+    |> Map.put(:editing_uuid, nil)
+    |> attendees()
+    |> Enum.reject(&Map.has_key?(assigns[:edit_logged] || %{}, &1.key))
+  end
+
   defp attendees(%{project_mode: true} = assigns) do
     assigns.staged_parties
     |> Enum.with_index()
@@ -771,13 +812,36 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   defp attendees(_assigns), do: []
 
-  # An attendee's minutes: their own figure when typed, else the meeting's
-  # length. Blank or zero means no entry for them.
-  defp attendee_minutes(assigns, %{key: key}) do
-    case parse_minutes(Map.get(assigns.attendee_minutes, key)) do
-      nil -> parse_minutes(assigns.c_duration)
-      minutes -> minutes
+  defp saved_parties(assigns, uuid) do
+    me = me_party(assigns[:current_user_uuid], assigns[:current_user_name])
+
+    case Enum.find(assigns.interactions, &(&1.uuid == uuid)) do
+      %Interaction{parties: parties} when is_list(parties) ->
+        Enum.map(parties, &saved_party(&1, me, assigns[:current_user_name]))
+
+      _ ->
+        []
     end
+  end
+
+  defp saved_party(p, me, name) do
+    base = %{
+      raw_name: p.raw_name,
+      contact_uuid: p.contact_uuid,
+      staff_person_uuid: p.staff_person_uuid
+    }
+
+    if viewer?(base, me, name), do: mark_me(base), else: base
+  end
+
+  # An attendee's minutes: their own figure when typed, the meeting's length
+  # when the box is blank, and no entry at all when they typed 0.
+  defp attendee_minutes(assigns, %{key: key}) do
+    typed = Map.get(assigns.attendee_minutes, key)
+
+    if is_binary(typed) and String.trim(typed) == "0",
+      do: nil,
+      else: parse_minutes(typed) || parse_minutes(assigns.c_duration)
   end
 
   defp parse_minutes(value) when is_binary(value) do
@@ -1101,6 +1165,21 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
       end)
   end
 
+  # A saved party is the viewer when it is their contact, their staff
+  # record, or (free text, the old way) their name.
+  defp viewer?(_party, nil, _name), do: false
+
+  defp viewer?(%{contact_uuid: c}, %{contact_uuid: c}, _name) when is_binary(c), do: true
+
+  defp viewer?(%{staff_person_uuid: su}, %{staff_person_uuid: su}, _name) when is_binary(su),
+    do: true
+
+  defp viewer?(%{contact_uuid: nil, staff_person_uuid: nil, raw_name: raw}, me, name)
+       when is_binary(raw),
+       do: raw in [me.raw_name, name]
+
+  defp viewer?(_party, _me, _name), do: false
+
   defp same_person?(%{kind: "contact", uuid: uuid}, %{contact_uuid: uuid}), do: true
   defp same_person?(%{kind: "staff", uuid: uuid}, %{staff_person_uuid: uuid}), do: true
   defp same_person?(_, _), do: false
@@ -1224,6 +1303,29 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   defp composer_title(%{anchor_kind: :company, anchor: company}),
     do: gettext("Log an interaction with %{name}", name: Company.display_name(company))
+
+  # "Max Don 180 min, Sasha Don 180 min" — the entries the row already has,
+  # named by the party they belong to.
+  defp logged_summary(logged, assigns) do
+    names =
+      case Enum.find(assigns.interactions, &(&1.uuid == assigns.editing_uuid)) do
+        %Interaction{parties: parties} when is_list(parties) ->
+          Map.new(parties, fn p -> {"staff_person:#{p.staff_person_uuid}", p.raw_name} end)
+
+        _ ->
+          %{}
+      end
+
+    Enum.map_join(logged, ", ", fn {key, minutes} ->
+      name =
+        case key do
+          "me" -> assigns[:current_user_name] || gettext("you")
+          _ -> Map.get(names, key, key)
+        end
+
+      gettext("%{name} %{minutes} min", name: name, minutes: minutes)
+    end)
+  end
 
   defp feed_scopes do
     [
@@ -1417,14 +1519,22 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                   wrapper_class="h-8 items-center gap-2! -mb-0.5"
                 />
               </div>
-              <% attendees = if @editing_uuid, do: [], else: attendees(assigns) %>
-              <p :if={@editing_uuid} class="text-xs text-base-content/60">
-                {gettext("Time already logged stays in the project's ledger; edit the text and the length here.")}
+              <% attendees = attendees(assigns) %>
+              <p :if={@editing_uuid and @edit_logged != %{}} class="text-xs text-base-content/60">
+                {gettext("Already in the project's ledger: %{entries}.",
+                  entries: logged_summary(@edit_logged, assigns)
+                )}
+              </p>
+              <p :if={@editing_uuid and attendees == [] and @edit_logged == %{}} class="text-xs text-base-content/60">
+                {gettext("Nobody from your side is on this record, so there is no time to log.")}
+              </p>
+              <p :if={@editing_uuid and attendees != []} class="text-xs text-base-content/60">
+                {gettext("Saving logs these attendees' time on the project — blank means the whole duration, 0 means none.")}
               </p>
               <p :if={attendees == [] and is_nil(@editing_uuid)} class="text-xs text-base-content/60">
                 {gettext("Add yourself or a staff member under Involved parties to log their time on the project.")}
               </p>
-              <p :if={attendees != []} class="text-xs text-base-content/60">
+              <p :if={attendees != [] and is_nil(@editing_uuid)} class="text-xs text-base-content/60">
                 {gettext("Minutes per attendee — blank means the whole duration.")}
               </p>
               <div :for={a <- attendees} class="flex items-center gap-2">

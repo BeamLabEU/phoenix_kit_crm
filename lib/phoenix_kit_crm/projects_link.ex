@@ -29,6 +29,48 @@ defmodule PhoenixKitCRM.ProjectsLink do
   end
 
   @doc """
+  The time already in the project's ledger against one interaction, as
+  `[%{actor_kind, actor_uuid, minutes, billable}]` — what an edit must not
+  log twice. The ledger filters on the metadata where it can; the filter
+  is applied here too, so an older ledger that ignores the option still
+  answers correctly. Empty when the projects module is absent.
+  """
+  @spec list_time(binary(), binary()) :: [map()]
+  def list_time(project_uuid, interaction_uuid)
+      when is_binary(project_uuid) and is_binary(interaction_uuid) do
+    if Code.ensure_loaded?(@ledger) and function_exported?(@ledger, :list_entries, 2) do
+      @ledger
+      |> apply(:list_entries, [
+        project_uuid,
+        [limit: 500, metadata: %{"interaction_uuid" => interaction_uuid}]
+      ])
+      |> Enum.filter(fn e ->
+        Map.get(e, :kind) == "time" and
+          (Map.get(e, :metadata) || %{})["interaction_uuid"] == interaction_uuid
+      end)
+      |> Enum.map(fn e ->
+        %{
+          actor_kind: Map.get(e, :actor_kind),
+          actor_uuid: Map.get(e, :actor_uuid),
+          minutes: e |> Map.get(:amount) |> to_minutes(),
+          billable: Map.get(e, :billable) == true
+        }
+      end)
+    else
+      []
+    end
+  rescue
+    e ->
+      Logger.warning("[CRM] ledger read failed: #{Exception.message(e)}")
+      []
+  end
+
+  defp to_minutes(%Decimal{} = d), do: d |> Decimal.round() |> Decimal.to_integer()
+  defp to_minutes(n) when is_integer(n), do: n
+  defp to_minutes(n) when is_float(n), do: round(n)
+  defp to_minutes(_), do: 0
+
+  @doc """
   The project's events (the plan: meetings as scheduled), newest first,
   for the composer's "Planned as" pick. Empty when the projects module is
   absent. Options go to the projects module's `list_for_project/2`.
