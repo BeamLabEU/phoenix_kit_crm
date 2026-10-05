@@ -277,7 +277,10 @@ defmodule PhoenixKitCRM do
         # project, with the attendees' time into the project's ledger. The
         # hub resolves it against the project's role floors (an extension
         # action lands at member) and hands the tab `can_write`.
-        permission_actions: [:view, :log_interaction]
+        permission_actions: [:view, :log_interaction],
+        # The project's interactions on the projects JSON API
+        # (`/ext/interactions`) — `PhoenixKitCRM.ProjectApi`.
+        api: PhoenixKitCRM.ProjectApi
       }
     ]
   end

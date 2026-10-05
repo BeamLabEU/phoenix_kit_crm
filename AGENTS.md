@@ -175,6 +175,21 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
   The CRM never reads the ledger back: a row shows its own length, not the
   time logged. Per-attendee minutes default to the duration; a client
   contact or a free-text party is an attendee, never time.
+- **A project's interactions on the projects API** (`ProjectApi`, the
+  `api:` of the Client extension — `PhoenixKitProjects.Extensions.ApiProvider`
+  by name, the projects module is not a dependency): `/ext/interactions`
+  list / get / create / update with type, subject, body, occurred_at,
+  time_zone, duration_minutes, parties (a replace list; each name resolves
+  to a contact or a staff person that must exist) and `event_uuid`. The
+  anchor is always the project's client company (read through
+  `PhoenixKitProjects.Extensions.config/2` by name; none → 409 `no_client`).
+  Time is never logged here — the projects API's own `/time` is.
+- **The plan → record link** is `metadata.event_uuid` on the interaction
+  (the project event it is the record of): the composer's "Planned as" pick
+  (project mode; events through `ProjectsLink.list_events/2`) prefills the
+  when and the subject, the row shows "Planned 14:00", the API sets or
+  clears it. Events keep no history; a moved event's activity entry
+  carries `moved_from`.
 - **Interactions are mentionable** (`InteractionLinks`, type
   `crm_interaction`, declared in `resource_links/0` with contacts and
   companies): a task whose description carries
@@ -234,7 +249,8 @@ lib/phoenix_kit_crm/
 ├── contacts.ex / companies.ex               # Contexts: CRUD, soft-delete, search, mirror writes
 ├── interactions.ex                          # Context: interactions + involved parties
 ├── interaction_links.ex                     # `crm_interaction` for core's Mentions/ResourceLinks
-├── projects_link.ex                         # Soft (apply/3) writes into the projects ledger
+├── projects_link.ex                         # Soft (apply/3) reads of events, writes into the ledger
+├── project_api.ex                           # `/ext/interactions` for the projects JSON API
 ├── party_roles.ex                           # supplier/customer/manufacturer/partner on a party
 ├── lists.ex + lists/{import,import_report}.ex  # Contact lists, CSV/plaintext import engine
 ├── schemas/                                 # Contact, Company, CompanyMembership, Interaction,

@@ -86,6 +86,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      |> assign_new(:attendee_minutes, fn -> %{} end)
      # The row being edited in the composer (nil = composing a new one).
      |> assign_new(:editing_uuid, fn -> nil end)
+     # Project mode: the planned event this interaction is the record of,
+     # and the project's events to pick it from.
+     |> assign_new(:c_event_uuid, fn -> "" end)
+     |> assign_planned_events()
      |> assign_new(:c_subject, fn -> "" end)
      |> assign_new(:c_body, fn -> "" end)
      |> assign_new(:c_occurred_at, fn -> local_now_str(tz) end)
@@ -298,6 +302,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
            :c_duration,
            if(i.duration_minutes, do: Integer.to_string(i.duration_minutes), else: "")
          )
+         |> assign(:c_event_uuid, (i.metadata || %{})["event_uuid"] || "")
          |> assign(:save_error, nil)}
 
       _ ->
@@ -465,10 +470,40 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     end
   end
 
-  defp put_duration(attrs, %{assigns: %{project_mode: true} = assigns}),
-    do: Map.put(attrs, "duration_minutes", parse_minutes(assigns.c_duration))
+  defp put_duration(attrs, %{assigns: %{project_mode: true} = assigns}) do
+    attrs
+    |> Map.put("duration_minutes", parse_minutes(assigns.c_duration))
+    |> Map.put("metadata", event_metadata(existing_metadata(assigns), assigns.c_event_uuid))
+  end
 
   defp put_duration(attrs, _socket), do: attrs
+
+  defp existing_metadata(%{editing_uuid: uuid, interactions: rows}) do
+    case Enum.find(rows, &(&1.uuid == uuid)) do
+      %Interaction{metadata: m} when is_map(m) -> m
+      _ -> %{}
+    end
+  end
+
+  # The plan → record link lives on the interaction's metadata; "" unlinks.
+  defp event_metadata(existing, uuid) when is_binary(uuid) and uuid != "",
+    do: Map.put(existing, "event_uuid", uuid)
+
+  defp event_metadata(existing, _), do: Map.delete(existing, "event_uuid")
+
+  defp planned_label(%Interaction{metadata: %{"event_uuid" => uuid}}, assigns)
+       when is_binary(uuid) do
+    case Enum.find(assigns.planned_events, &(&1.uuid == uuid)) ||
+           ProjectsLink.get_event(assigns.project_uuid, uuid) do
+      %{starts_at: starts_at} ->
+        gettext("Planned %{when}", when: format_local(starts_at, assigns.tz))
+
+      _ ->
+        nil
+    end
+  end
+
+  defp planned_label(_interaction, _assigns), do: nil
 
   # Back to an empty composer for a new interaction. `keep_error: true`
   # leaves the ledger's verdict (set by `log_attendee_time/2`) in place.
@@ -483,6 +518,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     |> assign(:c_duration, "")
     |> assign(:c_billable, false)
     |> assign(:attendee_minutes, %{})
+    |> assign(:c_event_uuid, "")
     |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))
     |> assign(:upload_error, nil)
     |> then(
@@ -500,14 +536,55 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     |> assign(:c_duration, p["duration_minutes"] || socket.assigns.c_duration)
     |> assign(:c_billable, p["billable"] in ["true", "on"])
     |> assign(:attendee_minutes, Map.get(params, "attendee_minutes", %{}))
+    |> pick_event(p["event_uuid"])
   end
 
   defp assign_project_fields(socket, _p, _params), do: socket
+
+  # Picking a planned event prefills the when and the subject from the
+  # plan (a person can still change both); clearing it leaves the fields.
+  defp pick_event(socket, uuid) when is_binary(uuid) and uuid != "" do
+    if uuid == socket.assigns.c_event_uuid do
+      socket
+    else
+      case Enum.find(socket.assigns.planned_events, &(&1.uuid == uuid)) do
+        nil -> assign(socket, :c_event_uuid, "")
+        event -> apply_planned_event(socket, event)
+      end
+    end
+  end
+
+  defp pick_event(socket, _), do: assign(socket, :c_event_uuid, "")
+
+  defp apply_planned_event(socket, event) do
+    tz = socket.assigns[:tz] || "0"
+
+    socket
+    |> assign(:c_event_uuid, event.uuid)
+    |> assign(:c_occurred_at, DateUtils.format_datetime_local(event.starts_at, tz))
+    |> then(fn s ->
+      if s.assigns.c_subject == "", do: assign(s, :c_subject, event.title), else: s
+    end)
+  end
+
+  defp assign_planned_events(%{assigns: %{project_uuid: uuid}} = socket) when is_binary(uuid) do
+    assign_new(socket, :planned_events, fn -> ProjectsLink.list_events(uuid, limit: 50) end)
+  end
+
+  defp assign_planned_events(socket), do: assign_new(socket, :planned_events, fn -> [] end)
+
+  defp planned_event_options(events, tz) do
+    [{gettext("— not planned —"), ""}] ++
+      Enum.map(events, fn e ->
+        {"#{format_local(e.starts_at, tz)} · #{e.title}", e.uuid}
+      end)
+  end
 
   defp put_project_attrs(attrs, %{assigns: %{project_mode: true} = assigns}) do
     attrs
     |> Map.put("project_uuid", assigns.project_uuid)
     |> Map.put("duration_minutes", parse_minutes(assigns.c_duration))
+    |> Map.put("metadata", event_metadata(%{}, assigns.c_event_uuid))
   end
 
   defp put_project_attrs(attrs, _socket), do: attrs
@@ -1053,6 +1130,15 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                  attendees are the staged parties from our side (staff, "me");
                  each gets the meeting's length unless a figure is typed. --%>
             <div :if={@project_mode} class="flex flex-col gap-2 rounded-box border border-base-200 p-3">
+              <.select
+                :if={@planned_events != []}
+                id="crm-planned-event"
+                name="interaction[event_uuid]"
+                value={@c_event_uuid}
+                label={gettext("Planned as")}
+                options={planned_event_options(@planned_events, @tz)}
+                class="select-sm"
+              />
               <div class="flex flex-wrap items-end gap-3">
                 <.input
                   id="crm-duration"
@@ -1398,6 +1484,14 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
             <div :if={@project_mode} class="flex flex-wrap items-center gap-2 mt-1 text-xs">
               <span :if={i.duration_minutes} class="badge badge-ghost badge-sm gap-1">
                 <.icon name="hero-clock" class="w-3 h-3" /> {format_minutes(i.duration_minutes)}
+              </span>
+              <% planned = planned_label(i, assigns) %>
+              <span
+                :if={planned}
+                class="badge badge-outline badge-sm gap-1"
+                title={gettext("The project event this is the record of")}
+              >
+                <.icon name="hero-calendar" class="w-3 h-3" /> {planned}
               </span>
               <% links = Map.get(@interaction_links, i.uuid, []) %>
               <span :if={links != []} class="text-base-content/50">{gettext("Tasks from this:")}</span>

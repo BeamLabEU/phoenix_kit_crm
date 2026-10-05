@@ -18,6 +18,7 @@ defmodule PhoenixKitCRM.ProjectsLink do
   require Logger
 
   @ledger PhoenixKitProjects.Ledger
+  @events PhoenixKitProjects.ProjectEvents
 
   @doc "Whether the projects ledger is loaded and takes time entries."
   @spec available?() :: boolean()
@@ -26,6 +27,34 @@ defmodule PhoenixKitCRM.ProjectsLink do
   rescue
     _ -> false
   end
+
+  @doc """
+  The project's events (the plan: meetings as scheduled), newest first,
+  for the composer's "Planned as" pick. Empty when the projects module is
+  absent. Options go to the projects module's `list_for_project/2`.
+  """
+  @spec list_events(binary(), keyword()) :: [map()]
+  def list_events(project_uuid, opts \\ []) when is_binary(project_uuid) do
+    if Code.ensure_loaded?(@events) and function_exported?(@events, :list_for_project, 2) do
+      @events |> apply(:list_for_project, [project_uuid, opts]) |> Enum.reverse()
+    else
+      []
+    end
+  rescue
+    _ -> []
+  end
+
+  @doc "One event of the project, or nil."
+  @spec get_event(binary(), binary()) :: map() | nil
+  def get_event(project_uuid, event_uuid)
+      when is_binary(project_uuid) and is_binary(event_uuid) do
+    if Code.ensure_loaded?(@events) and function_exported?(@events, :get, 2),
+      do: apply(@events, :get, [project_uuid, event_uuid])
+  rescue
+    _ -> nil
+  end
+
+  def get_event(_, _), do: nil
 
   @doc """
   One ledger entry of `minutes` on `project_uuid`, with the ledger's own
