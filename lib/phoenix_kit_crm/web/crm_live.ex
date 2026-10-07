@@ -27,7 +27,9 @@ defmodule PhoenixKitCRM.Web.CRMLive do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitCRM.Gettext
 
-  import PhoenixKitCRM.Web.InteractionHelpers, only: [format_local: 2, viewer_tz: 1]
+  import PhoenixKitCRM.Web.InteractionHelpers,
+    only: [ended_at: 1, format_span: 3, viewer_tz: 1]
+
   # Core's stretched-link overlay (whole row/card clickable via one real <a>);
   # deliberately not auto-imported by `use PhoenixKitWeb` — see its moduledoc.
   import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
@@ -277,7 +279,7 @@ defmodule PhoenixKitCRM.Web.CRMLive do
               </span>
             </div>
             <span class="text-xs text-base-content/60 shrink-0">
-              {format_local(i.occurred_at, @tz)}
+              {format_span(i.occurred_at, ended_at(i), @tz)}
             </span>
           </li>
         </ol>

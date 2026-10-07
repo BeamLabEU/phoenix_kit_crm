@@ -236,8 +236,9 @@ defmodule PhoenixKitCRM.ProjectsLink do
 
   @doc """
   Plans a meeting: a project event (`title`, `starts_at`, optional
-  `location`, no end — nobody knows how long it will take) created by the
-  projects module, which logs it and shows it on the project's calendar.
+  `location`, and `ends_at` when someone knows how long it will take),
+  created by the projects module, which logs it and shows it on the
+  project's calendar.
   """
   @spec create_event(binary(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def create_event(project_uuid, attrs, opts \\ [])

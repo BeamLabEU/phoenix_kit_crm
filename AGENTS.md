@@ -511,6 +511,24 @@ party "Add me" stages (contact, else staff record, else free text).
 Template guards on `@editing_uuid` must use `is_binary/1`: `and` on a
 string raised `BadBooleanError` and took the drawer down, twice.
 
+**A start and an end (2026-10-06, Max: "a start date and an end date …
+same thing with planned meetings and interactions").** No new column: an
+interaction stores a start (`occurred_at`) and whole minutes
+(`duration_minutes`), and the end is those two read together
+(`Interaction.ended_at/1`). The composer has an "Ended (optional)" field on
+every page; in a project it and the length follow each other
+(`sync_span/2`, keyed on the change event's `_target`: a new end sets the
+length, a new length or a moved start sets the end), and on save the end is
+read once more against the start — one that is not after it is said, never
+saved as "no length". Outside a project the end is the only way to give a
+length. Feed rows and the CRM timeline show the span
+(`InteractionHelpers.format_span/3`: the end's time alone on the same local
+day). "Plan ahead" takes an optional end too (`ends_at` on the project
+event; empty when nobody knows how long it will take), and "Log what
+happened" prefills the end and the length from the plan. The API answers
+`ended_at` and accepts it in place of `duration_minutes` (both sent must
+agree; an end needs a start to be measured from).
+
 Idea, not built (2026-10-05, Max: "not sure about that, just an idea"):
 next to "Add me", offer the parties recently added on this project (the
 last few distinct contacts/staff from its interactions) as one-click

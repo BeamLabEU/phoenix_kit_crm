@@ -16,7 +16,7 @@ defmodule PhoenixKitCRM.ProjectApi do
   the work here with a `ctx` (`project`, `key`, `user_uuid` = the person
   the key acts for, else the one who minted it, `actor`). What an agent may write: `type`, `subject`,
   `body`, `occurred_at` (ISO 8601, any offset), `time_zone`,
-  `duration_minutes`, `parties` (`{name, contact_uuid?, staff_person_uuid?}`
+  `duration_minutes` (or `ended_at`, the same said as a moment), `parties` (`{name, contact_uuid?, staff_person_uuid?}`
   — a replace, never a merge), and `event_uuid` (the project event this
   interaction is the record of — the plan → record link). The anchor is the
   project's client company and never changes; time entries are the ledger's
@@ -98,7 +98,7 @@ defmodule PhoenixKitCRM.ProjectApi do
   @doc false
   def create(%{project: project, user_uuid: user_uuid} = ctx, attrs) do
     with {:ok, company_uuid} <- client_company(project),
-         {:ok, fields} <- validate(attrs, :create),
+         {:ok, fields} <- validate(attrs, :create, nil),
          {:ok, parties} <- parties(attrs["parties"], required: false),
          :ok <- check_tasks(project, attrs["tasks"]) do
       row_attrs =
@@ -119,7 +119,7 @@ defmodule PhoenixKitCRM.ProjectApi do
   @doc false
   def update(%{project: project} = ctx, id, attrs) do
     with {:ok, i} <- fetch(project, id),
-         {:ok, fields} <- validate(attrs, :update),
+         {:ok, fields} <- validate(attrs, :update, i.occurred_at),
          {:ok, parties} <- parties(attrs["parties"], required: false),
          :ok <- check_tasks(project, attrs["tasks"]) do
       row_attrs = put_metadata(fields, i.metadata, attrs, ctx)
@@ -204,6 +204,8 @@ defmodule PhoenixKitCRM.ProjectApi do
       occurred_at: i.occurred_at,
       time_zone: i.time_zone,
       duration_minutes: i.duration_minutes,
+      # the start plus the length; null when no length was given
+      ended_at: Interaction.ended_at(i),
       company_uuid: i.company_uuid,
       contact_uuid: i.contact_uuid,
       event_uuid: (i.metadata || %{})["event_uuid"],
@@ -258,6 +260,14 @@ defmodule PhoenixKitCRM.ProjectApi do
         type: "integer",
         required: false,
         doc: "how long it took, whole minutes (1–1440)"
+      },
+      %{
+        name: "ended_at",
+        in: :body,
+        type: "string",
+        required: false,
+        doc:
+          "ISO 8601 datetime with offset, when it ended - the length said another way (stored as `duration_minutes` from the start); send this or `duration_minutes`, and if both they must agree"
       },
       %{
         name: "parties",
@@ -395,13 +405,14 @@ defmodule PhoenixKitCRM.ProjectApi do
     _ -> nil
   end
 
-  defp validate(attrs, mode) do
+  defp validate(attrs, mode, started) do
     with {:ok, type} <- type(attrs["type"], mode),
          {:ok, subject} <- string(attrs["subject"], "subject", 255),
          {:ok, body} <- string(attrs["body"], "body", 20_000),
          {:ok, occurred_at} <- occurred_at(attrs["occurred_at"]),
          {:ok, tz} <- string(attrs["time_zone"], "time_zone", 64),
          {:ok, minutes} <- duration(attrs["duration_minutes"]),
+         {:ok, minutes} <- ended_at(attrs["ended_at"], occurred_at || started, minutes),
          :ok <- event_uuid(attrs["event_uuid"]) do
       fields =
         %{}
@@ -450,6 +461,33 @@ defmodule PhoenixKitCRM.ProjectApi do
   defp duration(nil), do: {:ok, nil}
   defp duration(n) when is_integer(n) and n > 0 and n <= 1440, do: {:ok, n}
   defp duration(_), do: invalid("duration_minutes", "must be whole minutes, 1–1440")
+
+  # `ended_at` is the length said another way: the row stores a start and
+  # whole minutes, so an end is turned into minutes from the start (the one
+  # sent, or the row's own on an update). Sent with `duration_minutes`, the
+  # two must agree.
+  defp ended_at(nil, _start, minutes), do: {:ok, minutes}
+
+  defp ended_at(value, %DateTime{} = start, minutes) when is_binary(value) do
+    with {:ok, dt, _} <- DateTime.from_iso8601(value),
+         span = DateTime.diff(DateTime.truncate(dt, :second), start, :minute),
+         {:ok, span} <- duration(span) do
+      if is_nil(minutes) or minutes == span,
+        do: {:ok, span},
+        else: invalid("ended_at", "does not agree with duration_minutes; send one of the two")
+    else
+      {:error, {422, _, _, %{"duration_minutes" => _}}} ->
+        invalid("ended_at", "must be after the start, by at most 1440 minutes")
+
+      _ ->
+        invalid("ended_at", "must be an ISO 8601 datetime")
+    end
+  end
+
+  defp ended_at(value, nil, _minutes) when is_binary(value),
+    do: invalid("ended_at", "needs occurred_at: an end is measured from the start")
+
+  defp ended_at(_, _start, _minutes), do: invalid("ended_at", "must be an ISO 8601 datetime")
 
   defp occurred_at(nil), do: {:ok, nil}
 

@@ -35,7 +35,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   alias PhoenixKit.Utils.Date, as: DateUtils
 
   import PhoenixKitCRM.Web.InteractionHelpers,
-    only: [party_badge: 1, format_local: 2, offset_minutes_now: 1]
+    only: [ended_at: 1, format_local: 2, format_span: 3, offset_minutes_now: 1, party_badge: 1]
 
   alias PhoenixKit.Mentions
   alias PhoenixKit.Mentions.Token
@@ -97,11 +97,15 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      |> assign_new(:planning, fn -> false end)
      |> assign_new(:p_title, fn -> "" end)
      |> assign_new(:p_when, fn -> "" end)
+     |> assign_new(:p_until, fn -> "" end)
      |> assign_new(:p_location, fn -> "" end)
      |> assign_new(:plan_error, fn -> nil end)
      |> assign_new(:c_subject, fn -> "" end)
      |> assign_new(:c_body, fn -> "" end)
      |> assign_new(:c_occurred_at, fn -> local_now_str(tz) end)
+     # When it ended, local like the start; blank when nobody said. Kept in
+     # step with the length: either one sets the other.
+     |> assign_new(:c_ended_at, fn -> "" end)
      |> assign_new(:save_error, fn -> nil end)
      # An upload that could not be stored, said by the dropzone until the
      # next upload succeeds or the interaction is saved — typing must not
@@ -330,7 +334,9 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      |> assign(:c_subject, p["subject"] || "")
      |> assign(:c_body, p["body"] || "")
      |> assign(:c_occurred_at, p["occurred_at"] || socket.assigns.c_occurred_at)
+     |> assign(:c_ended_at, p["ended_at"] || socket.assigns.c_ended_at)
      |> assign_project_fields(p, params)
+     |> sync_span(params["_target"])
      |> assign(:save_error, nil)}
   end
 
@@ -375,6 +381,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
        :p_when,
        DateUtils.format_datetime_local(DateTime.add(DateTime.utc_now(), 86_400), tz)
      )
+     |> assign(:p_until, "")
      |> assign(:p_location, "")
      |> assign(:plan_error, nil)}
   end
@@ -387,6 +394,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      socket
      |> assign(:p_title, p["title"] || socket.assigns.p_title)
      |> assign(:p_when, p["when"] || socket.assigns.p_when)
+     |> assign(:p_until, p["until"] || socket.assigns.p_until)
      |> assign(:p_location, p["location"] || "")
      |> assign(:plan_error, nil)}
   end
@@ -395,6 +403,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     tz = socket.assigns[:tz] || "0"
 
     with starts_at when is_struct(starts_at, DateTime) <- local_to_utc(socket.assigns.p_when, tz),
+         {:ok, ends_at} <- plan_end(starts_at, local_to_utc(socket.assigns.p_until, tz)),
          title when title != "" <- String.trim(socket.assigns.p_title),
          {:ok, _event} <-
            ProjectsLink.create_event(
@@ -402,7 +411,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
              %{
                title: title,
                starts_at: starts_at,
-               ends_at: nil,
+               ends_at: ends_at,
                all_day: false,
                location: blank_to_nil(socket.assigns.p_location)
              },
@@ -417,6 +426,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
        )}
     else
       "" -> {:noreply, assign(socket, :plan_error, gettext("Give the meeting a title."))}
+      :before_start -> {:noreply, assign(socket, :plan_error, end_before_start_error())}
       :error -> {:noreply, assign(socket, :plan_error, gettext("The time could not be read."))}
       nil -> {:noreply, assign(socket, :plan_error, gettext("Pick when the meeting is."))}
       _ -> {:noreply, assign(socket, :plan_error, default_save_error())}
@@ -435,7 +445,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   end
 
   def handle_event("set_now", _params, socket) do
-    {:noreply, assign(socket, :c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))}
+    {:noreply,
+     socket
+     |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))
+     |> sync_span(["interaction", "occurred_at"])}
   end
 
   def handle_event("save_interaction", _params, %{assigns: %{ledger_read_failed: true}} = socket),
@@ -451,9 +464,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
         {:noreply, assign(socket, :save_error, gettext("The time could not be read."))}
 
       occurred_at ->
-        if socket.assigns.editing_uuid,
-          do: update_interaction(socket, occurred_at),
-          else: save_interaction(socket, occurred_at)
+        save_with_span(socket, occurred_at)
     end
   end
 
@@ -627,7 +638,93 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     |> Map.put("metadata", event_metadata(existing_metadata(assigns), assigns.c_event_uuid))
   end
 
-  defp put_duration(attrs, _socket), do: attrs
+  # Outside a project there is no length field: the end, when given, is
+  # what says how long it took. Without one the stored length is left alone.
+  defp put_duration(attrs, %{assigns: assigns}) do
+    case parse_minutes(assigns.c_duration) do
+      nil -> if assigns.c_ended_at == "", do: Map.put(attrs, "duration_minutes", nil), else: attrs
+      minutes -> Map.put(attrs, "duration_minutes", minutes)
+    end
+  end
+
+  # ── Start, end and length kept in step ───────────────────────────────
+
+  # The composer shows a start, an end and (in a project) a length; any two
+  # give the third. What the person just touched wins: a new end sets the
+  # length, a new length or a moved start sets the end.
+  defp sync_span(socket, ["interaction", "ended_at"]) do
+    tz = socket.assigns[:tz] || "0"
+
+    with %DateTime{} = from <- local_to_utc(socket.assigns.c_occurred_at, tz),
+         %DateTime{} = to <- local_to_utc(socket.assigns.c_ended_at, tz),
+         minutes when minutes > 0 <- DateTime.diff(to, from, :minute) do
+      assign(socket, :c_duration, Integer.to_string(minutes))
+    else
+      # a cleared end clears the length it stood for
+      nil -> assign(socket, :c_duration, "")
+      _ -> socket
+    end
+  end
+
+  defp sync_span(socket, ["interaction", field])
+       when field in ["duration_minutes", "occurred_at"] do
+    tz = socket.assigns[:tz] || "0"
+
+    with %DateTime{} = from <- local_to_utc(socket.assigns.c_occurred_at, tz),
+         minutes when is_integer(minutes) <- parse_minutes(socket.assigns.c_duration) do
+      to = DateTime.add(from, minutes * 60, :second)
+      assign(socket, :c_ended_at, DateUtils.format_datetime_local(to, tz))
+    else
+      nil -> if field == "duration_minutes", do: assign(socket, :c_ended_at, ""), else: socket
+      _ -> socket
+    end
+  end
+
+  defp sync_span(socket, _target), do: socket
+
+  defp save_with_span(socket, occurred_at) do
+    case span_minutes(socket, occurred_at) do
+      {:error, message} ->
+        {:noreply, assign(socket, :save_error, message)}
+
+      {:ok, socket} ->
+        if socket.assigns.editing_uuid,
+          do: update_interaction(socket, occurred_at),
+          else: save_interaction(socket, occurred_at)
+    end
+  end
+
+  # On save the end is read once more against the start (a browser that
+  # sent no change event still gets its length), and an end that is not
+  # after the start is said rather than saved as no length.
+  defp span_minutes(socket, occurred_at) do
+    tz = socket.assigns[:tz] || "0"
+
+    case local_to_utc(socket.assigns.c_ended_at, tz) do
+      nil -> {:ok, socket}
+      :error -> {:error, gettext("The end time could not be read.")}
+      # no start typed: the schema stamps "now"; the end is measured from it
+      %DateTime{} = to -> length_between(socket, occurred_at || DateTime.utc_now(), to)
+    end
+  end
+
+  defp length_between(socket, %DateTime{} = from, %DateTime{} = to) do
+    case DateTime.diff(to, from, :minute) do
+      minutes when minutes > 0 -> {:ok, assign(socket, :c_duration, Integer.to_string(minutes))}
+      _ -> {:error, end_before_start_error()}
+    end
+  end
+
+  defp end_before_start_error, do: gettext("The end must be after the start.")
+
+  # A plan's end: none is fine (nobody knows how long it will take), an
+  # unreadable one or one not after the start is said.
+  defp plan_end(_starts_at, nil), do: {:ok, nil}
+  defp plan_end(_starts_at, :error), do: :error
+
+  defp plan_end(%DateTime{} = starts_at, %DateTime{} = ends_at) do
+    if DateTime.compare(ends_at, starts_at) == :gt, do: {:ok, ends_at}, else: :before_start
+  end
 
   defp existing_metadata(%{editing_uuid: uuid, interactions: rows}) do
     case Enum.find(rows, &(&1.uuid == uuid)) do
@@ -687,6 +784,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
       :c_duration,
       if(i.duration_minutes, do: Integer.to_string(i.duration_minutes), else: "")
     )
+    |> assign(:c_ended_at, DateUtils.format_datetime_local(ended_at(i), tz))
     |> assign(:c_event_uuid, (i.metadata || %{})["event_uuid"] || "")
     |> assign(:staged_parties, saved_parties(socket.assigns, i.uuid))
     |> assign(:save_error, nil)
@@ -765,6 +863,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     |> assign(:ledger_read_failed, false)
     |> assign(:c_event_uuid, "")
     |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))
+    |> assign(:c_ended_at, "")
     |> assign(:upload_error, nil)
     |> assign(:save_error, nil)
   end
@@ -804,6 +903,8 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     socket
     |> assign(:c_event_uuid, event.uuid)
     |> assign(:c_occurred_at, DateUtils.format_datetime_local(event.starts_at, tz))
+    |> assign(:c_ended_at, DateUtils.format_datetime_local(Map.get(event, :ends_at), tz))
+    |> sync_span(["interaction", "ended_at"])
     |> then(fn s ->
       if s.assigns.c_subject == "", do: assign(s, :c_subject, event.title), else: s
     end)
@@ -840,7 +941,13 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     |> Map.put("metadata", event_metadata(%{}, assigns.c_event_uuid))
   end
 
-  defp put_project_attrs(attrs, _socket), do: attrs
+  # Outside a project the only length is the one the end gave.
+  defp put_project_attrs(attrs, %{assigns: assigns}) do
+    case parse_minutes(assigns.c_duration) do
+      nil -> attrs
+      minutes -> Map.put(attrs, "duration_minutes", minutes)
+    end
+  end
 
   # Staged parties from OUR side — the ones whose time is the project's to
   # record: a staff person, or the viewer ("Add me"). Client contacts and
@@ -1480,7 +1587,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
             <li :for={e <- unlogged} class="py-2 flex flex-wrap items-center justify-between gap-2 text-sm">
               <span class="flex items-center gap-2 min-w-0">
                 <.icon name="hero-calendar" class="w-4 h-4 text-base-content/50 shrink-0" />
-                <span class="font-medium">{format_local(e.starts_at, @tz)}</span>
+                <span class="font-medium">{format_span(e.starts_at, Map.get(e, :ends_at), @tz)}</span>
                 <span class="truncate">{e.title}</span>
                 <span :if={e.location} class="text-base-content/60 truncate">· {e.location}</span>
                 <span :if={DateTime.compare(e.starts_at, DateTime.utc_now()) == :gt} class="badge badge-ghost badge-xs">
@@ -1495,10 +1602,11 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
           <.form :if={@planning} for={%{}} as={:plan} id={"#{@id}-plan"} phx-change="plan_change" phx-submit="save_plan" phx-target={@myself} class="flex flex-col gap-3 rounded-box border border-base-200 p-3">
             <.input id="crm-plan-title" name="plan[title]" value={@p_title} label={gettext("Title")} class="input-sm" required />
             <div class="flex flex-wrap items-end gap-3">
-              <.input id="crm-plan-when" type="datetime-local" name="plan[when]" value={@p_when} label={gettext("When")} class="input-sm" wrapper_class="w-56" required />
+              <.input id="crm-plan-when" type="datetime-local" name="plan[when]" value={@p_when} label={gettext("Starts")} class="input-sm" wrapper_class="w-56" required />
+              <.input id="crm-plan-until" type="datetime-local" name="plan[until]" value={@p_until} label={gettext("Ends (optional)")} class="input-sm" wrapper_class="w-56" />
               <.input id="crm-plan-location" name="plan[location]" value={@p_location} label={gettext("Where (optional)")} class="input-sm" wrapper_class="flex-1 min-w-48" />
             </div>
-            <p class="text-xs text-base-content/60">{gettext("A meeting, a call, a visit — whatever is planned with the client. No end time: nobody knows how long it will take. It goes on the project's calendar; afterwards, \"Log what happened\" opens the composer with it.")}</p>
+            <p class="text-xs text-base-content/60">{gettext("A meeting, a call, a visit — whatever is planned with the client. Leave the end empty when nobody knows how long it will take. It goes on the project's calendar; afterwards, \"Log what happened\" opens the composer with it.")}</p>
             <div :if={@plan_error} class="alert alert-error text-sm py-2" role="alert">
               <.icon name="hero-exclamation-triangle" class="w-4 h-4 shrink-0" />
               <span>{@plan_error}</span>
@@ -1569,6 +1677,14 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
             </div>
 
             <.input
+              type="datetime-local"
+              id="crm-ended"
+              name="interaction[ended_at]"
+              value={@c_ended_at}
+              label={gettext("Ended (optional)")}
+            />
+
+            <.input
               id="crm-subject"
               name="interaction[subject]"
               value={@c_subject}
@@ -1589,7 +1705,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
               <% plan = Enum.find(@planned_events, &(&1.uuid == @c_event_uuid)) %>
               <div :if={plan} class="flex items-center gap-2 text-sm">
                 <.icon name="hero-calendar" class="w-4 h-4 text-base-content/50" />
-                <span>{gettext("The record of: %{plan}", plan: "#{format_local(plan.starts_at, @tz)} · #{plan.title}")}</span>
+                <span>{gettext("The record of: %{plan}", plan: "#{format_span(plan.starts_at, Map.get(plan, :ends_at), @tz)} · #{plan.title}")}</span>
                 <button type="button" phx-click="unlink_plan" phx-target={@myself} class="btn btn-ghost btn-xs" title={gettext("Not the record of this plan")}>
                   <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
                 </button>
@@ -1886,7 +2002,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                     i.company
                   )}
                 </.link>
-                <span class="text-xs text-base-content/60">{format_local(i.occurred_at, @tz)}</span>
+                <span class="text-xs text-base-content/60">{format_span(i.occurred_at, ended_at(i), @tz)}</span>
               </div>
               <%!-- One menu per row, core's: edit and delete on the rows this
                    page anchors; in project mode also the way to the CRM and

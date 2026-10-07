@@ -159,6 +159,18 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
     end
   end
 
+  @doc """
+  When the interaction ended: its start plus its length. The row stores a
+  start (`occurred_at`) and whole minutes (`duration_minutes`); the end is
+  those two read together, and nil when no length was given.
+  """
+  @spec ended_at(t() | map()) :: DateTime.t() | nil
+  def ended_at(%{occurred_at: %DateTime{} = at, duration_minutes: m})
+      when is_integer(m) and m > 0,
+      do: DateTime.add(at, m * 60, :second)
+
+  def ended_at(_), do: nil
+
   @spec types() :: [String.t()]
   def types, do: @types
 
