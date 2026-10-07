@@ -529,10 +529,12 @@ happened" prefills the end and the length from the plan. The API answers
 `ended_at` and accepts it in place of `duration_minutes` (both sent must
 agree; an end needs a start to be measured from).
 
-Idea, not built (2026-10-05, Max: "not sure about that, just an idea"):
-next to "Add me", offer the parties recently added on this project (the
-last few distinct contacts/staff from its interactions) as one-click
-chips, so the usual attendees of a project need no search.
+Recent people beside "Add me" (2026-10-07; Max's idea of 10-05): the
+composer offers the people this page's interactions involved lately
+(`recent_parties/2`: newest first, each once, six at most, from the feed
+already loaded; the viewer and a contact page's own contact left out) as
+one-click chips (`stage_recent`). A chip is staged as it was saved
+(contact, staff or free text) and leaves the row once staged.
 
 ## Versioning & releases
 

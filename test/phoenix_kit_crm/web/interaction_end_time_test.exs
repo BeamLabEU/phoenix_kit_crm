@@ -107,6 +107,36 @@ defmodule PhoenixKitCRM.Web.InteractionEndTimeTest do
       assert Interactions.list_for_company(company.uuid) == []
     end
 
+    test "Set to now on the end: the call ended now, the length follows from the start", %{
+      view: view,
+      company: company
+    } do
+      started = DateTime.add(DateTime.utc_now(), -25 * 60, :second)
+      local = PhoenixKit.Utils.Date.format_datetime_local(started, "Europe/Tallinn")
+      change(view, %{"subject" => "Maria called", "occurred_at" => local}, "occurred_at")
+
+      view |> element("#crm-set-end-now") |> render_click()
+      view |> element("button[phx-click=save_interaction]") |> render_click()
+
+      assert [i] = Interactions.list_for_company(company.uuid)
+      assert i.duration_minutes in 24..26
+    end
+
+    test "Set to now on the end in the same minute as the start is one minute, not a refusal", %{
+      view: view,
+      company: company
+    } do
+      local = PhoenixKit.Utils.Date.format_datetime_local(DateTime.utc_now(), "Europe/Tallinn")
+
+      change(view, %{"subject" => "Wrong number", "occurred_at" => local}, "occurred_at")
+      view |> element("#crm-set-end-now") |> render_click()
+      html = view |> element("button[phx-click=save_interaction]") |> render_click()
+
+      refute html =~ "The end must be after the start."
+      assert [i] = Interactions.list_for_company(company.uuid)
+      assert i.duration_minutes in 1..2
+    end
+
     test "no end leaves the interaction without a length", %{view: view, company: company} do
       change(view, %{"subject" => "Quick note", "occurred_at" => "2026-10-04T14:03"}, "subject")
       view |> element("button[phx-click=save_interaction]") |> render_click()

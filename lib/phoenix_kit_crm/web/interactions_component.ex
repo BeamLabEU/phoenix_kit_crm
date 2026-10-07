@@ -198,6 +198,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
     socket
     |> assign(:interactions, interactions)
+    |> assign(:recent_parties, recent_parties(socket.assigns, interactions))
     |> assign(:interaction_files, interaction_files)
     |> assign(:interaction_links, backlinks_for(socket, interactions))
   end
@@ -310,6 +311,23 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     socket = if name == "", do: socket, else: maybe_append(socket, party)
 
     {:noreply, push_event(socket, "crm_party_staged", %{})}
+  end
+
+  # A recent person's chip: staged exactly as it was offered.
+  def handle_event("stage_recent", %{"idx" => idx}, socket) do
+    offered =
+      recent_to_offer(socket.assigns[:recent_parties] || [], socket.assigns.staged_parties)
+
+    case Integer.parse(to_string(idx)) do
+      {i, _} when i >= 0 ->
+        case Enum.at(offered, i) do
+          nil -> {:noreply, socket}
+          party -> {:noreply, maybe_append(socket, party)}
+        end
+
+      _ ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("add_me", _params, socket) do
@@ -449,6 +467,32 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      socket
      |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))
      |> sync_span(["interaction", "occurred_at"])}
+  end
+
+  # The call just ended: the end is now, and the length follows from the
+  # start (Max, 2026-10-07 - "instead of having to check the call duration
+  # and then typing that in"). The field holds whole minutes, so a call
+  # shorter than one still ends a minute after it began rather than being
+  # refused as "not after the start".
+  def handle_event("set_end_now", _params, socket) do
+    tz = socket.assigns[:tz] || "0"
+    now = DateTime.utc_now()
+
+    ended =
+      case local_to_utc(socket.assigns.c_occurred_at, tz) do
+        %DateTime{} = from ->
+          if DateTime.diff(now, from, :minute) < 1 and DateTime.diff(now, from, :second) >= 0,
+            do: DateTime.add(from, 60, :second),
+            else: now
+
+        _ ->
+          now
+      end
+
+    {:noreply,
+     socket
+     |> assign(:c_ended_at, DateUtils.format_datetime_local(ended, tz))
+     |> sync_span(["interaction", "ended_at"])}
   end
 
   def handle_event("save_interaction", _params, %{assigns: %{ledger_read_failed: true}} = socket),
@@ -1402,6 +1446,52 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   defp viewer?(_party, _me, _name), do: false
 
+  # How many recent people the composer offers beside "Add me".
+  @recent_parties 6
+
+  # The people this page's interactions involved, newest first, each once:
+  # the usual attendees of a client or a project, offered as one-click
+  # chips so they need no search (Max, 2026-10-07). The viewer is left out
+  # ("Add me" is theirs), and on a contact's page the contact (implied).
+  defp recent_parties(assigns, interactions) do
+    me = me_party(assigns[:current_user_uuid], assigns[:current_user_name])
+    name = assigns[:current_user_name]
+
+    interactions
+    |> Enum.flat_map(fn
+      %Interaction{parties: parties} when is_list(parties) -> parties
+      _ -> []
+    end)
+    |> Enum.map(&recent_party/1)
+    |> Enum.reject(&(is_nil(&1) or viewer?(&1, me, name) or anchor_contact?(&1, assigns)))
+    |> Enum.uniq_by(&(&1.contact_uuid || &1.staff_person_uuid || &1.raw_name))
+    |> Enum.take(@recent_parties)
+  end
+
+  defp recent_party(%{raw_name: name} = p) when is_binary(name) and name != "" do
+    %{
+      raw_name: name,
+      kind: party_kind(p),
+      contact_uuid: p.contact_uuid,
+      staff_person_uuid: p.staff_person_uuid
+    }
+  end
+
+  defp recent_party(_), do: nil
+
+  defp party_kind(%{contact_uuid: uuid}) when is_binary(uuid), do: "contact"
+  defp party_kind(%{staff_person_uuid: uuid}) when is_binary(uuid), do: "staff"
+  defp party_kind(_), do: "text"
+
+  defp anchor_contact?(%{contact_uuid: uuid}, %{anchor_kind: :contact, anchor: %{uuid: uuid}})
+       when is_binary(uuid),
+       do: true
+
+  defp anchor_contact?(_party, _assigns), do: false
+
+  # The recent people not yet staged on the open composer.
+  defp recent_to_offer(recent, staged), do: Enum.reject(recent, &already_staged?(staged, &1))
+
   defp same_person?(%{kind: "contact", uuid: uuid}, %{contact_uuid: uuid}), do: true
   defp same_person?(%{kind: "staff", uuid: uuid}, %{staff_person_uuid: uuid}), do: true
   defp same_person?(_, _), do: false
@@ -1683,6 +1773,17 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
               value={@c_ended_at}
               label={gettext("Ended (optional)")}
             />
+            <div class="-mt-2">
+              <button
+                type="button"
+                id="crm-set-end-now"
+                phx-click="set_end_now"
+                phx-target={@myself}
+                class="btn btn-xs btn-outline gap-1"
+              >
+                <.icon name="hero-clock" class="w-3.5 h-3.5" /> {gettext("Set to now")}
+              </button>
+            </div>
 
             <.input
               id="crm-subject"
@@ -1917,6 +2018,25 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                 loading_more_label={gettext("Loading…")}
                 placeholder={gettext("Type a name — searches contacts%{staff}…", staff: if(@staff_enabled, do: gettext(" and staff"), else: ""))}
               />
+
+              <%!-- The people this page's interactions involved lately, one
+                   click each, as a row under the field (Max: "Add me" keeps the
+                   top right to itself); a chip leaves once it is staged. --%>
+              <% recent = recent_to_offer(assigns[:recent_parties] || [], @staged_parties) %>
+              <div :if={recent != []} class="flex flex-wrap items-center gap-1.5">
+                <span class="text-xs text-base-content/60">{gettext("Recent:")}</span>
+                <button
+                  :for={{p, idx} <- Enum.with_index(recent)}
+                  type="button"
+                  phx-click="stage_recent"
+                  phx-value-idx={idx}
+                  phx-target={@myself}
+                  class="btn btn-xs btn-ghost border-base-300 gap-1 font-normal"
+                  title={gettext("Add %{name}", name: p.raw_name)}
+                >
+                  <.icon name="hero-plus-mini" class="w-3.5 h-3.5 opacity-60" />{p.raw_name}
+                </button>
+              </div>
             </div>
 
           <div :if={@save_error} class="alert alert-error text-sm py-2" role="alert">
