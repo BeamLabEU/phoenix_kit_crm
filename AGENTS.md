@@ -237,6 +237,16 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
   `phoenix_kit_calendar_sources/0` (a person's own calendar: what they
   wrote, or are a party to through their contact or staff record — the
   list IS the permission check). Both modules are reached by name only.
+- **The client on the projects list** (`ProjectColumns.for_projects/1`,
+  the Client extension's `project_columns:`): the projects module hands
+  over a whole page of project uuids and gets `[%{key: "client", label,
+  values: %{project_uuid => %{text, url}}}]` back — the Client rows'
+  `config["company_uuid"]` (the projects module's enablement table, read
+  schemaless) then the companies, a fixed number of reads however many
+  projects. Trashed and missing companies have no value; an install
+  without the projects module answers the bare column. The company path is
+  built once and the uuid substituted, because `Paths.company/1` resolves
+  the URL prefix on every call.
 - **Project calendar events are no longer the plan.** Before V9 "Plan
   ahead" made a project event and the record pointed at it
   (`metadata.event_uuid`). Rows that still carry the pointer keep their
@@ -303,6 +313,7 @@ lib/phoenix_kit_crm/
 ├── interaction_links.ex                     # `crm_interaction` for core's Mentions/ResourceLinks
 ├── projects_link.ex                         # Soft (apply/3) reads of events, writes into the ledger
 ├── project_api.ex                           # `/ext/interactions` for the projects JSON API
+├── project_columns.ex                       # The Client column on the projects list
 ├── party_roles.ex                           # supplier/customer/manufacturer/partner on a party
 ├── lists.ex + lists/{import,import_report}.ex  # Contact lists, CSV/plaintext import engine
 ├── schemas/                                 # Contact, Company, CompanyMembership, Interaction,

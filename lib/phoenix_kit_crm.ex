@@ -301,7 +301,10 @@ defmodule PhoenixKitCRM do
         # The project's interactions on its Calendar tab, read-only: what is
         # planned, what happened, what was cancelled
         # (`PhoenixKitCRM.CalendarItems.for_project/3`).
-        calendar: {PhoenixKitCRM.CalendarItems, :for_project}
+        calendar: {PhoenixKitCRM.CalendarItems, :for_project},
+        # The client's name on the projects list, for the whole page of
+        # projects in one go (`PhoenixKitCRM.ProjectColumns.for_projects/1`).
+        project_columns: {PhoenixKitCRM.ProjectColumns, :for_projects}
       }
     ]
   end
