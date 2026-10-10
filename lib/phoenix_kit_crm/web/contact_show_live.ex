@@ -37,12 +37,23 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   alias PhoenixKitCRM.{Activity, Attachments, Contacts, Paths}
   alias PhoenixKitCRM.PubSub, as: CRMPubSub
   alias PhoenixKitCRM.Schemas.Contact
-  alias PhoenixKitCRM.Web.{EventsComponent, InteractionsComponent, MediaComponent}
+
+  alias PhoenixKitCRM.Web.{
+    EventsComponent,
+    InteractionsComponent,
+    InteractionsDrawer,
+    MediaComponent
+  }
+
   alias PhoenixKitWeb.Live.Components.MediaSelectorModal
 
   @impl true
   def mount(_params, _session, socket),
-    do: {:ok, assign(socket, show_avatar_picker: false, avatar_folder_uuid: nil)}
+    do:
+      {:ok,
+       socket
+       |> assign(show_avatar_picker: false, avatar_folder_uuid: nil)
+       |> InteractionsDrawer.init()}
 
   @impl true
   def handle_params(params, _uri, socket) do
@@ -179,9 +190,23 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   def handle_info({:media_selector_closed}, socket),
     do: {:noreply, assign(socket, :show_avatar_picker, false)}
 
+  # The interactions tab's composer drawer (`InteractionsDrawer`): the feed
+  # instance asks for it, the composer instance says when it is done.
+  def handle_info({:crm_client, _, _} = message, socket), do: drawer_info(message, socket)
+  def handle_info({:crm_client, _} = message, socket), do: drawer_info(message, socket)
+
   def handle_info(msg, socket) do
     Logger.debug("[CRM] ContactShowLive ignoring message: #{inspect(msg)}")
     {:noreply, socket}
+  end
+
+  defp drawer_info(message, socket) do
+    socket = assign(socket, :composer_feed_id, "crm-interactions-#{socket.assigns.contact.uuid}")
+
+    case InteractionsDrawer.handle_info(message, socket) do
+      {:ok, socket} -> {:noreply, socket}
+      :ignore -> {:noreply, socket}
+    end
   end
 
   # Open the avatar picker scoped to the contact's Images folder (so it suggests
@@ -221,6 +246,9 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
         {:noreply, put_flash(socket, :error, gettext("Could not remove the photo."))}
     end
   end
+
+  def handle_event("close_composer", _params, socket),
+    do: {:noreply, InteractionsDrawer.close(socket)}
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
@@ -388,6 +416,19 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
         <.live_component
           module={InteractionsComponent}
           id={"crm-interactions-#{@contact.uuid}"}
+          contact={@contact}
+          show_composer={false}
+          log_button
+          current_user_uuid={current_user_uuid(assigns)}
+          current_user_name={current_user_name(assigns)}
+          phoenix_kit_current_user={@phoenix_kit_current_user}
+          tz={@tz}
+        />
+        <InteractionsDrawer.drawer
+          :if={@composer}
+          id={"crm-composer-#{@contact.uuid}"}
+          composer={@composer}
+          title={gettext("Log an interaction")}
           contact={@contact}
           current_user_uuid={current_user_uuid(assigns)}
           current_user_name={current_user_name(assigns)}

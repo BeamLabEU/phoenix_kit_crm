@@ -33,7 +33,8 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   alias PhoenixKitCRM.PubSub, as: CRMPubSub
   alias PhoenixKitCRM.Schemas.{Company, Contact}
   alias PhoenixKitCRM.Web.Components.MirrorPanel
-  alias PhoenixKitCRM.Web.{EventsComponent, InteractionsComponent, MediaComponent}
+  alias PhoenixKitCRM.Web.{EventsComponent, InteractionsComponent, InteractionsDrawer}
+  alias PhoenixKitCRM.Web.MediaComponent
 
   import PhoenixKitCRM.Web.Components.TabIntro, only: [tab_intro: 1]
 
@@ -59,7 +60,8 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
          subscribed_company: nil,
          subscribed_contacts: MapSet.new(),
          subscribed_catalogue: false
-       )}
+       )
+       |> InteractionsDrawer.init()}
 
   @impl true
   def handle_params(params, _uri, socket) do
@@ -304,9 +306,24 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
       else: {:noreply, socket}
   end
 
+  # The interactions tab's composer drawer (`InteractionsDrawer`): the feed
+  # instance asks for it, the composer instance says when it is done.
+  def handle_info({:crm_client, _, _} = message, socket), do: drawer_info(message, socket)
+  def handle_info({:crm_client, _} = message, socket), do: drawer_info(message, socket)
+
   def handle_info(msg, socket) do
     Logger.debug("[CRM] CompanyShowLive ignoring message: #{inspect(msg)}")
     {:noreply, socket}
+  end
+
+  defp drawer_info(message, socket) do
+    socket =
+      assign(socket, :composer_feed_id, "crm-company-interactions-#{socket.assigns.company.uuid}")
+
+    case InteractionsDrawer.handle_info(message, socket) do
+      {:ok, socket} -> {:noreply, socket}
+      :ignore -> {:noreply, socket}
+    end
   end
 
   # Open the logo picker scoped to the company's Images folder.
@@ -370,6 +387,9 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
        :catalogue_columns
      )}
   end
+
+  def handle_event("close_composer", _params, socket),
+    do: {:noreply, InteractionsDrawer.close(socket)}
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
@@ -715,6 +735,19 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
         <.live_component
           module={InteractionsComponent}
           id={"crm-company-interactions-#{@company.uuid}"}
+          company={@company}
+          show_composer={false}
+          log_button
+          current_user_uuid={current_user_uuid(assigns)}
+          current_user_name={current_user_name(assigns)}
+          phoenix_kit_current_user={@phoenix_kit_current_user}
+          tz={@tz}
+        />
+        <InteractionsDrawer.drawer
+          :if={@composer}
+          id={"crm-company-composer-#{@company.uuid}"}
+          composer={@composer}
+          title={gettext("Log an interaction with %{name}", name: Company.display_name(@company))}
           company={@company}
           current_user_uuid={current_user_uuid(assigns)}
           current_user_name={current_user_name(assigns)}

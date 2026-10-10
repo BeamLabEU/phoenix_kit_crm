@@ -37,7 +37,7 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
   alias PhoenixKitCRM.{Companies, Interactions, Paths, ProjectsLink}
   alias PhoenixKitCRM.PubSub, as: CRMPubSub
   alias PhoenixKitCRM.Schemas.{Company, Interaction}
-  alias PhoenixKitCRM.Web.InteractionsComponent
+  alias PhoenixKitCRM.Web.{InteractionsComponent, InteractionsDrawer}
 
   @recent_limit 5
 
@@ -57,15 +57,15 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
         current_user_name: current_user_name(%{phoenix_kit_current_user: user}),
         tz: viewer_tz(user),
         refresh_token: nil,
-        # The drawer: nil, or %{editing_uuid, plan_uuid, token} — a fresh
-        # composer instance per open (the token is in its id).
-        composer: nil,
         connected: connected?(socket),
         company: nil,
         memberships: [],
         recent: [],
         loading: true
       )
+
+    # The drawer (`InteractionsDrawer`): closed, and the feed it refreshes.
+    socket = InteractionsDrawer.init(socket, feed_id(session["project_uuid"]))
 
     {:ok, if(connected?(socket), do: socket |> load() |> subscribe(), else: socket)}
   end
@@ -98,6 +98,8 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
           safe(fn -> Interactions.list_for_company(company.uuid, limit: @recent_limit) end) ||
             []
 
+        recent = Enum.reject(recent, &Interaction.planned?/1)
+
         {memberships, recent}
       else
         {[], []}
@@ -125,25 +127,18 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
   # The button is only rendered with `can_write`, but the event is a message
   # anyone on the page can send: refuse it here as well.
   def handle_event("open_composer", _params, %{assigns: %{can_write: true}} = socket),
-    do: {:noreply, open(socket, nil, nil)}
+    do: {:noreply, InteractionsDrawer.open(socket)}
 
   def handle_event("open_composer", _params, socket), do: {:noreply, socket}
 
   def handle_event("close_composer", _params, socket),
-    do: {:noreply, assign(socket, composer: nil)}
+    do: {:noreply, InteractionsDrawer.close(socket)}
 
   @impl true
-  # From the feed instance: open the drawer — empty, on a plan, or editing a row.
-  def handle_info({:crm_client, :compose, opts}, %{assigns: %{can_write: true}} = socket),
-    do: {:noreply, open(socket, opts[:editing_uuid], opts[:plan_uuid])}
-
-  def handle_info({:crm_client, :compose, _opts}, socket), do: {:noreply, socket}
-
-  # From the composer instance: done — close, and have the feed reload.
-  def handle_info({:crm_client, :saved}, socket),
-    do: {:noreply, socket |> assign(composer: nil) |> refresh_feed()}
-
-  def handle_info({:crm_client, :cancel}, socket), do: {:noreply, assign(socket, composer: nil)}
+  # The feed instance asks for the drawer (empty, a new plan, a row to
+  # change), the composer instance says when it is done.
+  def handle_info({:crm_client, _, _} = message, socket), do: drawer_info(message, socket)
+  def handle_info({:crm_client, _} = message, socket), do: drawer_info(message, socket)
 
   # A meeting logged on the company from anywhere refreshes the feed here.
   def handle_info({:crm, _event, %{interaction_uuid: _}}, socket),
@@ -156,7 +151,7 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
 
       if socket.assigns.composer do
         send_update(InteractionsComponent,
-          id: "#{composer_id(uuid)}-#{socket.assigns.composer.token}",
+          id: InteractionsDrawer.composer_id(composer_id(uuid), socket.assigns.composer),
           refresh_token: socket.assigns.refresh_token
         )
       end
@@ -169,26 +164,14 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
 
   def handle_info(_msg, socket), do: {:noreply, socket}
 
-  defp open(socket, editing_uuid, plan_uuid) do
-    assign(socket,
-      composer: %{
-        editing_uuid: editing_uuid,
-        plan_uuid: plan_uuid,
-        token: System.unique_integer([:positive])
-      }
-    )
+  defp drawer_info(message, socket) do
+    case InteractionsDrawer.handle_info(message, socket, can_write: socket.assigns.can_write) do
+      {:ok, socket} -> {:noreply, socket}
+      :ignore -> {:noreply, socket}
+    end
   end
 
-  defp refresh_feed(socket) do
-    token = System.unique_integer([:positive])
-
-    send_update(InteractionsComponent,
-      id: feed_id(socket.assigns.project_uuid),
-      refresh_token: token
-    )
-
-    assign(socket, refresh_token: token)
-  end
+  defp refresh_feed(socket), do: InteractionsDrawer.refresh_feed(socket)
 
   defp feed_id(project_uuid), do: "crm-project-interactions-#{project_uuid}"
   defp composer_id(project_uuid), do: "crm-project-composer-#{project_uuid}"
@@ -267,41 +250,21 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
             refresh_token={@refresh_token}
           />
 
-          <%!-- The composer, in a drawer this view owns. A fresh instance per
-               open: the token is in its id, so an edit or a plan is applied
-               on mount and nothing leaks between opens. --%>
-          <.modal
+          <%!-- The composer, in a drawer this view owns. --%>
+          <InteractionsDrawer.drawer
             :if={assigns[:composer]}
-            show
-            on_close="close_composer"
             id={composer_id(@project_uuid)}
-            aria-label={gettext("Log an interaction")}
-            placement={:end}
-            max_width="lg"
-          >
-            <:title>
-              <%= if @composer.editing_uuid do %>
-                {gettext("Edit interaction")}
-              <% else %>
-                {gettext("Log an interaction with %{name}", name: @company.name)}
-              <% end %>
-            </:title>
-            <.live_component
-              module={InteractionsComponent}
-              id={"#{composer_id(@project_uuid)}-#{@composer.token}"}
-              company={@company}
-              project_uuid={@project_uuid}
-              host_paths={@host_paths}
-              can_write={@can_write}
-              show_feed={false}
-              open_editing_uuid={@composer.editing_uuid}
-              open_plan_uuid={@composer.plan_uuid}
-              current_user_uuid={@current_user_uuid}
-              current_user_name={@current_user_name}
-              phoenix_kit_current_user={@current_user}
-              tz={@tz}
-            />
-          </.modal>
+            composer={@composer}
+            title={gettext("Log an interaction with %{name}", name: @company.name)}
+            company={@company}
+            project_uuid={@project_uuid}
+            host_paths={@host_paths}
+            can_write={@can_write}
+            current_user_uuid={@current_user_uuid}
+            current_user_name={@current_user_name}
+            phoenix_kit_current_user={@current_user}
+            tz={@tz}
+          />
 
           <div :if={assigns[:connected] != true and @recent != []} class="card border border-base-200 bg-base-100">
             <div class="card-body py-4 gap-2">

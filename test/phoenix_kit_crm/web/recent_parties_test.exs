@@ -41,7 +41,7 @@ defmodule PhoenixKitCRM.Web.RecentPartiesTest do
   end
 
   defp open(conn, company),
-    do: live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+    do: live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
   test "nothing is offered on a page with no interactions", %{conn: conn, company: company} do
     {:ok, _view, html} = open(conn, company)

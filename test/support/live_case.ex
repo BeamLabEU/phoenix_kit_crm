@@ -47,6 +47,19 @@ defmodule PhoenixKitCRM.LiveCase do
   end
 
   @doc """
+  Mounts an interactions page and opens its composer drawer ("Log an
+  interaction"): `{:ok, view, html}` with the drawer's composer rendered.
+  """
+  defmacro live_composer(conn, path) do
+    quote do
+      {:ok, view, _html} = live(unquote(conn), unquote(path))
+      view |> element("button[phx-click=open_composer]") |> render_click()
+      # the feed asks the page for the drawer by message: render once more
+      {:ok, view, render(view)}
+    end
+  end
+
+  @doc """
   A real `PhoenixKit.Users.Auth.Scope` for testing. The CRM LiveViews read
   `socket.assigns[:phoenix_kit_current_user]` (via `Activity.actor_opts/1`) to
   thread the actor uuid into activity logging; production

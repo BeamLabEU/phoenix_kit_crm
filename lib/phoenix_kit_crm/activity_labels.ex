@@ -43,6 +43,15 @@ defmodule PhoenixKitCRM.ActivityLabels do
   def describe("crm.interaction_logged", _),
     do: {"hero-chat-bubble-left-ellipsis", gettext("Interaction logged")}
 
+  def describe("crm.interaction_planned", _),
+    do: {"hero-calendar-days", gettext("Interaction planned")}
+
+  def describe("crm.interaction_moved", _),
+    do: {"hero-arrows-right-left", gettext("Planned interaction moved")}
+
+  def describe("crm.interaction_cancelled", _),
+    do: {"hero-x-circle", gettext("Interaction cancelled")}
+
   def describe("crm.interaction_updated", _),
     do: {"hero-pencil-square", gettext("Interaction updated")}
 
@@ -96,6 +105,9 @@ defmodule PhoenixKitCRM.ActivityLabels do
   def detail(action, %{"subject" => s})
       when action in [
              "crm.interaction_logged",
+             "crm.interaction_planned",
+             "crm.interaction_moved",
+             "crm.interaction_cancelled",
              "crm.interaction_updated",
              "crm.interaction_deleted"
            ] and
@@ -105,6 +117,9 @@ defmodule PhoenixKitCRM.ActivityLabels do
   def detail(action, %{"interaction_type" => t})
       when action in [
              "crm.interaction_logged",
+             "crm.interaction_planned",
+             "crm.interaction_moved",
+             "crm.interaction_cancelled",
              "crm.interaction_updated",
              "crm.interaction_deleted"
            ] and

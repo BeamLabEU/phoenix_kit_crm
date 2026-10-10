@@ -59,7 +59,10 @@ defmodule PhoenixKitCRM.Web.InteractionEndTimeTest do
       {:ok, company} = Companies.create_company(%{"name" => "Initech"})
       u = user()
       conn = put_test_scope(conn, fake_scope(user_uuid: u.uuid, user_timezone: "Europe/Tallinn"))
-      {:ok, view, html} = live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+
+      {:ok, view, html} =
+        live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+
       {:ok, view: view, html: html, company: company}
     end
 
@@ -80,7 +83,9 @@ defmodule PhoenixKitCRM.Web.InteractionEndTimeTest do
         "ended_at"
       )
 
-      html = view |> element("button[phx-click=save_interaction]") |> render_click()
+      view |> element("button[phx-click=save_interaction]") |> render_click()
+      # the drawer closes and the feed reloads off the save's message
+      html = render(view)
 
       assert [i] = Interactions.list_for_company(company.uuid)
       assert i.duration_minutes == 180
@@ -206,22 +211,26 @@ defmodule PhoenixKitCRM.Web.InteractionEndTimeTest do
       view: view,
       feed: feed
     } do
+      # "Plan ahead" opens the same composer, as a plan (V9)
       view |> with_target(feed) |> render_click("start_planning", %{})
       html = render(view)
-      assert html =~ ~s(name="plan[until]")
+      assert html =~ "Ends (optional)"
+      [_, id] = Regex.run(~r/id="(crm-project-composer-[^"]+-\d+)"/, html)
 
       view
-      |> with_target(feed)
-      |> render_change("plan_change", %{
-        "plan" => %{
-          "title" => "Workshop",
-          "when" => "2030-01-10T10:00",
-          "until" => "2030-01-10T09:00"
-        }
+      |> with_target("#" <> id)
+      |> render_change("composer_change", %{
+        "interaction" => %{
+          "subject" => "Workshop",
+          "occurred_at" => "2030-01-10T10:00",
+          "ended_at" => "2030-01-10T09:00"
+        },
+        "_target" => ["interaction", "ended_at"]
       })
 
-      view |> with_target(feed) |> render_submit("save_plan", %{})
+      view |> with_target("#" <> id) |> render_click("save_interaction", %{})
       assert render(view) =~ "The end must be after the start."
+      assert Interactions.list_for_project(@project) == []
     end
   end
 

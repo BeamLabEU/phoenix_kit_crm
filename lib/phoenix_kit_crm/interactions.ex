@@ -8,6 +8,8 @@ defmodule PhoenixKitCRM.Interactions do
   (subject OR party).
   """
 
+  use Gettext, backend: PhoenixKitCRM.Gettext
+
   import Ecto.Query, warn: false
   require Logger
 
@@ -15,6 +17,8 @@ defmodule PhoenixKitCRM.Interactions do
   alias PhoenixKitCRM.Activity
   alias PhoenixKitCRM.Attachments
   alias PhoenixKitCRM.Contacts
+  alias PhoenixKitCRM.InteractionNotifier
+  alias PhoenixKitCRM.Paths
   alias PhoenixKitCRM.PubSub
   alias PhoenixKitCRM.Schemas.{Company, CompanyMembership, Contact, Interaction, InteractionParty}
   alias PhoenixKitCRM.StaffLink
@@ -236,15 +240,45 @@ defmodule PhoenixKitCRM.Interactions do
       (not is_nil(i.contact_uuid) and c.status != "trashed") or
         (not is_nil(i.company_uuid) and co.status != "trashed")
     )
+    # A plan is not contact that happened: it has its own list.
+    |> where([i], i.status != "planned")
     |> order_by([i], desc: i.occurred_at, desc: i.inserted_at)
     |> limit(^Keyword.get(opts, :limit, 6))
     |> repo().all()
     |> repo().preload([:contact, :company])
   end
 
-  @doc "Total logged interactions. Interactions have no soft-delete status."
+  @doc """
+  What is planned across the whole CRM, soonest first — including plans
+  past their time that nobody has said the outcome of (they sort first, and
+  `Interaction.overdue?/2` tells them apart). Anchor and parties preloaded;
+  trashed anchors excluded, as everywhere.
+
+  ## Options
+    * `:limit` — rows to return (default 6)
+  """
+  @spec list_planned(keyword()) :: [Interaction.t()]
+  def list_planned(opts \\ []) do
+    Interaction
+    |> where([i], i.status == "planned")
+    |> visible_anchors()
+    |> order_by([i], asc: i.occurred_at, asc: i.inserted_at)
+    |> limit(^Keyword.get(opts, :limit, 6))
+    |> repo().all()
+    |> repo().preload([
+      :contact,
+      :company,
+      parties: from(p in InteractionParty, order_by: p.position)
+    ])
+  end
+
+  @doc """
+  Total logged interactions — what happened and what was cancelled, not what
+  is still planned. Interactions have no soft-delete status.
+  """
   @spec count_interactions() :: non_neg_integer()
-  def count_interactions, do: repo().aggregate(Interaction, :count, :uuid)
+  def count_interactions,
+    do: Interaction |> where([i], i.status != "planned") |> repo().aggregate(:count, :uuid)
 
   # ── Anchor-cascade cleanup ──────────────────────────────────────────
   #
@@ -375,7 +409,15 @@ defmodule PhoenixKitCRM.Interactions do
         # subscriber reloading off the broadcast already sees both the attached
         # files (rendered from the folder) and the Events-tab activity row.
         attach_files(interaction, file_uuids, attrs["owner_user_uuid"])
-        log_interaction("crm.interaction_logged", interaction)
+
+        if Interaction.planned?(interaction) do
+          "crm.interaction_planned"
+          |> log_interaction(interaction, notification: planned_text(interaction))
+          |> InteractionNotifier.fan_out(InteractionNotifier.party_user_uuids(interaction))
+        else
+          log_interaction("crm.interaction_logged", interaction)
+        end
+
         PubSub.broadcast_interaction(:interaction_created, interaction)
         ok
 
@@ -409,7 +451,8 @@ defmodule PhoenixKitCRM.Interactions do
   def update_interaction(%Interaction{} = interaction, attrs, party_inputs \\ nil, opts \\ []) do
     # Capture the OLD involved contacts before we replace parties / change the
     # subject, so anyone dropped by this edit still gets a refresh to remove it.
-    old_uuids = PubSub.involved_contact_uuids(repo().preload(interaction, :parties))
+    interaction = repo().preload(interaction, :parties)
+    old_uuids = PubSub.involved_contact_uuids(interaction)
 
     result =
       repo().transaction(fn ->
@@ -425,7 +468,7 @@ defmodule PhoenixKitCRM.Interactions do
 
     case result do
       {:ok, updated} = ok ->
-        log_interaction("crm.interaction_updated", updated, opts)
+        log_change(interaction, updated, opts)
 
         PubSub.broadcast_to_contacts(
           :interaction_updated,
@@ -491,13 +534,107 @@ defmodule PhoenixKitCRM.Interactions do
       actor_uuid: Keyword.get(opts, :actor_uuid) || interaction.owner_user_uuid,
       resource_type: resource_type,
       resource_uuid: resource_uuid,
-      metadata: %{
-        "interaction_uuid" => interaction.uuid,
-        "interaction_type" => interaction.interaction_type,
-        "subject" => interaction.subject
-      }
+      metadata:
+        %{
+          "interaction_uuid" => interaction.uuid,
+          "interaction_type" => interaction.interaction_type,
+          "subject" => interaction.subject,
+          "status" => interaction.status
+        }
+        |> Map.merge(Keyword.get(opts, :metadata, %{}))
+        |> put_notification(Keyword.get(opts, :notification), resource_type, resource_uuid)
     )
   end
+
+  # What a notified person reads and where it takes them: the anchor's page,
+  # interactions tab. Only set on the entries that are fanned out.
+  defp put_notification(metadata, nil, _type, _uuid), do: metadata
+
+  defp put_notification(metadata, text, type, uuid) do
+    path = if type == "crm_company", do: Paths.company(uuid), else: Paths.contact(uuid)
+
+    metadata
+    |> Map.put("notification_text", text)
+    |> Map.put("notification_link", path <> "?tab=interactions")
+  end
+
+  # ── What an edit was (V9) ───────────────────────────────────────────
+  #
+  # The row is the same one from plan to record, so the activity trail is
+  # where its history lives: each entry says what the status was and is,
+  # and a moved plan carries the start it was moved from. The people a plan
+  # involves hear about three things — being added to it, it moving, it
+  # being cancelled — and nothing about ordinary edits of a record.
+  defp log_change(%Interaction{} = before, %Interaction{} = now, opts) do
+    meta = %{"status_from" => before.status}
+
+    case change_kind(before, now) do
+      :logged ->
+        log_interaction("crm.interaction_logged", now, opts ++ [metadata: meta])
+
+      :cancelled ->
+        "crm.interaction_cancelled"
+        |> log_interaction(now, opts ++ [metadata: meta, notification: cancelled_text(now)])
+        |> InteractionNotifier.fan_out(InteractionNotifier.party_user_uuids(now))
+
+      :moved ->
+        meta = Map.put(meta, "moved_from", DateTime.to_iso8601(before.occurred_at))
+
+        "crm.interaction_moved"
+        |> log_interaction(now, opts ++ [metadata: meta, notification: moved_text(now)])
+        |> InteractionNotifier.fan_out(InteractionNotifier.party_user_uuids(now))
+
+      :updated ->
+        log_interaction("crm.interaction_updated", now, opts ++ [metadata: meta])
+        notify_added(before, now, opts)
+    end
+  end
+
+  defp change_kind(%{status: "planned"}, %{status: "happened"}), do: :logged
+
+  defp change_kind(%{status: from}, %{status: "cancelled"}) when from != "cancelled",
+    do: :cancelled
+
+  defp change_kind(%{status: "planned", occurred_at: a}, %{status: "planned", occurred_at: b}) do
+    if DateTime.compare(a, b) == :eq, do: :updated, else: :moved
+  end
+
+  defp change_kind(_before, _now), do: :updated
+
+  # People added to a plan that already existed: their own entry, so the
+  # ones who were there before are not told again.
+  defp notify_added(%Interaction{} = before, %Interaction{status: "planned"} = now, opts) do
+    added =
+      InteractionNotifier.party_user_uuids(now) -- InteractionNotifier.party_user_uuids(before)
+
+    if added != [] do
+      "crm.interaction_planned"
+      |> log_interaction(now, opts ++ [notification: planned_text(now)])
+      |> InteractionNotifier.fan_out(added)
+    end
+
+    :ok
+  end
+
+  defp notify_added(_before, _now, _opts), do: :ok
+
+  defp planned_text(i),
+    do:
+      gettext("You are in a planned %{type}",
+        type: String.downcase(Interaction.type_label(i.interaction_type))
+      )
+
+  defp moved_text(i),
+    do:
+      gettext("A planned %{type} you are in was moved",
+        type: String.downcase(Interaction.type_label(i.interaction_type))
+      )
+
+  defp cancelled_text(i),
+    do:
+      gettext("A %{type} you are in was cancelled",
+        type: String.downcase(Interaction.type_label(i.interaction_type))
+      )
 
   # ── Party reconciliation + snapshot ─────────────────────────────────
 

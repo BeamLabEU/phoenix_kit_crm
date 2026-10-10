@@ -59,14 +59,18 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
   test "the contact composer offers the dropzone when storage has a bucket", %{conn: conn} do
     {:ok, contact} = Contacts.create_contact(%{"name" => "Attach Anna"})
 
-    {:ok, _view, html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=interactions")
+    {:ok, _view, html} =
+      live_composer(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=interactions")
 
     assert html =~ "Drag files here or click to upload"
   end
 
   test "the composer's form carries the id LiveView recovers it by", %{conn: conn} do
     {:ok, contact} = Contacts.create_contact(%{"name" => "Recover Rita"})
-    {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=interactions")
+
+    {:ok, view, _html} =
+      live_composer(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=interactions")
+
     assert has_element?(view, "form[id$='-composer'][phx-change]")
   end
 
@@ -74,7 +78,7 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
     {:ok, company} = Companies.create_company(%{"name" => "Attach Co"})
 
     {:ok, _view, html} =
-      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+      live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
     assert html =~ "Drag files here or click to upload"
   end
@@ -89,7 +93,8 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
 
     {:ok, contact} = Contacts.create_contact(%{"name" => "Bucketless Bella"})
 
-    {:ok, _view, html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=interactions")
+    {:ok, _view, html} =
+      live_composer(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=interactions")
 
     refute html =~ "Drag files here or click to upload"
   end
@@ -111,7 +116,9 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
 
     conn = put_test_scope(conn, fake_scope(user_uuid: user.uuid))
     {:ok, contact} = Contacts.create_contact(%{"name" => "Upload Uma"})
-    {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=interactions")
+
+    {:ok, view, _html} =
+      live_composer(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=interactions")
 
     file =
       file_input(view, "form[id^='crm-attach-']", :attachments, [
@@ -145,7 +152,9 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
 
     conn = put_test_scope(conn, fake_scope(user_uuid: user.uuid))
     {:ok, contact} = Contacts.create_contact(%{"name" => "Failing Fay"})
-    {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=interactions")
+
+    {:ok, view, _html} =
+      live_composer(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=interactions")
 
     # The bucket goes away between showing the dropzone and the upload.
     {:ok, bucket} = disable_bucket(bucket)
@@ -192,7 +201,10 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
 
     conn = put_test_scope(conn, fake_scope(user_uuid: user.uuid))
     {:ok, contact} = Contacts.create_contact(%{"name" => "Returning Rae"})
-    {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=interactions")
+
+    {:ok, view, _html} =
+      live_composer(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=interactions")
+
     bytes = "wanted again #{contact.uuid}"
 
     upload(view, "notes.pdf", bytes)

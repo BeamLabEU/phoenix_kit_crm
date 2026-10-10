@@ -107,7 +107,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     member = member_fixture(company, "Anna Member")
 
     {:ok, view, html} =
-      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+      live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
     refute html =~ "Called about the invoice"
 
@@ -201,7 +201,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     conn = put_test_scope(conn, fake_scope(user_uuid: user.uuid))
 
     {:ok, view, html} =
-      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+      live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
     # The composer works with zero members — that is the whole point of
     # company-anchored interactions.
@@ -230,7 +230,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     conn = put_test_scope(conn, fake_scope(user_uuid: user.uuid, user_timezone: "Europe/Tallinn"))
 
     {:ok, view, html} =
-      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+      live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
     # The "When" prefill is now in Tallinn, not UTC — whichever season it is.
     prefill =
@@ -247,6 +247,10 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
           {"2026-01-15T10:00", ~U[2026-01-15 08:00:00Z]},
           {"2026-07-15T10:00", ~U[2026-07-15 07:00:00Z]}
         ] do
+      # a save closes the drawer: each one starts from a fresh composer
+      view |> element("button[phx-click=open_composer]") |> render_click()
+      render(view)
+
       view
       |> element("form[phx-change=composer_change]")
       |> render_change(%{"interaction" => %{"subject" => typed, "occurred_at" => typed}})
@@ -268,7 +272,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     conn = put_test_scope(conn, fake_scope(user_uuid: user.uuid, user_timezone: "Europe/Tallinn"))
 
     {:ok, view, _html} =
-      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+      live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
     view
     |> element("form[phx-change=composer_change]")
@@ -304,7 +308,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
       })
 
     {:ok, view, html} =
-      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+      live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
     # Default :all — both rows, each with provenance (Company badge / name link).
     assert html =~ "Company-level call"
@@ -340,7 +344,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
       })
 
     {:ok, view, _html} =
-      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+      live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
     assert has_element?(
              view,
@@ -373,9 +377,10 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     {:ok, _other} = Contacts.create_contact(%{"name" => "Taavi Other"})
 
     {:ok, view, _html} =
-      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+      live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
-    target = "#crm-company-interactions-#{company.uuid}"
+    # the composer instance in the drawer (a token closes its id)
+    target = "div[id^='crm-company-composer-#{company.uuid}-']"
 
     view |> with_target(target) |> render_hook("search_party", %{"q" => "taav"})
 

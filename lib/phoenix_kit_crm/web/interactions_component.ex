@@ -93,13 +93,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      # and the project's events to pick it from.
      |> assign_new(:c_event_uuid, fn -> "" end)
      |> assign_new(:planned_events, fn -> [] end)
-     # Planning a meeting (project mode): the small form's state.
-     |> assign_new(:planning, fn -> false end)
-     |> assign_new(:p_title, fn -> "" end)
-     |> assign_new(:p_when, fn -> "" end)
-     |> assign_new(:p_until, fn -> "" end)
-     |> assign_new(:p_location, fn -> "" end)
-     |> assign_new(:plan_error, fn -> nil end)
+     # V9: what the composer is writing — a plan, the record, or one that
+     # did not take place — and where.
+     |> assign_new(:c_status, fn -> "happened" end)
+     |> assign_new(:c_location, fn -> "" end)
      |> assign_new(:c_subject, fn -> "" end)
      |> assign_new(:c_body, fn -> "" end)
      |> assign_new(:c_occurred_at, fn -> local_now_str(tz) end)
@@ -127,12 +124,14 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   defp apply_opening(socket) do
     socket = assign(socket, :opening_applied, true)
 
+    status = socket.assigns[:open_status]
+
     cond do
       is_binary(socket.assigns[:open_editing_uuid]) ->
-        load_for_edit(socket, socket.assigns.open_editing_uuid)
+        socket |> load_for_edit(socket.assigns.open_editing_uuid) |> put_outcome(status)
 
-      is_binary(socket.assigns[:open_plan_uuid]) ->
-        socket |> assign(:c_type, "meeting") |> pick_event(socket.assigns.open_plan_uuid)
+      status == "planned" ->
+        start_plan(socket)
 
       true ->
         socket
@@ -252,7 +251,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   # LiveView event is just a message the client can send, so the refusal has
   # to live here too. Only an explicit `false` refuses — the CRM's own pages
   # never set it.
-  @write_events ~w(save_interaction delete_interaction edit_interaction log_planned start_planning save_plan)
+  @write_events ~w(save_interaction delete_interaction edit_interaction log_planned cancel_planned start_planning set_status)
 
   @impl true
   def handle_event(event, _params, %{assigns: %{can_write: false}} = socket)
@@ -353,6 +352,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      |> assign(:c_body, p["body"] || "")
      |> assign(:c_occurred_at, p["occurred_at"] || socket.assigns.c_occurred_at)
      |> assign(:c_ended_at, p["ended_at"] || socket.assigns.c_ended_at)
+     |> assign(:c_location, p["location"] || socket.assigns.c_location)
      |> assign_project_fields(p, params)
      |> sync_span(params["_target"])
      |> assign(:save_error, nil)}
@@ -385,81 +385,51 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   def handle_event("unlink_plan", _params, socket),
     do: {:noreply, assign(socket, :c_event_uuid, "")}
 
-  # ── Planning a meeting (project mode) ─────────────────────────────
+  # ── Planning (V9) ─────────────────────────────────────────────────
+  #
+  # A plan is an interaction with `status: "planned"`, written by the same
+  # composer as any other; what happened is said by changing that row.
+
+  # "Log an interaction" on a page whose composer lives in the host's drawer.
+  def handle_event("open_composer", _params, %{assigns: %{can_write: false}} = socket),
+    do: {:noreply, socket}
+
+  def handle_event("open_composer", _params, socket) do
+    unless composes_here?(socket), do: send(self(), {:crm_client, :compose, []})
+    {:noreply, socket}
+  end
 
   def handle_event("start_planning", _params, socket) do
-    tz = socket.assigns[:tz] || "0"
-    company = socket.assigns.anchor
-
-    {:noreply,
-     socket
-     |> assign(:planning, true)
-     |> assign(:p_title, gettext("Meeting with %{name}", name: Company.display_name(company)))
-     |> assign(
-       :p_when,
-       DateUtils.format_datetime_local(DateTime.add(DateTime.utc_now(), 86_400), tz)
-     )
-     |> assign(:p_until, "")
-     |> assign(:p_location, "")
-     |> assign(:plan_error, nil)}
-  end
-
-  def handle_event("cancel_planning", _params, socket),
-    do: {:noreply, assign(socket, :planning, false)}
-
-  def handle_event("plan_change", %{"plan" => p}, socket) do
-    {:noreply,
-     socket
-     |> assign(:p_title, p["title"] || socket.assigns.p_title)
-     |> assign(:p_when, p["when"] || socket.assigns.p_when)
-     |> assign(:p_until, p["until"] || socket.assigns.p_until)
-     |> assign(:p_location, p["location"] || "")
-     |> assign(:plan_error, nil)}
-  end
-
-  def handle_event("save_plan", _params, socket) do
-    tz = socket.assigns[:tz] || "0"
-
-    with starts_at when is_struct(starts_at, DateTime) <- local_to_utc(socket.assigns.p_when, tz),
-         {:ok, ends_at} <- plan_end(starts_at, local_to_utc(socket.assigns.p_until, tz)),
-         title when title != "" <- String.trim(socket.assigns.p_title),
-         {:ok, _event} <-
-           ProjectsLink.create_event(
-             socket.assigns.project_uuid,
-             %{
-               title: title,
-               starts_at: starts_at,
-               ends_at: ends_at,
-               all_day: false,
-               location: blank_to_nil(socket.assigns.p_location)
-             },
-             actor_uuid: socket.assigns[:current_user_uuid]
-           ) do
-      {:noreply,
-       socket
-       |> assign(:planning, false)
-       |> assign(
-         :planned_events,
-         ProjectsLink.list_events(socket.assigns.project_uuid, limit: 50)
-       )}
-    else
-      "" -> {:noreply, assign(socket, :plan_error, gettext("Give the meeting a title."))}
-      :before_start -> {:noreply, assign(socket, :plan_error, end_before_start_error())}
-      :error -> {:noreply, assign(socket, :plan_error, gettext("The time could not be read."))}
-      nil -> {:noreply, assign(socket, :plan_error, gettext("Pick when the meeting is."))}
-      _ -> {:noreply, assign(socket, :plan_error, default_save_error())}
-    end
-  end
-
-  # "Log what happened" on a planned meeting: the composer opens with the
-  # plan picked (its when and title prefilled), as a meeting.
-  def handle_event("log_planned", %{"uuid" => uuid}, socket) do
     if composes_here?(socket) do
-      {:noreply, socket |> reset_composer() |> assign(:c_type, "meeting") |> pick_event(uuid)}
+      {:noreply, socket |> reset_composer() |> start_plan()}
     else
-      send(self(), {:crm_client, :compose, plan_uuid: uuid})
+      send(self(), {:crm_client, :compose, status: "planned"})
       {:noreply, socket}
     end
+  end
+
+  # "Log what happened" / "It was cancelled" on a plan: the composer opens
+  # on that row with the outcome already picked.
+  def handle_event(event, %{"uuid" => uuid}, socket)
+      when event in ["log_planned", "cancel_planned"] do
+    status = if event == "log_planned", do: "happened", else: "cancelled"
+
+    cond do
+      not editable?(socket, uuid) ->
+        {:noreply, socket}
+
+      composes_here?(socket) ->
+        {:noreply, socket |> load_for_edit(uuid) |> put_outcome(status)}
+
+      true ->
+        send(self(), {:crm_client, :compose, editing_uuid: uuid, status: status})
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("set_status", %{"status" => status}, socket)
+      when status in ["planned", "happened", "cancelled"] do
+    {:noreply, socket |> assign(:c_status, status) |> assign(:save_error, nil)}
   end
 
   def handle_event("set_now", _params, socket) do
@@ -508,7 +478,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
         {:noreply, assign(socket, :save_error, gettext("The time could not be read."))}
 
       occurred_at ->
-        save_with_span(socket, occurred_at)
+        case status_error(socket.assigns, occurred_at) do
+          nil -> save_with_span(socket, occurred_at)
+          message -> {:noreply, assign(socket, :save_error, message)}
+        end
     end
   end
 
@@ -576,6 +549,8 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
         "interaction_type" => socket.assigns.c_type,
         "subject" => socket.assigns.c_subject,
         "body" => socket.assigns.c_body,
+        "status" => socket.assigns.c_status,
+        "location" => socket.assigns.c_location,
         "owner_user_uuid" => socket.assigns[:current_user_uuid]
       }
       |> maybe_put_occurred_at(occurred_at, socket.assigns[:tz] || "0")
@@ -626,7 +601,9 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
            %{
              "interaction_type" => socket.assigns.c_type,
              "subject" => socket.assigns.c_subject,
-             "body" => socket.assigns.c_body
+             "body" => socket.assigns.c_body,
+             "status" => socket.assigns.c_status,
+             "location" => socket.assigns.c_location
            }
            |> maybe_put_occurred_at(occurred_at, socket.assigns[:tz] || "0")
            |> put_duration(socket),
@@ -761,14 +738,44 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   defp end_before_start_error, do: gettext("The end must be after the start.")
 
-  # A plan's end: none is fine (nobody knows how long it will take), an
-  # unreadable one or one not after the start is said.
-  defp plan_end(_starts_at, nil), do: {:ok, nil}
-  defp plan_end(_starts_at, :error), do: :error
+  # A new plan: a meeting, a day from now, nobody staged yet.
+  defp start_plan(socket) do
+    tz = socket.assigns[:tz] || "0"
 
-  defp plan_end(%DateTime{} = starts_at, %DateTime{} = ends_at) do
-    if DateTime.compare(ends_at, starts_at) == :gt, do: {:ok, ends_at}, else: :before_start
+    socket
+    |> assign(:c_status, "planned")
+    |> assign(:c_type, "meeting")
+    |> assign(
+      :c_occurred_at,
+      DateUtils.format_datetime_local(DateTime.add(DateTime.utc_now(), 86_400), tz)
+    )
+    |> assign(:c_ended_at, "")
+    |> assign(:c_duration, "")
   end
+
+  # The outcome a plan is opened to record; nil leaves the row's own status.
+  defp put_outcome(socket, status) when status in ["happened", "cancelled"],
+    do: assign(socket, :c_status, status)
+
+  defp put_outcome(socket, _status), do: socket
+
+  # What the chosen status cannot be saved with. Time passing never turns a
+  # plan into a record, and a record cannot be of something still to come;
+  # a plan carries no logged time, so one with entries in the ledger has to
+  # lose them (or stay what it is) first.
+  defp status_error(%{c_status: "happened"}, %DateTime{} = at) do
+    if DateTime.diff(at, DateTime.utc_now(), :second) > 300,
+      do:
+        gettext("That time is still to come. Save it as planned, or set when it really happened.")
+  end
+
+  defp status_error(%{c_status: "planned", edit_logged: logged}, _at) when map_size(logged) > 0,
+    do:
+      gettext(
+        "Time is already logged on this. Set each figure to 0 and save before making it a plan again."
+      )
+
+  defp status_error(_assigns, _at), do: nil
 
   defp existing_metadata(%{editing_uuid: uuid, interactions: rows}) do
     case Enum.find(rows, &(&1.uuid == uuid)) do
@@ -793,6 +800,17 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
       _ ->
         nil
     end
+  end
+
+  # V9: a row that was a plan keeps the start that was agreed; it is worth
+  # a badge only once the real start differs from it.
+  defp planned_label(
+         %Interaction{planned_at: %DateTime{} = planned, occurred_at: at} = i,
+         assigns
+       )
+       when i.status != "planned" do
+    if DateTime.compare(planned, at) != :eq,
+      do: gettext("Planned %{when}", when: format_local(planned, assigns.tz))
   end
 
   defp planned_label(_interaction, _assigns), do: nil
@@ -830,6 +848,8 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     )
     |> assign(:c_ended_at, DateUtils.format_datetime_local(ended_at(i), tz))
     |> assign(:c_event_uuid, (i.metadata || %{})["event_uuid"] || "")
+    |> assign(:c_status, i.status || "happened")
+    |> assign(:c_location, i.location || "")
     |> assign(:staged_parties, saved_parties(socket.assigns, i.uuid))
     |> assign(:save_error, nil)
     |> assign_logged_time(i)
@@ -906,6 +926,8 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
     |> assign(:edit_billable, false)
     |> assign(:ledger_read_failed, false)
     |> assign(:c_event_uuid, "")
+    |> assign(:c_status, "happened")
+    |> assign(:c_location, "")
     |> assign(:c_occurred_at, local_now_str(socket.assigns[:tz] || "0"))
     |> assign(:c_ended_at, "")
     |> assign(:upload_error, nil)
@@ -926,57 +948,23 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   defp assign_project_fields(socket, _p, _params), do: socket
 
-  # Picking a planned event prefills the when and the subject from the
-  # plan (a person can still change both); clearing it leaves the fields.
-  defp pick_event(socket, uuid) when is_binary(uuid) and uuid != "" do
-    if uuid == socket.assigns.c_event_uuid do
-      socket
-    else
-      case Enum.find(socket.assigns.planned_events, &(&1.uuid == uuid)) do
-        nil -> assign(socket, :c_event_uuid, "")
-        event -> apply_planned_event(socket, event)
-      end
-    end
-  end
-
-  defp pick_event(socket, _), do: assign(socket, :c_event_uuid, "")
-
-  defp apply_planned_event(socket, event) do
-    tz = socket.assigns[:tz] || "0"
-
-    socket
-    |> assign(:c_event_uuid, event.uuid)
-    |> assign(:c_occurred_at, DateUtils.format_datetime_local(event.starts_at, tz))
-    |> assign(:c_ended_at, DateUtils.format_datetime_local(Map.get(event, :ends_at), tz))
-    |> sync_span(["interaction", "ended_at"])
-    |> then(fn s ->
-      if s.assigns.c_subject == "", do: assign(s, :c_subject, event.title), else: s
-    end)
-  end
-
+  # The project's calendar events, read only to label the rows that still
+  # point at one (`metadata.event_uuid`, written before V9).
   defp reload_planned_events(%{assigns: %{project_uuid: uuid}} = socket) when is_binary(uuid),
     do: assign(socket, :planned_events, ProjectsLink.list_events(uuid, limit: 50))
 
   defp reload_planned_events(socket), do: socket
 
-  defp blank_to_nil(v) when is_binary(v),
-    do: if(String.trim(v) == "", do: nil, else: String.trim(v))
-
-  defp blank_to_nil(_), do: nil
-
-  # Planned meetings no interaction is the record of yet, soonest first —
-  # what the tab lists above the composer with "Log what happened".
-  defp unlogged_events(assigns) do
-    logged =
-      assigns.interactions
-      |> Enum.map(&get_in(&1.metadata || %{}, ["event_uuid"]))
-      |> Enum.reject(&is_nil/1)
-      |> MapSet.new()
-
-    assigns.planned_events
-    |> Enum.reject(&MapSet.member?(logged, &1.uuid))
-    |> Enum.sort_by(& &1.starts_at, {:asc, DateTime})
+  # V9: the plans in this feed, soonest first — still to come, or past
+  # their time and waiting for someone to say what happened.
+  defp planned_rows(interactions) do
+    interactions
+    |> Enum.filter(&Interaction.planned?/1)
+    |> Enum.sort_by(& &1.occurred_at, {:asc, DateTime})
   end
+
+  # Everything that is not a plan: the record, newest first as loaded.
+  defp feed_rows(interactions), do: Enum.reject(interactions, &Interaction.planned?/1)
 
   defp put_project_attrs(attrs, %{assigns: %{project_mode: true} = assigns}) do
     attrs
@@ -1110,6 +1098,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   # next to the interaction. The interaction is already saved: a ledger
   # failure is said, never lets the meeting vanish, and never writes a
   # second time — the entries are the ledger's, appended once.
+  # A plan logs no time: nothing has been spent yet.
+  defp log_attendee_time(%{assigns: %{c_status: "planned"}} = socket, _interaction),
+    do: assign(socket, :save_error, nil)
+
   defp log_attendee_time(%{assigns: %{project_mode: true}} = socket, interaction) do
     assigns = socket.assigns
 
@@ -1609,12 +1601,24 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   defp owns_row?(%{anchor_kind: :contact, anchor: a}, row), do: row.contact_uuid == a.uuid
   defp owns_row?(%{anchor_kind: :company, anchor: a}, row), do: row.company_uuid == a.uuid
 
+  defp composer_title(%{editing_uuid: uuid, c_status: "planned"}) when is_binary(uuid),
+    do: gettext("Change the plan")
+
   defp composer_title(%{editing_uuid: uuid}) when is_binary(uuid), do: gettext("Edit interaction")
+  defp composer_title(%{c_status: "planned"}), do: gettext("Plan ahead")
 
   defp composer_title(%{anchor_kind: :contact}), do: gettext("Log an interaction")
 
   defp composer_title(%{anchor_kind: :company, anchor: company}),
     do: gettext("Log an interaction with %{name}", name: Company.display_name(company))
+
+  defp body_label("planned"), do: gettext("What is it about?")
+  defp body_label("cancelled"), do: gettext("What happened?")
+  defp body_label(_), do: gettext("What was discussed?")
+
+  defp save_label(nil, "planned"), do: gettext("Plan it")
+  defp save_label(nil, _status), do: gettext("Save interaction")
+  defp save_label(_uuid, _status), do: gettext("Save changes")
 
   # The box of an attendee whose time is logged starts at that figure.
   defp logged_value(%{logged: %{minutes: minutes}}), do: Integer.to_string(minutes)
@@ -1647,72 +1651,103 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   # The hub's Client tab splits this component in two instances: the feed
   # (with the planned ones) inline, the composer in a drawer the tab owns;
   # the feed asks the tab to open the drawer, the composer tells it when
-  # it is done. `open_editing_uuid` / `open_plan_uuid` are what the drawer
+  # it is done. `open_editing_uuid` / `open_status` are what the drawer
   # instance applies once on mount.
   attr(:show_feed, :boolean, default: true)
   attr(:show_composer, :boolean, default: true)
   attr(:open_editing_uuid, :string, default: nil)
-  attr(:open_plan_uuid, :string, default: nil)
+  attr(:open_status, :string, default: nil)
+  # Whether the Planned card carries "Log an interaction" as well: the
+  # CRM's own pages have no other place for it, the hub's tab has its own.
+  attr(:log_button, :boolean, default: false)
 
   @impl true
   def render(assigns) do
     ~H"""
     <div id={@id} class="flex flex-col gap-6">
-      <%!-- Project mode: the plan. Meetings still to come (or past and not
-           logged) with "Log what happened", and a small form that makes a
-           project event — the plan the record later points at. --%>
-      <div :if={@project_mode and @can_write and @show_feed} class="card bg-base-100 shadow-sm border border-base-200">
+      <%!-- The plan: what is still to come, and what is past its time with
+           nothing said about it. Each is the same row the record will be —
+           "Log what happened" opens the composer on it. --%>
+      <% planned = planned_rows(@interactions) %>
+      <div
+        :if={@show_feed and (planned != [] or (@can_write and not @show_composer))}
+        id={"#{@id}-planned"}
+        class="card bg-base-100 shadow-sm border border-base-200"
+      >
         <div class="card-body gap-3 py-4">
-          <div class="flex items-center justify-between gap-2">
+          <div class="flex flex-wrap items-center justify-between gap-2">
             <h3 class="font-semibold">{gettext("Planned")}</h3>
-            <.button :if={not @planning} type="button" phx-click="start_planning" phx-target={@myself} class="btn-outline btn-sm">
-              <.icon name="hero-calendar-days" class="w-4 h-4" /> {gettext("Plan ahead")}
-            </.button>
-          </div>
-          <% unlogged = unlogged_events(assigns) %>
-          <p :if={unlogged == [] and not @planning} class="text-sm text-base-content/60">
-            {gettext("Nothing planned that is not logged yet.")}
-          </p>
-          <ul :if={unlogged != []} class="flex flex-col divide-y divide-base-200">
-            <li :for={e <- unlogged} class="py-2 flex flex-wrap items-center justify-between gap-2 text-sm">
-              <span class="flex items-center gap-2 min-w-0">
-                <.icon name="hero-calendar" class="w-4 h-4 text-base-content/50 shrink-0" />
-                <span class="font-medium">{format_span(e.starts_at, Map.get(e, :ends_at), @tz)}</span>
-                <span class="truncate">{e.title}</span>
-                <span :if={e.location} class="text-base-content/60 truncate">· {e.location}</span>
-                <span :if={DateTime.compare(e.starts_at, DateTime.utc_now()) == :gt} class="badge badge-ghost badge-xs">
-                  {gettext("upcoming")}
-                </span>
-              </span>
-              <.button type="button" phx-click="log_planned" phx-value-uuid={e.uuid} phx-target={@myself} class="btn-ghost btn-xs">
-                <.icon name="hero-pencil-square" class="w-3.5 h-3.5" /> {gettext("Log what happened")}
+            <div :if={@can_write and not @show_composer} class="flex items-center gap-2">
+              <.button type="button" phx-click="start_planning" phx-target={@myself} class="btn-outline btn-sm">
+                <.icon name="hero-calendar-days" class="w-4 h-4" /> {gettext("Plan ahead")}
               </.button>
+              <.button :if={@log_button} type="button" phx-click="open_composer" phx-target={@myself} class="btn-primary btn-sm">
+                <.icon name="hero-plus" class="w-4 h-4" /> {gettext("Log an interaction")}
+              </.button>
+            </div>
+          </div>
+          <p :if={planned == []} class="text-sm text-base-content/60">
+            {gettext("Nothing planned.")}
+          </p>
+          <ul :if={planned != []} class="flex flex-col divide-y divide-base-200">
+            <li :for={i <- planned} id={"crm-planned-#{i.uuid}"} class="py-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+              <div class="flex flex-col gap-1 min-w-0">
+                <span class="flex flex-wrap items-center gap-2 min-w-0">
+                  <.icon name="hero-calendar" class="w-4 h-4 text-base-content/50 shrink-0" />
+                  <span class="font-medium">{format_span(i.occurred_at, ended_at(i), @tz)}</span>
+                  <span class="badge badge-ghost badge-sm">{Interaction.type_label(i.interaction_type)}</span>
+                  <span :if={i.subject} class="truncate">{i.subject}</span>
+                  <span :if={i.location} class="text-base-content/60 truncate">· {i.location}</span>
+                  <span :if={Interaction.overdue?(i)} class="badge badge-warning badge-sm">
+                    {gettext("needs an outcome")}
+                  </span>
+                </span>
+                <span :if={i.parties != []} class="flex flex-wrap gap-1">
+                  <.party_badge :for={p <- i.parties} party={p} />
+                </span>
+              </div>
+              <% owned = @can_write and owns_row?(assigns, i) %>
+              <div :if={owned} class="flex items-center gap-1">
+                <.button type="button" phx-click="log_planned" phx-value-uuid={i.uuid} phx-target={@myself} class="btn-ghost btn-xs">
+                  <.icon name="hero-pencil-square" class="w-3.5 h-3.5" /> {gettext("Log what happened")}
+                </.button>
+                <.table_row_menu id={"crm-planned-menu-#{i.uuid}"}>
+                  <.table_row_menu_button
+                    phx-click="edit_interaction"
+                    phx-value-uuid={i.uuid}
+                    phx-target={@myself}
+                    icon="hero-pencil"
+                    label={gettext("Change the plan")}
+                  />
+                  <.table_row_menu_button
+                    phx-click="cancel_planned"
+                    phx-value-uuid={i.uuid}
+                    phx-target={@myself}
+                    icon="hero-x-circle"
+                    label={gettext("It was cancelled")}
+                  />
+                  <.table_row_menu_divider />
+                  <.table_row_menu_button
+                    phx-click="delete_interaction"
+                    phx-value-uuid={i.uuid}
+                    phx-target={@myself}
+                    phx-disable-with={gettext("Deleting…")}
+                    data-confirm={gettext("Delete this plan?")}
+                    icon="hero-trash"
+                    label={gettext("Delete")}
+                    variant="error"
+                  />
+                </.table_row_menu>
+              </div>
             </li>
           </ul>
-          <.form :if={@planning} for={%{}} as={:plan} id={"#{@id}-plan"} phx-change="plan_change" phx-submit="save_plan" phx-target={@myself} class="flex flex-col gap-3 rounded-box border border-base-200 p-3">
-            <.input id="crm-plan-title" name="plan[title]" value={@p_title} label={gettext("Title")} class="input-sm" required />
-            <div class="flex flex-wrap items-end gap-3">
-              <.input id="crm-plan-when" type="datetime-local" name="plan[when]" value={@p_when} label={gettext("Starts")} class="input-sm" wrapper_class="w-56" required />
-              <.input id="crm-plan-until" type="datetime-local" name="plan[until]" value={@p_until} label={gettext("Ends (optional)")} class="input-sm" wrapper_class="w-56" />
-              <.input id="crm-plan-location" name="plan[location]" value={@p_location} label={gettext("Where (optional)")} class="input-sm" wrapper_class="flex-1 min-w-48" />
-            </div>
-            <p class="text-xs text-base-content/60">{gettext("A meeting, a call, a visit — whatever is planned with the client. Leave the end empty when nobody knows how long it will take. It goes on the project's calendar; afterwards, \"Log what happened\" opens the composer with it.")}</p>
-            <div :if={@plan_error} class="alert alert-error text-sm py-2" role="alert">
-              <.icon name="hero-exclamation-triangle" class="w-4 h-4 shrink-0" />
-              <span>{@plan_error}</span>
-            </div>
-            <div class="flex justify-end gap-2">
-              <.button type="button" phx-click="cancel_planning" phx-target={@myself} class="btn-ghost btn-sm">{gettext("Cancel")}</.button>
-              <.button type="submit" class="btn-primary btn-sm" phx-disable-with={gettext("Saving…")}>{gettext("Plan it")}</.button>
-            </div>
-          </.form>
         </div>
       </div>
 
       <%!-- Composer (hidden for a viewer the hub says may not write) --%>
       <div :if={@can_write and @show_composer} class="card bg-base-100 shadow-sm border border-base-200">
         <div class="card-body gap-3">
-          <h3 class="font-semibold">{composer_title(assigns)}</h3>
+          <h3 :if={@show_feed} class="font-semibold">{composer_title(assigns)}</h3>
 
           <.form
             for={%{}}
@@ -1722,6 +1757,26 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
             phx-target={@myself}
             class="flex flex-col gap-3"
           >
+            <%!-- What is being written: a plan, the record, or one that did
+                 not take place (which may still have cost time). --%>
+            <div class="join" role="group" aria-label={gettext("Status")}>
+              <button
+                :for={status <- Interaction.statuses()}
+                type="button"
+                id={"crm-status-#{status}"}
+                phx-click="set_status"
+                phx-value-status={status}
+                phx-target={@myself}
+                aria-pressed={to_string(@c_status == status)}
+                class={["btn btn-sm join-item", (@c_status == status && "btn-primary") || "btn-outline"]}
+              >
+                {Interaction.status_label(status)}
+              </button>
+            </div>
+            <p :if={@c_status == "cancelled"} class="text-xs text-base-content/60">
+              {gettext("It did not take place. Say why below; time it still cost (the drive there, the wait) can be given as usual.")}
+            </p>
+
             <.select
               id="crm-type"
               name="interaction[interaction_type]"
@@ -1736,9 +1791,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                 id="crm-when"
                 name="interaction[occurred_at]"
                 value={@c_occurred_at}
-                label={gettext("When")}
+                label={if(@c_status == "planned", do: gettext("Starts"), else: gettext("When"))}
                 phx-hook="CrmWhenWarnings"
                 data-editing={if(@editing_uuid, do: "true", else: "false")}
+                data-planned={to_string(@c_status == "planned")}
                 data-profile-offset-minutes={offset_minutes_now(@tz)}
                 data-profile-zone={PhoenixKit.Settings.get_timezone_label(@tz)}
                 data-profile-zone-id={zone_id(@tz)}
@@ -1771,9 +1827,9 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
               id="crm-ended"
               name="interaction[ended_at]"
               value={@c_ended_at}
-              label={gettext("Ended (optional)")}
+              label={if(@c_status == "planned", do: gettext("Ends (optional)"), else: gettext("Ended (optional)"))}
             />
-            <div class="-mt-2">
+            <div :if={@c_status != "planned"} class="-mt-2">
               <button
                 type="button"
                 id="crm-set-end-now"
@@ -1792,11 +1848,17 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
               label={gettext("Subject")}
               placeholder={gettext("Optional")}
             />
+            <.input
+              id="crm-location"
+              name="interaction[location]"
+              value={@c_location}
+              label={gettext("Where (optional)")}
+            />
             <.textarea
               id="crm-body"
               name="interaction[body]"
               value={@c_body}
-              label={gettext("What was discussed?")}
+              label={body_label(@c_status)}
             />
 
             <%!-- Project mode: how long it took, and whose time it was. The
@@ -1824,6 +1886,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                   wrapper_class="w-40"
                 />
                 <.checkbox
+                  :if={@c_status != "planned"}
                   id="crm-billable"
                   name="interaction[billable]"
                   checked={@c_billable}
@@ -1832,11 +1895,14 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                   wrapper_class="h-8 items-center gap-2! -mb-0.5"
                 />
               </div>
-              <% attendees = attendees(assigns) %>
+              <% attendees = if(@c_status == "planned", do: [], else: attendees(assigns)) %>
+              <p :if={@c_status == "planned"} class="text-xs text-base-content/60">
+                {gettext("Time is logged on the project once this is saved as happened or cancelled.")}
+              </p>
               <p :if={is_binary(@editing_uuid) and attendees != []} class="text-xs text-base-content/60">
                 {gettext("Minutes per attendee, as logged on the project — change a figure to amend it, 0 removes it; an attendee without one gets an entry on save (blank means the whole duration).")}
               </p>
-              <p :if={attendees == []} class="text-xs text-base-content/60">
+              <p :if={attendees == [] and @c_status != "planned"} class="text-xs text-base-content/60">
                 {gettext("Add yourself or a staff member under Involved parties to log their time on the project.")}
               </p>
               <p :if={attendees != [] and is_nil(@editing_uuid)} class="text-xs text-base-content/60">
@@ -2061,7 +2127,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
               class="btn-primary btn-sm"
               phx-disable-with={gettext("Saving…")}
             >
-              {if @editing_uuid, do: gettext("Save changes"), else: gettext("Save interaction")}
+              {save_label(@editing_uuid, @c_status)}
             </.button>
           </div>
         </div>
@@ -2085,17 +2151,20 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
       <%!-- Timeline --%>
       <.empty_state
-        :if={@show_feed and @interactions == []}
+        :if={@show_feed and feed_rows(@interactions) == []}
         icon="hero-chat-bubble-left-right"
         title={gettext("No interactions logged yet.")}
       />
 
-      <ol :if={@show_feed and @interactions != []} class="flex flex-col gap-3">
-        <li :for={i <- @interactions} class="card bg-base-100 shadow-sm border border-base-200">
+      <ol :if={@show_feed and feed_rows(@interactions) != []} class="flex flex-col gap-3">
+        <li :for={i <- feed_rows(@interactions)} id={"crm-interaction-#{i.uuid}"} class="card bg-base-100 shadow-sm border border-base-200">
           <div class="card-body py-3 gap-1">
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="badge badge-ghost badge-sm">{Interaction.type_label(i.interaction_type)}</span>
+                <span :if={Interaction.cancelled?(i)} class="badge badge-error badge-outline badge-sm">
+                  {gettext("Cancelled")}
+                </span>
                 <%!-- Provenance: on a company page every row says whether it is
                      the company's own or a member's; on a contact page a
                      company-anchored row (here via party involvement) names
@@ -2164,7 +2233,10 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                 />
               </.table_row_menu>
             </div>
-            <div :if={i.subject} class="font-medium">{i.subject}</div>
+            <div :if={i.subject} class={["font-medium", Interaction.cancelled?(i) && "line-through opacity-70"]}>{i.subject}</div>
+            <div :if={i.location} class="text-xs text-base-content/60 inline-flex items-center gap-1">
+              <.icon name="hero-map-pin" class="w-3 h-3" /> {i.location}
+            </div>
             <div :if={i.body} class="text-sm whitespace-pre-wrap">{i.body}</div>
             <div :if={i.parties != []} class="flex flex-wrap gap-1 mt-1">
               <span class="text-xs text-base-content/50">{gettext("Involved:")}</span>
@@ -2174,19 +2246,19 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
             <%!-- Project mode: the meeting's length, what came out of it
                  (the tasks whose description carries this row's # chip),
                  and the way to add one more. --%>
-            <div :if={@project_mode} class="flex flex-wrap items-center gap-2 mt-1 text-xs">
-              <span :if={i.duration_minutes} class="badge badge-ghost badge-sm gap-1">
+            <% planned = planned_label(i, assigns) %>
+            <div :if={@project_mode or planned} class="flex flex-wrap items-center gap-2 mt-1 text-xs">
+              <span :if={@project_mode and i.duration_minutes} class="badge badge-ghost badge-sm gap-1">
                 <.icon name="hero-clock" class="w-3 h-3" /> {format_minutes(i.duration_minutes)}
               </span>
-              <% planned = planned_label(i, assigns) %>
               <span
                 :if={planned}
                 class="badge badge-outline badge-sm gap-1"
-                title={gettext("The project event this is the record of")}
+                title={gettext("When it was planned for")}
               >
                 <.icon name="hero-calendar" class="w-3 h-3" /> {planned}
               </span>
-              <% links = Map.get(@interaction_links, i.uuid, []) %>
+              <% links = if(@project_mode, do: Map.get(@interaction_links, i.uuid, []), else: []) %>
               <span :if={links != []} class="text-base-content/50">{gettext("Tasks from this:")}</span>
               <.link
                 :for={l <- links}

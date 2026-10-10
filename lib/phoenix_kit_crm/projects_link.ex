@@ -219,8 +219,9 @@ defmodule PhoenixKitCRM.ProjectsLink do
   defp to_minutes(_), do: 0
 
   @doc """
-  The project's events (the plan: meetings as scheduled), newest first,
-  for the composer's "Planned as" pick. Empty when the projects module is
+  The project's calendar events, newest first — read only to label the
+  rows that still point at one (`metadata.event_uuid`, written before V9,
+  when a plan was a project event). Empty when the projects module is
   absent. Options go to the projects module's `list_for_project/2`.
   """
   @spec list_events(binary(), keyword()) :: [map()]
@@ -232,26 +233,6 @@ defmodule PhoenixKitCRM.ProjectsLink do
     end
   rescue
     _ -> []
-  end
-
-  @doc """
-  Plans a meeting: a project event (`title`, `starts_at`, optional
-  `location`, and `ends_at` when someone knows how long it will take),
-  created by the projects module, which logs it and shows it on the
-  project's calendar.
-  """
-  @spec create_event(binary(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def create_event(project_uuid, attrs, opts \\ [])
-      when is_binary(project_uuid) and is_map(attrs) do
-    if Code.ensure_loaded?(@events) and function_exported?(@events, :create, 3) do
-      apply(@events, :create, [%{uuid: project_uuid}, attrs, opts])
-    else
-      {:error, :unavailable}
-    end
-  rescue
-    e ->
-      Logger.warning("[CRM] event create failed: #{Exception.message(e)}")
-      {:error, :unavailable}
   end
 
   @doc "Subscribes to the projects module's own topic for calendar updates."

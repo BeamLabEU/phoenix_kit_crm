@@ -184,18 +184,56 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
   anchor is always the project's client company (read through
   `PhoenixKitProjects.Extensions.config/2` by name; none → 409 `no_client`).
   Time is never logged here — the projects API's own `/time` is.
-- **Planning on the Client tab:** "Plan a meeting" makes a project event
-  through `ProjectsLink.create_event/3` (title, when, where; no end time —
-  nobody knows how long it will take); the tab lists planned meetings no
-  interaction is the record of yet, each with "Log what happened", which
-  opens the composer with that plan picked. The hub's Calendar tab is the
-  other place a plan is made; both are the same event.
-- **The plan → record link** is `metadata.event_uuid` on the interaction
-  (the project event it is the record of): the composer's "Planned as" pick
-  (project mode; events through `ProjectsLink.list_events/2`) prefills the
-  when and the subject, the row shows "Planned 14:00", the API sets or
-  clears it. Events keep no history; a moved event's activity entry
-  carries `moved_from`.
+- **An interaction has a status (V9):** `planned` | `happened` |
+  `cancelled` (`Interaction.statuses/0`; every row before V9 is
+  `happened`). A plan is THE SAME ROW the record will be: "Log what
+  happened" / "It was cancelled" change its status, never write a second
+  row. While planned, `occurred_at` is when it is meant to start and
+  `planned_at` follows it; once logged, `occurred_at` is the real start and
+  `planned_at` keeps what was agreed (the row's "Planned 14:00" badge when
+  the two differ). `location` is where. Nothing flips a plan by the clock:
+  one past its time is `Interaction.overdue?/2` ("needs an outcome") until
+  a person says. A cancelled one keeps its note and its length ("drove two
+  hours, the client cancelled at the door"), and in a project its time
+  goes to the ledger like any other; a plan logs no time at all
+  (`log_attendee_time/2` is a no-op for it, and one with ledger entries
+  cannot be made a plan again). `happened` with a start more than five
+  minutes ahead is refused, in the composer and on the API.
+- **Every reader of interactions must say what it means by one.** The
+  table used to hold only what happened: `list_recent/1` and
+  `count_interactions/0` now leave plans out, `list_planned/1` is the
+  plan across the CRM (the overview's "Planned"), the feeds
+  (`list_involving/1`, `list_for_company/2`, `list_for_project/2`) return
+  everything and the component splits it (`planned_rows/1` /
+  `feed_rows/1`). A new query that forgets the status will show a future
+  meeting as the client's last contact.
+- **One layout on every page:** the feed with a "Planned" card on the
+  page, the composer in a drawer the host LiveView owns
+  (`Web.InteractionsDrawer`: `init/2`, `open/2`, `handle_info/3`,
+  `<.drawer>`; core's drawer sends its close event to the view, so a
+  LiveComponent cannot own one). Contact page, company page and the
+  projects hub's Client tab all mount `InteractionsComponent` twice — the
+  feed (`show_composer={false}`) and, per open, a fresh composer instance
+  (`show_feed={false}`, `open_editing_uuid`, `open_status`). The feed asks
+  for the drawer by message (`{:crm_client, :compose, opts}`), the
+  composer answers `{:crm_client, :saved | :cancel}`. A LiveView test
+  opens it first (`live_composer/2` in `LiveCase`).
+- **The activity trail is the row's history** (one mutable row needs one):
+  `crm.interaction_planned`, `crm.interaction_moved` (`moved_from`),
+  `crm.interaction_cancelled`, `crm.interaction_logged` — each with
+  `status` and, on a change, `status_from`.
+- **Who is told** (`InteractionNotifier`): the users behind a plan's
+  parties (a staff person's or a contact's `user_uuid`, read live and
+  schemaless; free text reaches nobody) when they are added to a plan,
+  when it moves and when it is cancelled — the ONE activity entry fanned
+  out through core's `Notifications.fan_out_from_activity/2` (`apply/3`,
+  a no-op on an older core). No reminder before the start yet: that
+  needs a scheduled job.
+- **Project calendar events are no longer the plan.** Before V9 "Plan
+  ahead" made a project event and the record pointed at it
+  (`metadata.event_uuid`). Rows that still carry the pointer keep their
+  "Planned …" badge; nothing new writes it, and an unlogged calendar event
+  is no longer listed as a meeting to log (a milestone is not one).
 - **Interactions are mentionable** (`InteractionLinks`, type
   `crm_interaction`, declared in `resource_links/0` with contacts and
   companies): a task whose description carries
