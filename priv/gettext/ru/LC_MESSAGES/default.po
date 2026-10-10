@@ -2975,3 +2975,8 @@ msgstr "Вы участвуете в запланированном: %{type}"
 #, elixir-autogen, elixir-format
 msgid "needs an outcome"
 msgstr "нужен итог"
+
+#: lib/phoenix_kit_crm.ex:257
+#, elixir-autogen, elixir-format
+msgid "Client interactions"
+msgstr "Взаимодействия с клиентами"

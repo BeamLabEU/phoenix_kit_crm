@@ -229,6 +229,14 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
   out through core's `Notifications.fan_out_from_activity/2` (`apply/3`,
   a no-op on an older core). No reminder before the start yet: that
   needs a scheduled job.
+- **Interactions on other modules' calendars** (`CalendarItems`): read-only
+  maps, asked for on every load and never copied. `for_project/3` is the
+  Client extension's `calendar:` (the projects hub's Calendar tab;
+  `ProjectsLink.calendar_changed/1`, called from the project-feed
+  broadcast, has open tabs read again), `for_user/3` is
+  `phoenix_kit_calendar_sources/0` (a person's own calendar: what they
+  wrote, or are a party to through their contact or staff record — the
+  list IS the permission check). Both modules are reached by name only.
 - **Project calendar events are no longer the plan.** Before V9 "Plan
   ahead" made a project event and the record pointed at it
   (`metadata.event_uuid`). Rows that still carry the pointer keep their

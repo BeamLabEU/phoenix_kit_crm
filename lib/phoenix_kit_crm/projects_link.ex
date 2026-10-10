@@ -235,6 +235,28 @@ defmodule PhoenixKitCRM.ProjectsLink do
     _ -> []
   end
 
+  @doc """
+  Tells the project's open pages that its interactions changed, so the
+  Calendar tab — which draws them through `CalendarItems.for_project/3` —
+  reads them again. `:ok` either way; nothing happens without the projects
+  module, or with one that predates the calendar hook.
+  """
+  @spec calendar_changed(binary() | nil) :: :ok
+  def calendar_changed(project_uuid) when is_binary(project_uuid) do
+    mod = PhoenixKitProjects.Extensions
+
+    if Code.ensure_loaded?(mod) and function_exported?(mod, :calendar_changed, 1),
+      do: apply(mod, :calendar_changed, [project_uuid])
+
+    :ok
+  rescue
+    _ -> :ok
+  catch
+    :exit, _ -> :ok
+  end
+
+  def calendar_changed(_), do: :ok
+
   @doc "Subscribes to the projects module's own topic for calendar updates."
   @spec subscribe_events(binary()) :: :ok | {:error, term()}
   def subscribe_events(project_uuid) do

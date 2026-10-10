@@ -2943,3 +2943,8 @@ msgstr "Sind lisati plaanitud tegevusse: %{type}"
 #, elixir-autogen, elixir-format
 msgid "needs an outcome"
 msgstr "vajab tulemust"
+
+#: lib/phoenix_kit_crm.ex:257
+#, elixir-autogen, elixir-format
+msgid "Client interactions"
+msgstr "Suhtlus klientidega"

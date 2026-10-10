@@ -738,17 +738,17 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   defp end_before_start_error, do: gettext("The end must be after the start.")
 
-  # A new plan: a meeting, a day from now, nobody staged yet.
+  # A new plan: a meeting, this time tomorrow on the next full hour (nobody
+  # plans for 05:14), nobody staged yet.
   defp start_plan(socket) do
     tz = socket.assigns[:tz] || "0"
+    tomorrow = DateTime.add(DateTime.utc_now(), 86_400)
+    on_the_hour = DateTime.add(%{tomorrow | minute: 0, second: 0, microsecond: {0, 0}}, 3600)
 
     socket
     |> assign(:c_status, "planned")
     |> assign(:c_type, "meeting")
-    |> assign(
-      :c_occurred_at,
-      DateUtils.format_datetime_local(DateTime.add(DateTime.utc_now(), 86_400), tz)
-    )
+    |> assign(:c_occurred_at, DateUtils.format_datetime_local(on_the_hour, tz))
     |> assign(:c_ended_at, "")
     |> assign(:c_duration, "")
   end

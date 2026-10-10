@@ -8,6 +8,7 @@ defmodule PhoenixKitCRM do
   """
 
   use PhoenixKit.Module
+  use Gettext, backend: PhoenixKitCRM.Gettext
 
   require Logger
 
@@ -244,6 +245,22 @@ defmodule PhoenixKitCRM do
   # per-instance CONFIG (company_uuid — no FK, set in the project's
   # Modules & features panel) and renders read-only company/contacts/
   # interactions context inside the project.
+  # The calendar module's external-sources hook
+  # (`PhoenixKitCalendar.ExternalSources`), discovered at runtime the same
+  # way — no dependency on that package either. A person's calendar shows
+  # the interactions they are in: planned, happened and cancelled.
+  @doc false
+  def phoenix_kit_calendar_sources do
+    [
+      %{
+        key: PhoenixKitCRM.CalendarItems.source(),
+        label: gettext("Client interactions"),
+        module_key: "crm",
+        items: {PhoenixKitCRM.CalendarItems, :for_user}
+      }
+    ]
+  end
+
   @doc false
   def phoenix_kit_project_extensions do
     [
@@ -280,7 +297,11 @@ defmodule PhoenixKitCRM do
         permission_actions: [:view, :log_interaction],
         # The project's interactions on the projects JSON API
         # (`/ext/interactions`) — `PhoenixKitCRM.ProjectApi`.
-        api: [PhoenixKitCRM.ProjectApi, PhoenixKitCRM.CompanyApi]
+        api: [PhoenixKitCRM.ProjectApi, PhoenixKitCRM.CompanyApi],
+        # The project's interactions on its Calendar tab, read-only: what is
+        # planned, what happened, what was cancelled
+        # (`PhoenixKitCRM.CalendarItems.for_project/3`).
+        calendar: {PhoenixKitCRM.CalendarItems, :for_project}
       }
     ]
   end
