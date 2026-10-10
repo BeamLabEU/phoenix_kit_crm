@@ -2948,3 +2948,8 @@ msgstr "vajab tulemust"
 #, elixir-autogen, elixir-format
 msgid "Client interactions"
 msgstr "Suhtlus klientidega"
+
+#: lib/phoenix_kit_crm/project_columns.ex:41
+#, elixir-autogen, elixir-format
+msgid "Client"
+msgstr "Klient"

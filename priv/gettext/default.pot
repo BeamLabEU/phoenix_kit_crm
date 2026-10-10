@@ -2966,3 +2966,8 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgid "Client interactions"
 msgstr ""
+
+#: lib/phoenix_kit_crm/project_columns.ex:41
+#, elixir-autogen, elixir-format
+msgid "Client"
+msgstr ""
