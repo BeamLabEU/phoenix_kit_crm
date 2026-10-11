@@ -153,6 +153,15 @@ defmodule PhoenixKitCRM.ProjectApi do
     end
   end
 
+  @doc """
+  The project each of `uuids` (interactions) was logged on, for the ones
+  that have one — what the projects module asks before a project is moved,
+  to say which of its task links point at another project's interactions.
+  """
+  @spec projects_of([String.t()]) :: %{String.t() => String.t()}
+  def projects_of(uuids) when is_list(uuids), do: Interactions.projects_of(uuids)
+  def projects_of(_), do: %{}
+
   # ── Writes ──────────────────────────────────────────────────────────
 
   @doc false

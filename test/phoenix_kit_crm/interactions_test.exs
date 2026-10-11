@@ -93,6 +93,9 @@ defmodule PhoenixKitCRM.InteractionsTest do
       for hidden <- [other_client, crm_only] do
         assert Interactions.get_for_project(mine, hidden, client: client.uuid) == nil
       end
+
+      assert Interactions.projects_of([own, shared, crm_only, "junk"]) ==
+               %{own => mine, shared => theirs}
     end
 
     test "a length must be a positive number of minutes within a day" do

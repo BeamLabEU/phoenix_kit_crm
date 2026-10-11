@@ -155,6 +155,19 @@ defmodule PhoenixKitCRM.Interactions do
     end
   end
 
+  @doc "Interaction uuid → the project it was logged on, for the rows that have one."
+  @spec projects_of([String.t()]) :: %{String.t() => String.t()}
+  def projects_of(uuids) when is_list(uuids) do
+    uuids = Enum.filter(uuids, &match?({:ok, _}, Ecto.UUID.cast(&1)))
+
+    from(i in Interaction,
+      where: i.uuid in ^uuids and not is_nil(i.project_uuid),
+      select: {i.uuid, i.project_uuid}
+    )
+    |> repo().all()
+    |> Map.new()
+  end
+
   @doc """
   The condition "this project's own, or another project's with the same
   client company" as a dynamic, for a query bound to the interaction as
