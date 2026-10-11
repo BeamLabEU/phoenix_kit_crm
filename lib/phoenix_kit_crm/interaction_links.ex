@@ -29,7 +29,7 @@ defmodule PhoenixKitCRM.InteractionLinks do
   alias PhoenixKit.RepoHelper
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.Scope
-  alias PhoenixKitCRM.{Paths, ProjectsLink}
+  alias PhoenixKitCRM.{Interactions, Paths, ProjectApi, ProjectsLink}
   alias PhoenixKitCRM.Schemas.{Company, Contact, Interaction}
 
   @type_key "crm_interaction"
@@ -71,7 +71,8 @@ defmodule PhoenixKitCRM.InteractionLinks do
   Interactions matching `query` by subject or anchor name, for a searcher
   who may open the CRM. Typed inside a project (`opts[:context]` carries
   `%{"project" => uuid}`), only the interactions of that project and the
-  sub-projects under it — the field says what is relevant; CRM access
+  sub-projects under it, plus what other projects logged with the
+  project's client company — the field says what is relevant; CRM access
   still decides whether anything is offered at all.
   """
   @spec search_resources(String.t(), keyword()) :: [map()]
@@ -114,10 +115,24 @@ defmodule PhoenixKitCRM.InteractionLinks do
   end
 
   defp within_project(queryable, %{"project" => uuid}) when is_binary(uuid) do
-    where(queryable, [i], i.project_uuid in ^ProjectsLink.subtree_uuids(uuid))
+    client = ProjectApi.client_company_uuid(uuid)
+
+    where(
+      queryable,
+      ^Interactions.project_condition(ProjectsLink.subtree_uuids(uuid), client_uuid(client))
+    )
   end
 
   defp within_project(queryable, _context), do: queryable
+
+  defp client_uuid(uuid) when is_binary(uuid) do
+    case Ecto.UUID.cast(uuid) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp client_uuid(_), do: nil
 
   defp subtitle(%Interaction{} = i) do
     who =

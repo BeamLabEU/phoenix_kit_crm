@@ -121,6 +121,31 @@ defmodule PhoenixKitCRM.ProjectsLink do
     _ -> [project_uuid]
   end
 
+  @doc """
+  What to call each of `uuids` (projects) on a row that names where an
+  interaction was logged: its short name and its name. Empty without the
+  projects module; a project that is gone is simply not in the map.
+  """
+  @spec project_labels([String.t()]) :: %{
+          String.t() => %{key: String.t() | nil, name: String.t()}
+        }
+  def project_labels(uuids) when is_list(uuids) do
+    if Code.ensure_loaded?(@projects) and function_exported?(@projects, :get_project, 1) do
+      uuids |> Enum.uniq() |> Enum.flat_map(&project_label/1) |> Map.new()
+    else
+      %{}
+    end
+  rescue
+    _ -> %{}
+  end
+
+  defp project_label(uuid) do
+    case apply(@projects, :get_project, [uuid]) do
+      %{name: name} = p -> [{uuid, %{key: Map.get(p, :key), name: name}}]
+      _ -> []
+    end
+  end
+
   @doc "Whether the projects ledger is loaded and takes time entries."
   @spec available?() :: boolean()
   def available? do

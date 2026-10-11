@@ -56,17 +56,20 @@ defmodule PhoenixKitCRM.ProjectApi do
     since = parse_since(params["since"])
 
     with {:ok, statuses} <- status_filter(params["status"]),
-         {:ok, updated_since} <- updated_since(params["updated_since"]) do
+         {:ok, updated_since} <- updated_since(params["updated_since"]),
+         {:ok, client} <- of_filter(params["of"], project) do
+      reach = ProjectsLink.subtree_uuids(project.uuid)
+
       rows =
         project.uuid
-        |> Interactions.list_for_project(limit: 200)
+        |> Interactions.list_for_project(limit: 200, client: client)
         |> Enum.filter(&listed?(&1, statuses, since, updated_since))
         |> order_for(statuses)
         |> Enum.take(limit)
 
       {:ok,
        %{
-         interactions: Enum.map(rows, &to_json/1),
+         interactions: Enum.map(rows, &to_json(&1, reach)),
          count: length(rows),
          now: DateTime.utc_now() |> DateTime.truncate(:second)
        }}
@@ -78,6 +81,14 @@ defmodule PhoenixKitCRM.ProjectApi do
       (is_nil(since) or DateTime.compare(i.occurred_at, since) == :gt) and
       (is_nil(updated_since) or DateTime.compare(i.updated_at, updated_since) != :lt)
   end
+
+  # Whose interactions a list answers: the project's own (unsaid, or
+  # `project`), or `client` — those plus what other projects logged with
+  # the same client company (read-only here; `project_uuid` says where
+  # each was logged).
+  defp of_filter(v, _project) when v in [nil, "", "project"], do: {:ok, nil}
+  defp of_filter("client", project), do: {:ok, client_company_uuid(project)}
+  defp of_filter(_, _project), do: invalid("of", "must be project or client")
 
   # Which statuses a list answers. Unsaid, it is the record — what happened
   # and what was cancelled — as it was before plans existed; `planned` is
@@ -131,9 +142,14 @@ defmodule PhoenixKitCRM.ProjectApi do
 
   @doc false
   def get(%{project: project}, id) do
-    case fetch(project, id) do
-      {:ok, i} -> {:ok, %{interaction: to_json(i)}}
-      error -> error
+    # A read reaches the client's interactions other projects logged (a
+    # task here may point at one); a write only the project's own (`fetch/2`).
+    case Interactions.get_for_project(project.uuid, id, client: client_company_uuid(project)) do
+      %Interaction{} = i ->
+        {:ok, %{interaction: to_json(i, ProjectsLink.subtree_uuids(project.uuid))}}
+
+      _ ->
+        {:error, {404, "not_found", "No such interaction on this project.", nil}}
     end
   end
 
@@ -180,7 +196,8 @@ defmodule PhoenixKitCRM.ProjectApi do
   # `tasks` are in the shape.
   defp answer({:ok, i}, attrs, ctx, status) do
     with :ok <- link_tasks(i, attrs["tasks"], ctx) do
-      json = %{interaction: to_json(Interactions.get_interaction(i.uuid) || i)}
+      reach = ProjectsLink.subtree_uuids(ctx.project.uuid)
+      json = %{interaction: to_json(Interactions.get_interaction(i.uuid) || i, reach)}
       if status, do: {:ok, json, status}, else: {:ok, json}
     end
   end
@@ -237,9 +254,13 @@ defmodule PhoenixKitCRM.ProjectApi do
 
   # ── Shapes ──────────────────────────────────────────────────────────
 
-  @doc "The JSON shape of an interaction on the API."
-  @spec to_json(Interaction.t()) :: map()
-  def to_json(%Interaction{} = i) do
+  @doc """
+  The JSON shape of an interaction on the API. `reach` (project uuids)
+  keeps `tasks` to the tasks of those projects: an interaction two
+  projects share must not show one of them the other's task titles.
+  """
+  @spec to_json(Interaction.t(), [String.t()] | nil) :: map()
+  def to_json(%Interaction{} = i, reach \\ nil) do
     parties = if Ecto.assoc_loaded?(i.parties), do: i.parties, else: []
 
     %{
@@ -263,8 +284,11 @@ defmodule PhoenixKitCRM.ProjectApi do
       ended_at: Interaction.ended_at(i),
       company_uuid: i.company_uuid,
       contact_uuid: i.contact_uuid,
+      # the project it was logged on — another project's when the list was
+      # asked for `of=client`, or a task here points at one of the client's
+      project_uuid: i.project_uuid,
       event_uuid: (i.metadata || %{})["event_uuid"],
-      tasks: linked_tasks(i),
+      tasks: linked_tasks(i, reach),
       parties:
         Enum.map(parties, fn p ->
           %{
@@ -280,7 +304,13 @@ defmodule PhoenixKitCRM.ProjectApi do
 
   # The tasks that came out of this interaction (the projects module's
   # link table, else the mention backlinks).
-  defp linked_tasks(%Interaction{uuid: uuid}), do: ProjectsLink.tasks_for_interaction(uuid)
+  defp linked_tasks(%Interaction{uuid: uuid}, nil), do: ProjectsLink.tasks_for_interaction(uuid)
+
+  defp linked_tasks(%Interaction{uuid: uuid}, reach) when is_list(reach) do
+    uuid
+    |> ProjectsLink.tasks_for_interaction()
+    |> Enum.filter(&(ProjectsLink.task_project(&1.uuid) in reach))
+  end
 
   @doc "Endpoint rows for the projects API docs."
   @spec docs() :: [map()]
@@ -379,6 +409,14 @@ defmodule PhoenixKitCRM.ProjectApi do
         idempotency: nil,
         params: [
           %{
+            name: "of",
+            in: :query,
+            type: "string",
+            required: false,
+            doc:
+              "project (default) | client. `client` adds what other projects logged with the same client company: readable and linkable to a task here, changed only on the project that logged it (each row's `project_uuid`)"
+          },
+          %{
             name: "status",
             in: :query,
             type: "string",
@@ -458,10 +496,24 @@ defmodule PhoenixKitCRM.ProjectApi do
 
   # ── Internals ───────────────────────────────────────────────────────
 
+  # For a WRITE: the project's own row. One another project logged with
+  # the same client is readable here and says so instead of a bare 404.
   defp fetch(project, id) do
     case Interactions.get_for_project(project.uuid, id) do
-      %Interaction{} = i -> {:ok, i}
-      _ -> {:error, {404, "not_found", "No such interaction on this project.", nil}}
+      %Interaction{} = i ->
+        {:ok, i}
+
+      _ ->
+        case Interactions.get_for_project(project.uuid, id, client: client_company_uuid(project)) do
+          %Interaction{project_uuid: other} ->
+            {:error,
+             {403, "other_project",
+              "This interaction was logged on another project; it can be read and linked here, and changed only there.",
+              %{project_uuid: other}}}
+
+          _ ->
+            {:error, {404, "not_found", "No such interaction on this project.", nil}}
+        end
     end
   end
 

@@ -100,6 +100,39 @@ defmodule PhoenixKitCRM.Web.ProjectClientWriteGateTest do
     refute render(view) =~ "as logged on the project"
   end
 
+  test "what another project logged with the same client is shown, marked, and not changed here",
+       %{conn: conn} do
+    {view, row} = mount_tab(conn, true)
+    other_project = "0199a0e0-0000-7000-8000-0000000000aa"
+
+    {:ok, shared} =
+      Interactions.create_interaction(
+        %{
+          "company_uuid" => row.company_uuid,
+          "interaction_type" => "meeting",
+          "subject" => "Logged on the other project",
+          "occurred_at" => DateTime.utc_now(),
+          "project_uuid" => other_project
+        },
+        []
+      )
+
+    # No nudge needed: the tab follows the client company's topic too.
+    html = render(view)
+    assert html =~ "Logged on the other project"
+    assert html =~ "another project"
+
+    feed(view) |> render_click("delete_interaction", %{"uuid" => shared.uuid})
+    assert Interactions.get_interaction(shared.uuid)
+
+    feed(view) |> render_click("edit_interaction", %{"uuid" => shared.uuid})
+    refute render(view) =~ "crm-project-composer-"
+
+    # Its own row is still its own.
+    feed(view) |> render_click("delete_interaction", %{"uuid" => row.uuid})
+    assert Interactions.get_interaction(row.uuid) == nil
+  end
+
   test "the project feed follows contact and former-client changes over PubSub", %{conn: conn} do
     {view, _row} = mount_tab(conn, false)
     {:ok, contact} = Contacts.create_contact(%{"name" => "Project attendee"})

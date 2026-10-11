@@ -93,6 +93,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
      # and the project's events to pick it from.
      |> assign_new(:c_event_uuid, fn -> "" end)
      |> assign_new(:planned_events, fn -> [] end)
+     |> assign_new(:other_projects, fn -> %{} end)
      # V9: what the composer is writing — a plan, the record, or one that
      # did not take place — and where.
      |> assign_new(:c_status, fn -> "happened" end)
@@ -178,8 +179,14 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
   defp load_interactions(socket) do
     interactions =
       case {socket.assigns[:project_uuid], socket.assigns.anchor_kind} do
-        {project_uuid, _} when is_binary(project_uuid) ->
-          Interactions.list_for_project(project_uuid, limit: 100)
+        # The project's own, and what other projects logged with the same
+        # client (the anchor is the client company): a project split off
+        # from another still reads the meetings its tasks point at.
+        {project_uuid, kind} when is_binary(project_uuid) ->
+          Interactions.list_for_project(project_uuid,
+            limit: 100,
+            client: if(kind == :company, do: socket.assigns.anchor.uuid)
+          )
 
         {_, :contact} ->
           Interactions.list_involving(socket.assigns.anchor.uuid)
@@ -197,6 +204,7 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
     socket
     |> assign(:interactions, interactions)
+    |> assign(:other_projects, other_projects(socket.assigns[:project_uuid], interactions))
     |> assign(:recent_parties, recent_parties(socket.assigns, interactions))
     |> assign(:interaction_files, interaction_files)
     |> assign(:interaction_links, backlinks_for(socket, interactions))
@@ -1596,8 +1604,35 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
 
   defp local_to_utc(_, _), do: nil
 
-  # This page anchors the row — the only rows its Delete is offered on.
+  # Where the rows of a project's feed that another project logged came
+  # from, by project uuid — for the badge that says so.
+  defp other_projects(project_uuid, interactions) when is_binary(project_uuid) do
+    interactions
+    |> Enum.map(& &1.project_uuid)
+    |> Enum.reject(&(is_nil(&1) or &1 == project_uuid))
+    |> ProjectsLink.project_labels()
+  end
+
+  defp other_projects(_project_uuid, _interactions), do: %{}
+
+  defp other_project(assigns, %Interaction{project_uuid: uuid}) do
+    if assigns[:project_mode] and is_binary(uuid) and uuid != assigns[:project_uuid] do
+      Map.get(assigns[:other_projects] || %{}, uuid) ||
+        %{key: nil, name: gettext("another project")}
+    end
+  end
+
+  # This page anchors the row — the only rows its Delete is offered on. On
+  # a project's tab the row must be that project's as well: one another
+  # project logged with the same client is read here and changed there.
   defp owns_row?(%Phoenix.LiveView.Socket{assigns: assigns}, row), do: owns_row?(assigns, row)
+
+  defp owns_row?(%{project_mode: true, project_uuid: project_uuid} = assigns, row)
+       when is_binary(project_uuid) do
+    row.project_uuid == project_uuid and
+      owns_row?(%{anchor_kind: assigns.anchor_kind, anchor: assigns.anchor}, row)
+  end
+
   defp owns_row?(%{anchor_kind: :contact, anchor: a}, row), do: row.contact_uuid == a.uuid
   defp owns_row?(%{anchor_kind: :company, anchor: a}, row), do: row.company_uuid == a.uuid
 
@@ -1700,6 +1735,13 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                   <span :if={i.location} class="text-base-content/60 truncate">· {i.location}</span>
                   <span :if={Interaction.overdue?(i)} class="badge badge-warning badge-sm">
                     {gettext("needs an outcome")}
+                  </span>
+                  <span
+                    :if={other = other_project(assigns, i)}
+                    class="badge badge-info badge-outline badge-sm gap-1"
+                    title={gettext("Logged on the project \"%{name}\" for the same client; it is changed there.", name: other.name)}
+                  >
+                    <.icon name="hero-folder" class="w-3 h-3" /> {other.key || other.name}
                   </span>
                 </span>
                 <span :if={i.parties != []} class="flex flex-wrap gap-1">
@@ -2164,6 +2206,13 @@ defmodule PhoenixKitCRM.Web.InteractionsComponent do
                 <span class="badge badge-ghost badge-sm">{Interaction.type_label(i.interaction_type)}</span>
                 <span :if={Interaction.cancelled?(i)} class="badge badge-error badge-outline badge-sm">
                   {gettext("Cancelled")}
+                </span>
+                <span
+                  :if={other = other_project(assigns, i)}
+                  class="badge badge-info badge-outline badge-sm gap-1"
+                  title={gettext("Logged on the project \"%{name}\" for the same client; it is changed there.", name: other.name)}
+                >
+                  <.icon name="hero-folder" class="w-3 h-3" /> {other.key || other.name}
                 </span>
                 <%!-- Provenance: on a company page every row says whether it is
                      the company's own or a member's; on a contact page a

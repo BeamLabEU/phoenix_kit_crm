@@ -120,6 +120,14 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
       ProjectsLink.subscribe_events(socket.assigns.project_uuid)
     end
 
+    # And the client company's: what another project logs with it is in
+    # this feed too (`Interactions.list_for_project/2`'s `:client`).
+    if is_binary(socket.assigns.company_uuid) do
+      safe(fn ->
+        CRMPubSub.subscribe(CRMPubSub.topic_company_interactions(socket.assigns.company_uuid))
+      end)
+    end
+
     socket
   end
 

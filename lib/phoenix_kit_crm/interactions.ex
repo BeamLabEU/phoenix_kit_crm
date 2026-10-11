@@ -106,13 +106,19 @@ defmodule PhoenixKitCRM.Interactions do
 
   ## Options
     * `:limit` — cap the rows read (the tab passes one).
+    * `:client` — the project's client company: the list then also holds
+      what OTHER projects logged with that company (`project_condition/2`).
+      A meeting is about the client; the project is only where it was
+      written down, so a project that was split off, or a second project
+      for the same client, still reads the history its tasks point at.
+      Interactions logged in the CRM with no project stay the CRM's.
   """
   @spec list_for_project(binary(), keyword()) :: [Interaction.t()]
   def list_for_project(project_uuid, opts \\ []) do
     case Ecto.UUID.cast(project_uuid) do
       {:ok, _} ->
         Interaction
-        |> where([i], i.project_uuid == ^project_uuid)
+        |> where(^project_condition(project_uuid, client_uuid(opts[:client])))
         |> visible_anchors()
         |> order_by([i], desc: i.occurred_at, desc: i.inserted_at)
         |> maybe_limit(opts[:limit])
@@ -128,13 +134,19 @@ defmodule PhoenixKitCRM.Interactions do
     end
   end
 
-  @doc "One visible interaction of a project, or nil (including trashed anchors)."
-  @spec get_for_project(binary(), binary()) :: Interaction.t() | nil
-  def get_for_project(project_uuid, interaction_uuid) do
+  @doc """
+  One visible interaction of a project, or nil (including trashed anchors).
+  With `client:` (the project's client company), also one another project
+  logged with that company — readable here, written only where it was
+  logged (`i.project_uuid` says where).
+  """
+  @spec get_for_project(binary(), binary(), keyword()) :: Interaction.t() | nil
+  def get_for_project(project_uuid, interaction_uuid, opts \\ []) do
     with {:ok, project_uuid} <- Ecto.UUID.cast(project_uuid),
          {:ok, interaction_uuid} <- Ecto.UUID.cast(interaction_uuid) do
       Interaction
-      |> where([i], i.project_uuid == ^project_uuid and i.uuid == ^interaction_uuid)
+      |> where(^project_condition(project_uuid, client_uuid(opts[:client])))
+      |> where([i], i.uuid == ^interaction_uuid)
       |> visible_anchors()
       |> repo().one()
       |> repo().preload([:parties])
@@ -142,6 +154,31 @@ defmodule PhoenixKitCRM.Interactions do
       _ -> nil
     end
   end
+
+  @doc """
+  The condition "this project's own, or another project's with the same
+  client company" as a dynamic, for a query bound to the interaction as
+  its first binding. Without a client it is the project's own rows only.
+  """
+  @spec project_condition(binary() | [binary()], binary() | nil) :: Ecto.Query.dynamic_expr()
+  def project_condition(project_uuids, client) when is_list(project_uuids) do
+    own = dynamic([i], i.project_uuid in ^project_uuids)
+
+    if client,
+      do: dynamic([i], ^own or (i.company_uuid == ^client and not is_nil(i.project_uuid))),
+      else: own
+  end
+
+  def project_condition(project_uuid, client), do: project_condition([project_uuid], client)
+
+  defp client_uuid(uuid) when is_binary(uuid) do
+    case Ecto.UUID.cast(uuid) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp client_uuid(_), do: nil
 
   defp visible_anchors(query) do
     query
