@@ -149,8 +149,20 @@ defmodule PhoenixKitCRM.Web.ProjectClientLive do
   def handle_info({:crm_client, _} = message, socket), do: drawer_info(message, socket)
 
   # A meeting logged on the company from anywhere refreshes the feed here.
-  def handle_info({:crm, _event, %{interaction_uuid: _}}, socket),
-    do: {:noreply, refresh_feed(socket)}
+  # One write on this project arrives twice (its project topic and the
+  # client company's), so the reload is queued once and the second message
+  # finds it pending.
+  def handle_info({:crm, _event, %{interaction_uuid: _}}, socket) do
+    if socket.assigns[:refresh_pending?] do
+      {:noreply, socket}
+    else
+      send(self(), :refresh_feed)
+      {:noreply, assign(socket, :refresh_pending?, true)}
+    end
+  end
+
+  def handle_info(:refresh_feed, socket),
+    do: {:noreply, socket |> assign(:refresh_pending?, false) |> refresh_feed()}
 
   def handle_info({:projects, event, %{uuid: uuid}}, socket)
       when event in [:project_event_created, :project_event_updated, :project_event_deleted] do

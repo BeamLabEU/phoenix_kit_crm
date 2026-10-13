@@ -130,20 +130,18 @@ defmodule PhoenixKitCRM.ProjectsLink do
           String.t() => %{key: String.t() | nil, name: String.t()}
         }
   def project_labels(uuids) when is_list(uuids) do
-    if Code.ensure_loaded?(@projects) and function_exported?(@projects, :get_project, 1) do
-      uuids |> Enum.uniq() |> Enum.flat_map(&project_label/1) |> Map.new()
+    # One read for the whole list (`get_projects/1`), not one per project.
+    if Code.ensure_loaded?(@projects) and function_exported?(@projects, :get_projects, 1) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      for {uuid, %{name: name} = p} <- apply(@projects, :get_projects, [Enum.uniq(uuids)]),
+          into: %{} do
+        {uuid, %{key: Map.get(p, :key), name: name}}
+      end
     else
       %{}
     end
   rescue
     _ -> %{}
-  end
-
-  defp project_label(uuid) do
-    case apply(@projects, :get_project, [uuid]) do
-      %{name: name} = p -> [{uuid, %{key: Map.get(p, :key), name: name}}]
-      _ -> []
-    end
   end
 
   @doc "Whether the projects ledger is loaded and takes time entries."
