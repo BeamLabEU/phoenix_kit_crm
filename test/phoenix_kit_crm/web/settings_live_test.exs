@@ -41,7 +41,7 @@ defmodule PhoenixKitCRM.Web.SettingsLiveTest do
     {:ok, view, html} = live(conn, "/en/admin/crm/settings")
 
     assert html =~ "0 users"
-    assert has_element?(view, ~s{a[href="/en/admin/crm/role/#{role.uuid}"]}, "Open portal view")
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/role/#{role.uuid}"]}, "Open portal view")
   end
 
   test "a disabled role row offers no portal link — there is no portal view to open", %{
@@ -51,6 +51,6 @@ defmodule PhoenixKitCRM.Web.SettingsLiveTest do
 
     {:ok, view, _html} = live(conn, "/en/admin/crm/settings")
 
-    refute has_element?(view, ~s{a[href="/en/admin/crm/role/#{role.uuid}"]})
+    refute has_element?(view, ~s{a[href="#{admin()}/crm/role/#{role.uuid}"]})
   end
 end

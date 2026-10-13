@@ -51,8 +51,8 @@ defmodule PhoenixKitCRM.Web.ListMembersLiveTest do
     assert has_element?(view, "#test-page-title", "Members")
     refute html =~ "<h1"
     refute has_element?(view, "h1")
-    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
-    assert has_element?(view, "#test-page-crumbs a[href='/en/admin/crm/lists']", "Lists")
+    assert has_element?(view, "#test-page-section[href='#{admin()}/crm']", "CRM")
+    assert has_element?(view, "#test-page-crumbs a[href='#{admin()}/crm/lists']", "Lists")
     # Members IS the list's page — its crumb is text, not a link to itself.
     assert has_element?(view, "#test-page-crumbs span", "Beta Testers")
     refute has_element?(view, "#test-page-crumbs a", "Beta Testers")
@@ -69,13 +69,13 @@ defmodule PhoenixKitCRM.Web.ListMembersLiveTest do
 
     assert has_element?(
              view,
-             ~s{a[href="/en/admin/crm/lists/#{list.uuid}/members?status=subscribed"]},
+             ~s{a[href="#{admin()}/crm/lists/#{list.uuid}/members?status=subscribed"]},
              "Subscribed"
            )
 
     assert has_element?(
              view,
-             ~s{a[href="/en/admin/crm/lists/#{list.uuid}/members?status=removed"]},
+             ~s{a[href="#{admin()}/crm/lists/#{list.uuid}/members?status=removed"]},
              "Removed"
            )
   end

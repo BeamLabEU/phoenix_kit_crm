@@ -20,7 +20,7 @@ defmodule PhoenixKitCRM.Web.CompaniesLiveTest do
     {:ok, view, html} = live(conn, "/en/admin/crm/companies")
 
     assert has_element?(view, "#test-page-title", "Companies")
-    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
+    assert has_element?(view, "#test-page-section[href='#{admin()}/crm']", "CRM")
     refute html =~ "<h1"
     refute has_element?(view, "h1")
   end
@@ -40,16 +40,16 @@ defmodule PhoenixKitCRM.Web.CompaniesLiveTest do
 
     assert has_element?(
              view,
-             ~s{a[href="/en/admin/crm/companies?filter=supplier"]},
+             ~s{a[href="#{admin()}/crm/companies?filter=supplier"]},
              "Suppliers (1)"
            )
 
     # Filters with nothing behind them aren't offered.
-    refute has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=customer"]})
-    refute has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=partner"]})
-    refute has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=trashed"]})
+    refute has_element?(view, ~s{a[href="#{admin()}/crm/companies?filter=customer"]})
+    refute has_element?(view, ~s{a[href="#{admin()}/crm/companies?filter=partner"]})
+    refute has_element?(view, ~s{a[href="#{admin()}/crm/companies?filter=trashed"]})
     # Everything is active, so the Active/Inactive pair would be noise.
-    refute has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=active"]})
+    refute has_element?(view, ~s{a[href="#{admin()}/crm/companies?filter=active"]})
   end
 
   test "the Active/Inactive pair appears once an inactive company exists, and both scope by status",
@@ -63,11 +63,11 @@ defmodule PhoenixKitCRM.Web.CompaniesLiveTest do
     # exactly the scope the old "Active" tab silently had.
     assert html =~ "Awake Co"
     assert html =~ "Dormant Co"
-    assert has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=active"]}, "Active (1)")
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/companies?filter=active"]}, "Active (1)")
 
     assert has_element?(
              view,
-             ~s{a[href="/en/admin/crm/companies?filter=inactive"]},
+             ~s{a[href="#{admin()}/crm/companies?filter=inactive"]},
              "Inactive (1)"
            )
 
@@ -88,11 +88,11 @@ defmodule PhoenixKitCRM.Web.CompaniesLiveTest do
 
     assert has_element?(
              view,
-             ~s{a[href="/en/admin/crm/companies?filter=inactive"]},
+             ~s{a[href="#{admin()}/crm/companies?filter=inactive"]},
              "Inactive (1)"
            )
 
-    refute has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=active"]})
+    refute has_element?(view, ~s{a[href="#{admin()}/crm/companies?filter=active"]})
   end
 
   test "tab clicks reset the search — the label's count describes the unsearched destination",
@@ -103,7 +103,7 @@ defmodule PhoenixKitCRM.Web.CompaniesLiveTest do
 
     {:ok, view, _html} = live(conn, "/en/admin/crm/companies?search=Alpha")
 
-    assert has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=supplier"]})
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/companies?filter=supplier"]})
     refute has_element?(view, ~s{a[href*="filter=supplier"][href*="search"]})
   end
 
@@ -178,7 +178,7 @@ defmodule PhoenixKitCRM.Web.CompaniesLiveTest do
 
     {:ok, view, _html} = live(conn, "/en/admin/crm/companies")
 
-    assert has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=trashed"]})
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/companies?filter=trashed"]})
   end
 
   test "New company is reachable in the table's toolbar, not a page-level header",
@@ -187,7 +187,7 @@ defmodule PhoenixKitCRM.Web.CompaniesLiveTest do
 
     {:ok, view, _html} = live(conn, "/en/admin/crm/companies")
 
-    assert has_element?(view, ~s{a[href="/en/admin/crm/companies/new"]}, "New company")
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/companies/new"]}, "New company")
   end
 
   describe "pagination" do

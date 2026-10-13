@@ -38,14 +38,14 @@ defmodule PhoenixKitCRM.Web.CRMLiveTest do
 
     {:ok, view, html} = live(conn, "/en/admin/crm")
 
-    assert has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=supplier"]})
-    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=supplier"]})
-    assert has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=manufacturer"]})
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/companies?filter=supplier"]})
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/contacts?filter=supplier"]})
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/companies?filter=manufacturer"]})
 
     # Nobody is a partner: the vocabulary stays on the page, the dead link doesn't.
     assert html =~ "Partners"
-    refute has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=partner"]})
-    refute has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=manufacturer"]})
+    refute has_element?(view, ~s{a[href="#{admin()}/crm/companies?filter=partner"]})
+    refute has_element?(view, ~s{a[href="#{admin()}/crm/contacts?filter=manufacturer"]})
   end
 
   test "portal access is settings' business now, not the overview's", %{conn: conn} do
@@ -63,7 +63,7 @@ defmodule PhoenixKitCRM.Web.CRMLiveTest do
     {:ok, view, html} = live(conn, "/en/admin/crm")
 
     assert html =~ "1 company has no contacts"
-    assert has_element?(view, ~s{a[href="/en/admin/crm/companies?filter=no-contacts"]})
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/companies?filter=no-contacts"]})
   end
 
   test "the attention section is absent when every company has a contact", %{conn: conn} do
@@ -90,7 +90,7 @@ defmodule PhoenixKitCRM.Web.CRMLiveTest do
 
     assert html =~ "Recent Anchor Co"
     assert html =~ "hero-building-office-2"
-    assert has_element?(view, ~s{a[href="/en/admin/crm/companies/#{company.uuid}"]})
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/companies/#{company.uuid}"]})
   end
 
   test "recent interactions render newest first and link to the subject contact", %{conn: conn} do
@@ -108,7 +108,7 @@ defmodule PhoenixKitCRM.Web.CRMLiveTest do
 
     assert html =~ "Recent interactions"
     assert html =~ "Quarterly pricing"
-    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts/#{anna.uuid}"]}, "Anna Subject")
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/contacts/#{anna.uuid}"]}, "Anna Subject")
   end
 
   test "the recent feed renders each interaction in the viewer's zone, per its own date",
@@ -146,7 +146,7 @@ defmodule PhoenixKitCRM.Web.CRMLiveTest do
     {:ok, view, html} = live(conn, "/en/admin/crm")
 
     assert html =~ "No interactions logged yet"
-    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts"]}, "Browse contacts")
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/contacts"]}, "Browse contacts")
   end
 
   test "a companies-only install's empty state points at companies, where its composer lives",
@@ -156,7 +156,7 @@ defmodule PhoenixKitCRM.Web.CRMLiveTest do
     {:ok, view, html} = live(conn, "/en/admin/crm")
 
     assert html =~ "No interactions logged yet"
-    assert has_element?(view, ~s{a[href="/en/admin/crm/companies"]}, "Browse companies")
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/companies"]}, "Browse companies")
     refute has_element?(view, "a", "Browse contacts")
   end
 
@@ -179,14 +179,14 @@ defmodule PhoenixKitCRM.Web.CRMLiveTest do
 
     {:ok, view, _html} = live(conn, "/en/admin/crm")
 
-    refute has_element?(view, ~s{a[href="/en/admin/crm/contacts/new"]})
-    refute has_element?(view, ~s{a[href="/en/admin/crm/companies/new"]})
+    refute has_element?(view, ~s{a[href="#{admin()}/crm/contacts/new"]})
+    refute has_element?(view, ~s{a[href="#{admin()}/crm/companies/new"]})
   end
 
   test "the lists row renders with its count and link", %{conn: conn} do
     {:ok, view, html} = live(conn, "/en/admin/crm")
 
     assert html =~ "Lists are optional"
-    assert has_element?(view, ~s{a[href="/en/admin/crm/lists"]}, "Manage lists")
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/lists"]}, "Manage lists")
   end
 end

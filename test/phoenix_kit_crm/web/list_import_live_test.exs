@@ -37,12 +37,12 @@ defmodule PhoenixKitCRM.Web.ListImportLiveTest do
     {:ok, view, html} = live(conn, "/en/admin/crm/lists/#{list.uuid}/import")
 
     assert has_element?(view, "#test-page-title", "Import contacts")
-    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
-    assert has_element?(view, "#test-page-crumbs a[href='/en/admin/crm/lists']", "Lists")
+    assert has_element?(view, "#test-page-section[href='#{admin()}/crm']", "CRM")
+    assert has_element?(view, "#test-page-crumbs a[href='#{admin()}/crm/lists']", "Lists")
 
     assert has_element?(
              view,
-             "#test-page-crumbs a[href='/en/admin/crm/lists/#{list.uuid}/members']",
+             "#test-page-crumbs a[href='#{admin()}/crm/lists/#{list.uuid}/members']",
              "Beta Testers"
            )
 

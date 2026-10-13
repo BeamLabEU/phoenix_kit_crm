@@ -86,7 +86,7 @@ defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
     # The row shows, names its company anchor, and offers no delete — it is
     # managed from the company's page.
     assert html =~ "Site visit at Anchor Co"
-    assert has_element?(view, ~s{a[href="/en/admin/crm/companies/#{company.uuid}"]}, "Anchor Co")
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/companies/#{company.uuid}"]}, "Anchor Co")
 
     refute has_element?(
              view,
@@ -122,8 +122,8 @@ defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
 
     {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}")
 
-    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
-    assert has_element?(view, "#test-page-crumbs a[href='/en/admin/crm/contacts']", "Contacts")
+    assert has_element?(view, "#test-page-section[href='#{admin()}/crm']", "CRM")
+    assert has_element?(view, "#test-page-crumbs a[href='#{admin()}/crm/contacts']", "Contacts")
     assert has_element?(view, "#test-page-title", "Grace Hopper")
   end
 
@@ -132,12 +132,12 @@ defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
 
     {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}/edit")
 
-    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
-    assert has_element?(view, "#test-page-crumbs a[href='/en/admin/crm/contacts']", "Contacts")
+    assert has_element?(view, "#test-page-section[href='#{admin()}/crm']", "CRM")
+    assert has_element?(view, "#test-page-crumbs a[href='#{admin()}/crm/contacts']", "Contacts")
 
     assert has_element?(
              view,
-             "#test-page-crumbs a[href='/en/admin/crm/contacts/#{contact.uuid}']",
+             "#test-page-crumbs a[href='#{admin()}/crm/contacts/#{contact.uuid}']",
              "Grace Hopper"
            )
 
@@ -162,7 +162,7 @@ defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
 
     assert has_element?(
              view,
-             ~s{a[href="/en/admin/crm/contacts/#{contact.uuid}?tab=interactions"]},
+             ~s{a[href="#{admin()}/crm/contacts/#{contact.uuid}?tab=interactions"]},
              "Interactions"
            )
   end
