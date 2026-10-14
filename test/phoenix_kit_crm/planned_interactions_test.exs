@@ -331,6 +331,23 @@ defmodule PhoenixKitCRM.PlannedInteractionsTest do
                ProjectApi.update(ctx, planned.uuid, %{"status" => "cancelled"})
     end
 
+    test "a logged row goes back to a plan when the project's ledger holds no time on it",
+         %{ctx: ctx, planned: planned} do
+      # The projects module is not a dependency here, so there is no ledger
+      # to refuse it: the guard (`check_replan/3`) lets the change through.
+      {:ok, _} =
+        Interactions.update_interaction(planned, %{
+          "status" => "happened",
+          "occurred_at" => @yesterday
+        })
+
+      assert {:ok, %{interaction: %{status: "planned"}}} =
+               ProjectApi.update(ctx, planned.uuid, %{
+                 "status" => "planned",
+                 "occurred_at" => DateTime.to_iso8601(@tomorrow)
+               })
+    end
+
     test "one cancelled ahead of its time keeps its future start", %{ctx: ctx, planned: planned} do
       assert {:ok, %{interaction: json}} =
                ProjectApi.update(ctx, planned.uuid, %{"status" => "cancelled"})

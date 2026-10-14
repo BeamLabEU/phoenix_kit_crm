@@ -422,7 +422,7 @@ and core's `PhoenixKit.Users.ViewPrefs` for column choices.
 
 Owns a versioned chain: `PhoenixKitCRM.Migrations` via `migration_module/0`,
 marker `crm_schema:<N>` as a `COMMENT ON TABLE phoenix_kit_crm_contacts`,
-currently **V08**. `mix phoenix_kit.update` applies it in hosts; the test suite
+currently **V09**. `mix phoenix_kit.update` applies it in hosts; the test suite
 applies it through `PhoenixKitCRM.Test.SchemaMigration` (see Testing).
 A marker-less table reads as version 0 — the core-baseline shape from before
 the chain existed.
@@ -453,7 +453,7 @@ Module-owned tables:
 - `phoenix_kit_crm_contacts` — people (the primary entity); soft-delete via `status`
 - `phoenix_kit_crm_companies` — legal entities; soft-delete via `status`; `user_uuid` is the mirror link
 - `phoenix_kit_crm_company_memberships` — contact↔company associations (role / department)
-- `phoenix_kit_crm_interactions` — logged interactions, anchored to a contact XOR a company; V8 adds `project_uuid` (soft ref, partial index `idx_crm_interactions_project`) and `duration_minutes`
+- `phoenix_kit_crm_interactions` — logged interactions, anchored to a contact XOR a company; V8 adds `project_uuid` (soft ref, partial index `idx_crm_interactions_project`) and `duration_minutes`; V9 adds `status` (CHECK `planned|happened|cancelled`, default `happened`), `planned_at`, `location` and the partial index `idx_crm_interactions_planned`
 - `phoenix_kit_crm_interaction_parties` — an interaction's involved parties and their frozen snapshots
 - `phoenix_kit_crm_party_roles` — supplier/customer/manufacturer/partner on companies and contacts (polymorphic soft ref); a CHECK pins the vocabulary and a partial unique index on `(roleable_uuid, role) WHERE is_active` makes a duplicate active role impossible
 - `phoenix_kit_crm_lists` / `phoenix_kit_crm_list_members` — mailing lists and members

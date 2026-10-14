@@ -191,6 +191,7 @@ defmodule PhoenixKitCRM.ProjectApi do
     with {:ok, i} <- fetch(project, id),
          {:ok, fields} <- validate(attrs, :update, i.occurred_at),
          :ok <- check_time(fields, i),
+         :ok <- check_replan(project, fields, i),
          {:ok, parties} <- parties(attrs["parties"], required: false),
          :ok <- check_tasks(project, attrs["tasks"]) do
       row_attrs = put_metadata(fields, i.metadata, attrs, ctx)
@@ -613,6 +614,29 @@ defmodule PhoenixKitCRM.ProjectApi do
       :ok
     end
   end
+
+  # A plan logs no time, so a logged row with entries in the project's
+  # ledger cannot be made one again until they are removed — the composer
+  # refuses it the same way. Without the projects module there is no ledger
+  # and nothing to protect.
+  defp check_replan(project, %{"status" => "planned"}, %Interaction{status: from} = i)
+       when from != "planned" do
+    case ProjectsLink.fetch_time(project.uuid, i.uuid) do
+      {:ok, []} ->
+        :ok
+
+      {:ok, _entries} ->
+        invalid(
+          "status",
+          "cannot go back to planned while time is logged on it; remove that time on the project first"
+        )
+
+      {:error, _} ->
+        invalid("status", "could not be checked against the project's logged time; try again")
+    end
+  end
+
+  defp check_replan(_project, _fields, _interaction), do: :ok
 
   defp string(nil, _field, _max), do: {:ok, nil}
 
