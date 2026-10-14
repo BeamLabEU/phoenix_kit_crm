@@ -25,7 +25,7 @@ defmodule PhoenixKitCRM.Web.ContactsLiveTest do
     # #test-page-title, so this only proves it's ASSIGNED, not duplicated
     # by an in-body <h1>/<.admin_page_header title=...> as well.
     assert has_element?(view, "#test-page-title", "Contacts")
-    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
+    assert has_element?(view, "#test-page-section[href='#{admin()}/crm']", "CRM")
     refute html =~ "<h1"
     refute has_element?(view, "h1")
   end
@@ -36,7 +36,7 @@ defmodule PhoenixKitCRM.Web.ContactsLiveTest do
 
     {:ok, view, _html} = live(conn, "/en/admin/crm/contacts")
 
-    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts/new"]}, "New contact")
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/contacts/new"]}, "New contact")
   end
 
   test "the filter strip is core nav_tabs (border) offering only filters with results", %{
@@ -56,15 +56,15 @@ defmodule PhoenixKitCRM.Web.ContactsLiveTest do
 
     assert has_element?(
              view,
-             ~s{a[href="/en/admin/crm/contacts?filter=supplier"]},
+             ~s{a[href="#{admin()}/crm/contacts?filter=supplier"]},
              "Suppliers (1)"
            )
 
-    refute has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=customer"]})
-    refute has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=manufacturer"]})
-    refute has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=partner"]})
-    refute has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=trashed"]})
-    refute has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=active"]})
+    refute has_element?(view, ~s{a[href="#{admin()}/crm/contacts?filter=customer"]})
+    refute has_element?(view, ~s{a[href="#{admin()}/crm/contacts?filter=manufacturer"]})
+    refute has_element?(view, ~s{a[href="#{admin()}/crm/contacts?filter=partner"]})
+    refute has_element?(view, ~s{a[href="#{admin()}/crm/contacts?filter=trashed"]})
+    refute has_element?(view, ~s{a[href="#{admin()}/crm/contacts?filter=active"]})
   end
 
   test "the Active/Inactive pair appears once an inactive contact exists, and Inactive scopes by status",
@@ -76,11 +76,11 @@ defmodule PhoenixKitCRM.Web.ContactsLiveTest do
 
     assert html =~ "Awake Anna"
     assert html =~ "Dormant Dora"
-    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=active"]}, "Active (1)")
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/contacts?filter=active"]}, "Active (1)")
 
     assert has_element?(
              view,
-             ~s{a[href="/en/admin/crm/contacts?filter=inactive"]},
+             ~s{a[href="#{admin()}/crm/contacts?filter=inactive"]},
              "Inactive (1)"
            )
 
@@ -97,11 +97,11 @@ defmodule PhoenixKitCRM.Web.ContactsLiveTest do
 
     assert has_element?(
              view,
-             ~s{a[href="/en/admin/crm/contacts?filter=inactive"]},
+             ~s{a[href="#{admin()}/crm/contacts?filter=inactive"]},
              "Inactive (1)"
            )
 
-    refute has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=active"]})
+    refute has_element?(view, ~s{a[href="#{admin()}/crm/contacts?filter=active"]})
   end
 
   test "the Trashed tab appears once a contact is in the trash", %{conn: conn} do
@@ -110,7 +110,7 @@ defmodule PhoenixKitCRM.Web.ContactsLiveTest do
 
     {:ok, view, _html} = live(conn, "/en/admin/crm/contacts")
 
-    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts?filter=trashed"]})
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/contacts?filter=trashed"]})
   end
 
   test "trashing a contact moves it to trash and logs crm.contact_trashed",

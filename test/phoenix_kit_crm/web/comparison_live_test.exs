@@ -41,7 +41,7 @@ defmodule PhoenixKitCRM.Web.ComparisonLiveTest do
        %{conn: conn} do
     {:ok, view, html} = live(conn, "/en/admin/crm/comparison")
 
-    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
+    assert has_element?(view, "#test-page-section[href='#{admin()}/crm']", "CRM")
     assert has_element?(view, "#test-page-title", "Comparison")
     refute html =~ "<h1"
     refute html =~ "<header"

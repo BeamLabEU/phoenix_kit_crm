@@ -27,6 +27,11 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
   # neither a call nor an email and happens more than both.
   @types ~w(call email meeting message note other)
 
+  # V9: `planned` is still to come, `happened` is the record (every row
+  # before V9), `cancelled` did not take place. One row throughout — a plan
+  # is logged by changing its status, never by writing a second row.
+  @statuses ~w(planned happened cancelled)
+
   @type t :: %__MODULE__{
           uuid: UUIDv7.t() | nil,
           contact_uuid: UUIDv7.t() | nil,
@@ -40,6 +45,9 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
           body: String.t() | nil,
           project_uuid: UUIDv7.t() | nil,
           duration_minutes: pos_integer() | nil,
+          status: String.t(),
+          planned_at: DateTime.t() | nil,
+          location: String.t() | nil,
           owner_user_uuid: UUIDv7.t() | nil,
           owner_user: User.t() | Ecto.Association.NotLoaded.t() | nil,
           parties: [InteractionParty.t()] | Ecto.Association.NotLoaded.t(),
@@ -62,6 +70,13 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
     # Per-attendee time is the projects ledger's business, not this row's.
     field(:project_uuid, UUIDv7)
     field(:duration_minutes, :integer)
+    # V9. While `planned`, `occurred_at` is when it is meant to start and
+    # `planned_at` follows it; once logged, `occurred_at` is when it really
+    # started and `planned_at` keeps what was agreed. Nil on a row that was
+    # never a plan.
+    field(:status, :string, default: "happened")
+    field(:planned_at, :utc_datetime)
+    field(:location, :string)
     field(:metadata, :map, default: %{})
 
     belongs_to(:contact, Contact, foreign_key: :contact_uuid, references: :uuid)
@@ -77,7 +92,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
     timestamps(type: :utc_datetime)
   end
 
-  @castable ~w(contact_uuid company_uuid interaction_type occurred_at time_zone subject body project_uuid duration_minutes owner_user_uuid metadata)a
+  @castable ~w(contact_uuid company_uuid interaction_type occurred_at time_zone subject body project_uuid duration_minutes status location owner_user_uuid metadata)a
   @anchor_fields ~w(contact_uuid company_uuid)a
 
   @doc """
@@ -101,6 +116,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
     |> validate_length(:subject, max: 255)
     |> validate_length(:time_zone, max: 64)
     |> validate_number(:duration_minutes, greater_than: 0, less_than_or_equal_to: 1440)
+    |> validate_status()
     |> assoc_constraint(:contact)
     |> assoc_constraint(:company)
     |> assoc_constraint(:owner_user)
@@ -127,6 +143,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
     |> validate_length(:subject, max: 255)
     |> validate_length(:time_zone, max: 64)
     |> validate_number(:duration_minutes, greater_than: 0, less_than_or_equal_to: 1440)
+    |> validate_status()
     |> assoc_constraint(:owner_user)
   end
 
@@ -152,12 +169,80 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
     end
   end
 
+  # The status is one of three, and `planned_at` is kept here so no caller
+  # has to: it follows the start for as long as the row is a plan, and is
+  # left alone afterwards.
+  defp validate_status(changeset) do
+    changeset =
+      changeset
+      |> update_change(:location, &blank_to_nil/1)
+      |> validate_length(:location, max: 200)
+      |> validate_inclusion(:status, @statuses,
+        message: "must be one of: #{Enum.join(@statuses, ", ")}"
+      )
+      |> check_constraint(:status, name: :phoenix_kit_crm_interactions_status_check)
+
+    if get_field(changeset, :status) == "planned" do
+      put_change(changeset, :planned_at, get_field(changeset, :occurred_at))
+    else
+      changeset
+    end
+  end
+
+  defp blank_to_nil(v) when is_binary(v),
+    do: if(String.trim(v) == "", do: nil, else: String.trim(v))
+
+  defp blank_to_nil(v), do: v
+
   defp maybe_default_occurred_at(changeset) do
     case get_field(changeset, :occurred_at) do
       nil -> put_change(changeset, :occurred_at, DateTime.truncate(DateTime.utc_now(), :second))
       _ -> changeset
     end
   end
+
+  @doc """
+  When the interaction ended: its start plus its length. The row stores a
+  start (`occurred_at`) and whole minutes (`duration_minutes`); the end is
+  those two read together, and nil when no length was given.
+  """
+  @spec ended_at(t() | map()) :: DateTime.t() | nil
+  def ended_at(%{occurred_at: %DateTime{} = at, duration_minutes: m})
+      when is_integer(m) and m > 0,
+      do: DateTime.add(at, m * 60, :second)
+
+  def ended_at(_), do: nil
+
+  @spec statuses() :: [String.t()]
+  def statuses, do: @statuses
+
+  @spec status_label(String.t()) :: String.t()
+  def status_label("planned"), do: gettext("Planned")
+  def status_label("happened"), do: gettext("Happened")
+  def status_label("cancelled"), do: gettext("Cancelled")
+  def status_label(other), do: other
+
+  @doc "A plan: still to come, or past its time and waiting for an outcome."
+  @spec planned?(t() | map()) :: boolean()
+  def planned?(%{status: "planned"}), do: true
+  def planned?(_), do: false
+
+  @spec cancelled?(t() | map()) :: boolean()
+  def cancelled?(%{status: "cancelled"}), do: true
+  def cancelled?(_), do: false
+
+  @doc """
+  A plan whose time has passed with nothing said about it. Never stored and
+  never flipped by a clock: time passing is not evidence that anything
+  happened, so the row waits for a person to say.
+  """
+  @spec overdue?(t() | map(), DateTime.t()) :: boolean()
+  def overdue?(interaction, now \\ DateTime.utc_now())
+
+  def overdue?(%{status: "planned", occurred_at: %DateTime{} = at} = i, now),
+    do: DateTime.compare(ended_at(i) || at, now) == :lt
+
+  def overdue?(_, _now), do: false
 
   @spec types() :: [String.t()]
   def types, do: @types

@@ -44,11 +44,11 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     # button — the band that held only logo + status + Edit is deleted.
     assert has_element?(
              view,
-             ~s{#test-page-action[href="/en/admin/crm/companies/#{company.uuid}/edit"]},
+             ~s{#test-page-action[href="#{admin()}/crm/companies/#{company.uuid}/edit"]},
              "Edit company"
            )
 
-    refute has_element?(view, ~s{a.btn[href="/en/admin/crm/companies/#{company.uuid}/edit"]})
+    refute has_element?(view, ~s{a.btn[href="#{admin()}/crm/companies/#{company.uuid}/edit"]})
 
     # The identity block (status + role badges) opens the Overview tab instead.
     assert html =~ "Supplier"
@@ -107,7 +107,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     member = member_fixture(company, "Anna Member")
 
     {:ok, view, html} =
-      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+      live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
     refute html =~ "Called about the invoice"
 
@@ -172,7 +172,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     {:ok, _view, html} = live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=members")
 
     assert html =~ "A contact joins from its own form"
-    assert html =~ ~s(href="/en/admin/crm/contacts/new?company_uuid=#{company.uuid}")
+    assert html =~ ~s(href="#{admin()}/crm/contacts/new?company_uuid=#{company.uuid}")
     assert html =~ "New contact for this company"
     assert html =~ "set the Company field on an existing contact"
     # Not "linked": what does linked mean? (boss, 2026-09-19)
@@ -201,7 +201,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     conn = put_test_scope(conn, fake_scope(user_uuid: user.uuid))
 
     {:ok, view, html} =
-      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+      live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
     # The composer works with zero members — that is the whole point of
     # company-anchored interactions.
@@ -230,7 +230,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     conn = put_test_scope(conn, fake_scope(user_uuid: user.uuid, user_timezone: "Europe/Tallinn"))
 
     {:ok, view, html} =
-      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+      live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
     # The "When" prefill is now in Tallinn, not UTC — whichever season it is.
     prefill =
@@ -247,6 +247,10 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
           {"2026-01-15T10:00", ~U[2026-01-15 08:00:00Z]},
           {"2026-07-15T10:00", ~U[2026-07-15 07:00:00Z]}
         ] do
+      # a save closes the drawer: each one starts from a fresh composer
+      view |> element("button[phx-click=open_composer]") |> render_click()
+      render(view)
+
       view
       |> element("form[phx-change=composer_change]")
       |> render_change(%{"interaction" => %{"subject" => typed, "occurred_at" => typed}})
@@ -268,7 +272,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     conn = put_test_scope(conn, fake_scope(user_uuid: user.uuid, user_timezone: "Europe/Tallinn"))
 
     {:ok, view, _html} =
-      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+      live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
     view
     |> element("form[phx-change=composer_change]")
@@ -304,12 +308,12 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
       })
 
     {:ok, view, html} =
-      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+      live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
     # Default :all — both rows, each with provenance (Company badge / name link).
     assert html =~ "Company-level call"
     assert html =~ "Anna&#39;s own note"
-    assert has_element?(view, ~s{a[href="/en/admin/crm/contacts/#{anna.uuid}"]}, "Anna Member")
+    assert has_element?(view, ~s{a[href="#{admin()}/crm/contacts/#{anna.uuid}"]}, "Anna Member")
 
     html = view |> element("button[phx-value-scope=company]") |> render_click()
     assert html =~ "Company-level call"
@@ -340,7 +344,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
       })
 
     {:ok, view, _html} =
-      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+      live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
     assert has_element?(
              view,
@@ -373,9 +377,10 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     {:ok, _other} = Contacts.create_contact(%{"name" => "Taavi Other"})
 
     {:ok, view, _html} =
-      live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
+      live_composer(conn, "/en/admin/crm/companies/#{company.uuid}?tab=interactions")
 
-    target = "#crm-company-interactions-#{company.uuid}"
+    # the composer instance in the drawer (a token closes its id)
+    target = "div[id^='crm-company-composer-#{company.uuid}-']"
 
     view |> with_target(target) |> render_hook("search_party", %{"q" => "taav"})
 
@@ -442,8 +447,8 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
 
     {:ok, view, _html} = live(conn, "/en/admin/crm/companies/#{company.uuid}")
 
-    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
-    assert has_element?(view, "#test-page-crumbs a[href='/en/admin/crm/companies']", "Companies")
+    assert has_element?(view, "#test-page-section[href='#{admin()}/crm']", "CRM")
+    assert has_element?(view, "#test-page-crumbs a[href='#{admin()}/crm/companies']", "Companies")
     assert has_element?(view, "#test-page-title", "Initech")
   end
 
@@ -452,12 +457,12 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
 
     {:ok, view, _html} = live(conn, "/en/admin/crm/companies/#{company.uuid}/edit")
 
-    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
-    assert has_element?(view, "#test-page-crumbs a[href='/en/admin/crm/companies']", "Companies")
+    assert has_element?(view, "#test-page-section[href='#{admin()}/crm']", "CRM")
+    assert has_element?(view, "#test-page-crumbs a[href='#{admin()}/crm/companies']", "Companies")
 
     assert has_element?(
              view,
-             "#test-page-crumbs a[href='/en/admin/crm/companies/#{company.uuid}']",
+             "#test-page-crumbs a[href='#{admin()}/crm/companies/#{company.uuid}']",
              "Initech"
            )
 
@@ -475,7 +480,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
 
     assert has_element?(
              view,
-             ~s{a[href="/en/admin/crm/companies/#{company.uuid}?tab=members"]},
+             ~s{a[href="#{admin()}/crm/companies/#{company.uuid}?tab=members"]},
              "Members"
            )
   end
@@ -509,7 +514,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
 
       assert html =~ "Mirror account"
       assert html =~ "Globex Corp"
-      assert html =~ ~s(href="/en/admin/users/view/#{user.uuid}")
+      assert html =~ ~s(href="#{admin()}/users/view/#{user.uuid}")
     end
 
     test "an unlinked company shows None", %{conn: conn} do

@@ -30,8 +30,8 @@ defmodule PhoenixKitCRM.MigrationsTest do
   alias PhoenixKitCRM.Migrations
 
   describe "current_version/0 and version_table/0" do
-    test "current_version is 8" do
-      assert Migrations.current_version() == 8
+    test "current_version is 9" do
+      assert Migrations.current_version() == 9
     end
 
     test "version_table is the contacts table (the marker carrier)" do
@@ -105,7 +105,7 @@ defmodule PhoenixKitCRM.MigrationsTest do
       statements = Migrations.up_statements()
 
       assert List.last(statements) ==
-               "COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:8'"
+               "COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:9'"
     end
 
     test "the extension guard runs first, before any citext column is created" do
@@ -208,6 +208,41 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
     end
   end
 
+  describe "interactions.status + planned_at + location (V9: a plan is an interaction)" do
+    test "the columns, the default every older row takes, the check and the partial index" do
+      %{rows: rows} =
+        Repo.query!("""
+        SELECT column_name, is_nullable, column_default FROM information_schema.columns
+        WHERE table_name = 'phoenix_kit_crm_interactions'
+          AND column_name IN ('status', 'planned_at', 'location')
+        ORDER BY column_name
+        """)
+
+      assert [
+               ["location", "YES", nil],
+               ["planned_at", "YES", nil],
+               ["status", "NO", "'happened'" <> _]
+             ] = rows
+
+      %{rows: [[check]]} =
+        Repo.query!("""
+        SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c
+        WHERE c.conname = 'phoenix_kit_crm_interactions_status_check'
+        """)
+
+      for status <- ~w(planned happened cancelled), do: assert(check =~ status)
+
+      %{rows: [[indexdef]]} =
+        Repo.query!("""
+        SELECT indexdef FROM pg_indexes
+        WHERE tablename = 'phoenix_kit_crm_interactions' AND indexname = 'idx_crm_interactions_planned'
+        """)
+
+      assert indexdef =~ "WHERE"
+      assert indexdef =~ "planned"
+    end
+  end
+
   describe "companies.user_uuid (the new mirror link)" do
     test "the column exists, nullable, uuid" do
       %{rows: [[data_type, is_nullable]]} =
@@ -248,7 +283,7 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
 
   describe "migrated_version_runtime/1" do
     test "reads back 8 after the chain has applied" do
-      assert Migrations.migrated_version_runtime(prefix: "public") == 8
+      assert Migrations.migrated_version_runtime(prefix: "public") == 9
     end
 
     test "an unsafe prefix reads as 0, not raised — the function guards its own boundary" do
@@ -280,7 +315,7 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
       assert result in [:already_up, :ok]
 
       # And the effects are unchanged.
-      assert Migrations.migrated_version_runtime(prefix: "public") == 8
+      assert Migrations.migrated_version_runtime(prefix: "public") == 9
     end
   end
 

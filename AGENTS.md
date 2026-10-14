@@ -184,18 +184,74 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
   anchor is always the project's client company (read through
   `PhoenixKitProjects.Extensions.config/2` by name; none → 409 `no_client`).
   Time is never logged here — the projects API's own `/time` is.
-- **Planning on the Client tab:** "Plan a meeting" makes a project event
-  through `ProjectsLink.create_event/3` (title, when, where; no end time —
-  nobody knows how long it will take); the tab lists planned meetings no
-  interaction is the record of yet, each with "Log what happened", which
-  opens the composer with that plan picked. The hub's Calendar tab is the
-  other place a plan is made; both are the same event.
-- **The plan → record link** is `metadata.event_uuid` on the interaction
-  (the project event it is the record of): the composer's "Planned as" pick
-  (project mode; events through `ProjectsLink.list_events/2`) prefills the
-  when and the subject, the row shows "Planned 14:00", the API sets or
-  clears it. Events keep no history; a moved event's activity entry
-  carries `moved_from`.
+- **An interaction has a status (V9):** `planned` | `happened` |
+  `cancelled` (`Interaction.statuses/0`; every row before V9 is
+  `happened`). A plan is THE SAME ROW the record will be: "Log what
+  happened" / "It was cancelled" change its status, never write a second
+  row. While planned, `occurred_at` is when it is meant to start and
+  `planned_at` follows it; once logged, `occurred_at` is the real start and
+  `planned_at` keeps what was agreed (the row's "Planned 14:00" badge when
+  the two differ). `location` is where. Nothing flips a plan by the clock:
+  one past its time is `Interaction.overdue?/2` ("needs an outcome") until
+  a person says. A cancelled one keeps its note and its length ("drove two
+  hours, the client cancelled at the door"), and in a project its time
+  goes to the ledger like any other; a plan logs no time at all
+  (`log_attendee_time/2` is a no-op for it, and one with ledger entries
+  cannot be made a plan again). `happened` with a start more than five
+  minutes ahead is refused, in the composer and on the API.
+- **Every reader of interactions must say what it means by one.** The
+  table used to hold only what happened: `list_recent/1` and
+  `count_interactions/0` now leave plans out, `list_planned/1` is the
+  plan across the CRM (the overview's "Planned"), the feeds
+  (`list_involving/1`, `list_for_company/2`, `list_for_project/2`) return
+  everything and the component splits it (`planned_rows/1` /
+  `feed_rows/1`). A new query that forgets the status will show a future
+  meeting as the client's last contact.
+- **One layout on every page:** the feed with a "Planned" card on the
+  page, the composer in a drawer the host LiveView owns
+  (`Web.InteractionsDrawer`: `init/2`, `open/2`, `handle_info/3`,
+  `<.drawer>`; core's drawer sends its close event to the view, so a
+  LiveComponent cannot own one). Contact page, company page and the
+  projects hub's Client tab all mount `InteractionsComponent` twice — the
+  feed (`show_composer={false}`) and, per open, a fresh composer instance
+  (`show_feed={false}`, `open_editing_uuid`, `open_status`). The feed asks
+  for the drawer by message (`{:crm_client, :compose, opts}`), the
+  composer answers `{:crm_client, :saved | :cancel}`. A LiveView test
+  opens it first (`live_composer/2` in `LiveCase`).
+- **The activity trail is the row's history** (one mutable row needs one):
+  `crm.interaction_planned`, `crm.interaction_moved` (`moved_from`),
+  `crm.interaction_cancelled`, `crm.interaction_logged` — each with
+  `status` and, on a change, `status_from`.
+- **Who is told** (`InteractionNotifier`): the users behind a plan's
+  parties (a staff person's or a contact's `user_uuid`, read live and
+  schemaless; free text reaches nobody) when they are added to a plan,
+  when it moves and when it is cancelled — the ONE activity entry fanned
+  out through core's `Notifications.fan_out_from_activity/2` (`apply/3`,
+  a no-op on an older core). No reminder before the start yet: that
+  needs a scheduled job.
+- **Interactions on other modules' calendars** (`CalendarItems`): read-only
+  maps, asked for on every load and never copied. `for_project/3` is the
+  Client extension's `calendar:` (the projects hub's Calendar tab;
+  `ProjectsLink.calendar_changed/1`, called from the project-feed
+  broadcast, has open tabs read again), `for_user/3` is
+  `phoenix_kit_calendar_sources/0` (a person's own calendar: what they
+  wrote, or are a party to through their contact or staff record — the
+  list IS the permission check). Both modules are reached by name only.
+- **The client on the projects list** (`ProjectColumns.for_projects/1`,
+  the Client extension's `project_columns:`): the projects module hands
+  over a whole page of project uuids and gets `[%{key: "client", label,
+  values: %{project_uuid => %{text, url}}}]` back — the Client rows'
+  `config["company_uuid"]` (the projects module's enablement table, read
+  schemaless) then the companies, a fixed number of reads however many
+  projects. Trashed and missing companies have no value; an install
+  without the projects module answers the bare column. The company path is
+  built once and the uuid substituted, because `Paths.company/1` resolves
+  the URL prefix on every call.
+- **Project calendar events are no longer the plan.** Before V9 "Plan
+  ahead" made a project event and the record pointed at it
+  (`metadata.event_uuid`). Rows that still carry the pointer keep their
+  "Planned …" badge; nothing new writes it, and an unlogged calendar event
+  is no longer listed as a meeting to log (a milestone is not one).
 - **Interactions are mentionable** (`InteractionLinks`, type
   `crm_interaction`, declared in `resource_links/0` with contacts and
   companies): a task whose description carries
@@ -257,6 +313,7 @@ lib/phoenix_kit_crm/
 ├── interaction_links.ex                     # `crm_interaction` for core's Mentions/ResourceLinks
 ├── projects_link.ex                         # Soft (apply/3) reads of events, writes into the ledger
 ├── project_api.ex                           # `/ext/interactions` for the projects JSON API
+├── project_columns.ex                       # The Client column on the projects list
 ├── party_roles.ex                           # supplier/customer/manufacturer/partner on a party
 ├── lists.ex + lists/{import,import_report}.ex  # Contact lists, CSV/plaintext import engine
 ├── schemas/                                 # Contact, Company, CompanyMembership, Interaction,
@@ -511,10 +568,30 @@ party "Add me" stages (contact, else staff record, else free text).
 Template guards on `@editing_uuid` must use `is_binary/1`: `and` on a
 string raised `BadBooleanError` and took the drawer down, twice.
 
-Idea, not built (2026-10-05, Max: "not sure about that, just an idea"):
-next to "Add me", offer the parties recently added on this project (the
-last few distinct contacts/staff from its interactions) as one-click
-chips, so the usual attendees of a project need no search.
+**A start and an end (2026-10-06, Max: "a start date and an end date …
+same thing with planned meetings and interactions").** No new column: an
+interaction stores a start (`occurred_at`) and whole minutes
+(`duration_minutes`), and the end is those two read together
+(`Interaction.ended_at/1`). The composer has an "Ended (optional)" field on
+every page; in a project it and the length follow each other
+(`sync_span/2`, keyed on the change event's `_target`: a new end sets the
+length, a new length or a moved start sets the end), and on save the end is
+read once more against the start — one that is not after it is said, never
+saved as "no length". Outside a project the end is the only way to give a
+length. Feed rows and the CRM timeline show the span
+(`InteractionHelpers.format_span/3`: the end's time alone on the same local
+day). "Plan ahead" takes an optional end too (`ends_at` on the project
+event; empty when nobody knows how long it will take), and "Log what
+happened" prefills the end and the length from the plan. The API answers
+`ended_at` and accepts it in place of `duration_minutes` (both sent must
+agree; an end needs a start to be measured from).
+
+Recent people beside "Add me" (2026-10-07; Max's idea of 10-05): the
+composer offers the people this page's interactions involved lately
+(`recent_parties/2`: newest first, each once, six at most, from the feed
+already loaded; the viewer and a contact page's own contact left out) as
+one-click chips (`stage_recent`). A chip is staged as it was saved
+(contact, staff or free text) and leaves the row once staged.
 
 ## Versioning & releases
 

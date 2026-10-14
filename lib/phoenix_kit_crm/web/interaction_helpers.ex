@@ -12,6 +12,7 @@ defmodule PhoenixKitCRM.Web.InteractionHelpers do
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKit.Utils.Date, as: DateUtils
   alias PhoenixKitCRM.{Paths, StaffLink}
+  alias PhoenixKitCRM.Schemas.Interaction
 
   @doc "An involved-party badge — links to the contact/staff page when resolvable."
   attr(:party, :map, required: true)
@@ -105,6 +106,34 @@ defmodule PhoenixKitCRM.Web.InteractionHelpers do
   def format_local(%DateTime{} = utc, tz) do
     utc |> DateUtils.shift_to_offset(tz) |> Calendar.strftime("%Y-%m-%d %H:%M")
   end
+
+  @doc """
+  A start and an end as one line in the viewer's timezone: the end's time
+  alone when it falls on the same local day, both in full otherwise, the
+  start alone when there is no end.
+  """
+  @spec format_span(DateTime.t() | nil, DateTime.t() | nil, String.t()) :: String.t()
+  def format_span(%DateTime{} = from, %DateTime{} = to, tz) do
+    local_from = DateUtils.shift_to_offset(from, tz)
+    local_to = DateUtils.shift_to_offset(to, tz)
+
+    cond do
+      DateTime.compare(to, from) != :gt ->
+        format_local(from, tz)
+
+      DateTime.to_date(local_from) == DateTime.to_date(local_to) ->
+        "#{format_local(from, tz)} – #{Calendar.strftime(local_to, "%H:%M")}"
+
+      true ->
+        "#{format_local(from, tz)} – #{format_local(to, tz)}"
+    end
+  end
+
+  def format_span(from, _to, tz), do: format_local(from, tz)
+
+  @doc "When an interaction ended: its start plus its length, nil without a length."
+  @spec ended_at(map()) :: DateTime.t() | nil
+  def ended_at(interaction), do: Interaction.ended_at(interaction)
 
   @doc """
   The viewer's current offset from UTC in minutes, for the composer's

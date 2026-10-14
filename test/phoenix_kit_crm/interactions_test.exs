@@ -57,6 +57,47 @@ defmodule PhoenixKitCRM.InteractionsTest do
       assert Interactions.list_for_project("not-a-uuid") == []
     end
 
+    test "with the client company, a project also reads what other projects logged with it" do
+      {:ok, client} = PhoenixKitCRM.Companies.create_company(%{"name" => "Acme"})
+      {:ok, stranger} = PhoenixKitCRM.Companies.create_company(%{"name" => "Other"})
+      [mine, theirs] = [Ecto.UUID.generate(), Ecto.UUID.generate()]
+      at = ~U[2026-10-05 09:00:00Z]
+
+      row = fn attrs ->
+        {:ok, i} =
+          Interactions.create_interaction(
+            Map.merge(%{"interaction_type" => "meeting", "occurred_at" => at}, attrs)
+          )
+
+        i.uuid
+      end
+
+      own = row.(%{"company_uuid" => client.uuid, "project_uuid" => mine})
+      shared = row.(%{"company_uuid" => client.uuid, "project_uuid" => theirs})
+      # Another client's, on the other project; and the client's, in the
+      # CRM with no project: neither is this project's to read.
+      other_client = row.(%{"company_uuid" => stranger.uuid, "project_uuid" => theirs})
+      crm_only = row.(%{"company_uuid" => client.uuid})
+
+      listed = fn opts -> mine |> Interactions.list_for_project(opts) |> MapSet.new(& &1.uuid) end
+
+      assert listed.([]) == MapSet.new([own])
+      assert listed.(client: client.uuid) == MapSet.new([own, shared])
+      assert listed.(client: "not-a-uuid") == MapSet.new([own])
+
+      assert Interactions.get_for_project(mine, shared) == nil
+
+      assert %{project_uuid: ^theirs} =
+               Interactions.get_for_project(mine, shared, client: client.uuid)
+
+      for hidden <- [other_client, crm_only] do
+        assert Interactions.get_for_project(mine, hidden, client: client.uuid) == nil
+      end
+
+      assert Interactions.projects_of([own, shared, crm_only, "junk"]) ==
+               %{own => mine, shared => theirs}
+    end
+
     test "a length must be a positive number of minutes within a day" do
       c = contact_fixture()
 

@@ -151,7 +151,10 @@ window.PhoenixKitCRMHooks = window.PhoenixKitCRMHooks || {};
           // Editing an existing row: its time IS in the past, that is not
           // news. Composing: say how long ago in the unit a person would use.
           var editing = this.el.dataset.editing === "true";
-          if (diffMin >= 1 && !editing) {
+          // A plan is meant to be in the future, and "now" is not its time.
+          if (this.el.dataset.planned === "true") {
+            isNow = true;
+          } else if (diffMin >= 1 && !editing) {
             warns.push("This was " + ago(diffMin) + ".");
           } else if (diffMin < 0) {
             warns.push("This time is in the future.");

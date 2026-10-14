@@ -19,6 +19,8 @@ defmodule PhoenixKitCRM.LiveCase do
 
   use ExUnit.CaseTemplate
 
+  alias PhoenixKit.Utils.Routes
+
   using do
     quote do
       @moduletag :integration
@@ -47,6 +49,19 @@ defmodule PhoenixKitCRM.LiveCase do
   end
 
   @doc """
+  Mounts an interactions page and opens its composer drawer ("Log an
+  interaction"): `{:ok, view, html}` with the drawer's composer rendered.
+  """
+  defmacro live_composer(conn, path) do
+    quote do
+      {:ok, view, _html} = live(unquote(conn), unquote(path))
+      view |> element("button[phx-click=open_composer]") |> render_click()
+      # the feed asks the page for the drawer by message: render once more
+      {:ok, view, render(view)}
+    end
+  end
+
+  @doc """
   A real `PhoenixKit.Users.Auth.Scope` for testing. The CRM LiveViews read
   `socket.assigns[:phoenix_kit_current_user]` (via `Activity.actor_opts/1`) to
   thread the actor uuid into activity logging; production
@@ -64,6 +79,15 @@ defmodule PhoenixKitCRM.LiveCase do
     * `:user_timezone` — the profile timezone value (an IANA id or a legacy
       offset); absent by default, so the user map has no such key
   """
+  @doc """
+  The admin root as the app writes it in a link: `/en/admin` on a
+  multilingual site, `/admin` on a single-language one — core 2.62 dropped
+  the language segment there, and a test site is single-language.
+  Assertions on a WRITTEN link use this; navigating still uses
+  `/en/admin/...`, the scope the test router mounts.
+  """
+  def admin, do: Routes.path("/admin")
+
   def fake_scope(opts \\ []) do
     user_uuid = Keyword.get(opts, :user_uuid, Ecto.UUID.generate())
     email = Keyword.get(opts, :email, "test-#{System.unique_integer([:positive])}@example.com")

@@ -136,6 +136,10 @@ defmodule PhoenixKitCRM.PubSub do
       {:crm, event, %{interaction_uuid: interaction_uuid}}
     )
 
+    # The project's Calendar tab draws its interactions too (V9): have it
+    # read them again. A no-op without the projects module.
+    PhoenixKitCRM.ProjectsLink.calendar_changed(project_uuid)
+
     :ok
   rescue
     _ -> :ok

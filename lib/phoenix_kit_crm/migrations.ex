@@ -64,7 +64,7 @@ defmodule PhoenixKitCRM.Migrations do
 
   use Ecto.Migration
 
-  @current_version 8
+  @current_version 9
   @marker_prefix "crm_schema:"
   @version_table "phoenix_kit_crm_contacts"
 
@@ -153,6 +153,7 @@ defmodule PhoenixKitCRM.Migrations do
       v6_statements(p),
       v7_statements(prefix, p),
       v8_statements(p),
+      v9_statements(prefix, p),
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{@current_version}'"
     ])
   end
@@ -591,6 +592,33 @@ defmodule PhoenixKitCRM.Migrations do
       CREATE INDEX IF NOT EXISTS idx_crm_interactions_project
         ON #{p}phoenix_kit_crm_interactions (project_uuid, occurred_at DESC, inserted_at DESC)
         WHERE project_uuid IS NOT NULL
+      """
+    ]
+  end
+
+  # ── V9: an interaction has a state. `planned` is one still to come (its
+  # `occurred_at` is when it is meant to start, and may be in the future),
+  # `happened` is the record every row was before this version, `cancelled`
+  # is one that did not take place — which may still have cost time. The
+  # row is the same one throughout: a plan is logged by changing it, not by
+  # writing a second row. `planned_at` keeps the start that was agreed once
+  # the real one is known ("planned 14:00, started 14:20"); nil on a row
+  # that was never a plan. `location` is where — a plan needs one.
+  defp v9_statements(prefix, p) do
+    [
+      "ALTER TABLE #{p}phoenix_kit_crm_interactions ADD COLUMN IF NOT EXISTS status varchar(20) NOT NULL DEFAULT 'happened'",
+      "ALTER TABLE #{p}phoenix_kit_crm_interactions ADD COLUMN IF NOT EXISTS planned_at timestamptz",
+      "ALTER TABLE #{p}phoenix_kit_crm_interactions ADD COLUMN IF NOT EXISTS location varchar(200)",
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_crm_interactions",
+        "phoenix_kit_crm_interactions_status_check",
+        "ALTER TABLE #{p}phoenix_kit_crm_interactions ADD CONSTRAINT phoenix_kit_crm_interactions_status_check CHECK (status IN ('planned', 'happened', 'cancelled'))"
+      ),
+      """
+      CREATE INDEX IF NOT EXISTS idx_crm_interactions_planned
+        ON #{p}phoenix_kit_crm_interactions (occurred_at)
+        WHERE status = 'planned'
       """
     ]
   end

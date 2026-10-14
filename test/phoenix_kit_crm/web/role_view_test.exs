@@ -66,7 +66,7 @@ defmodule PhoenixKitCRM.Web.RoleViewTest do
       |> render_click()
 
     # The CRM contact cell links the contact rather than showing "—".
-    assert html =~ ~r{<td[^>]*><a href="/en/admin/crm/contacts/#{contact.uuid}"}
+    assert html =~ ~r{<td[^>]*><a href="#{admin()}/crm/contacts/#{contact.uuid}"}
 
     # ...and the choice is the admin's, saved for the next visit.
     assert "crm_contact" in ViewPrefs.get(admin, ColumnConfig.view_key({:role, role.uuid}))[
@@ -80,7 +80,7 @@ defmodule PhoenixKitCRM.Web.RoleViewTest do
 
     {:ok, view, _html} = live(conn, "/en/admin/crm/roles/#{role.uuid}")
 
-    assert has_element?(view, "#test-page-section[href='/en/admin/crm']", "CRM")
+    assert has_element?(view, "#test-page-section[href='#{admin()}/crm']", "CRM")
     assert has_element?(view, "#test-page-title", role.name)
     refute has_element?(view, "#test-page-title", "CRM —")
   end

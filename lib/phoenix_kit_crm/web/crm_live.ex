@@ -27,7 +27,9 @@ defmodule PhoenixKitCRM.Web.CRMLive do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitCRM.Gettext
 
-  import PhoenixKitCRM.Web.InteractionHelpers, only: [format_local: 2, viewer_tz: 1]
+  import PhoenixKitCRM.Web.InteractionHelpers,
+    only: [ended_at: 1, format_span: 3, viewer_tz: 1]
+
   # Core's stretched-link overlay (whole row/card clickable via one real <a>);
   # deliberately not auto-imported by `use PhoenixKitWeb` — see its moduledoc.
   import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
@@ -52,7 +54,8 @@ defmodule PhoenixKitCRM.Web.CRMLive do
        company_roles: nil,
        contact_roles: nil,
        no_contact_companies: nil,
-       recent: []
+       recent: [],
+       planned: []
      )}
   end
 
@@ -68,7 +71,8 @@ defmodule PhoenixKitCRM.Web.CRMLive do
        |> assign(:company_roles, PartyRoles.role_counts("company"))
        |> assign(:contact_roles, PartyRoles.role_counts("contact"))
        |> assign(:no_contact_companies, Companies.count_companies(without_contacts: true))
-       |> assign(:recent, Interactions.list_recent())}
+       |> assign(:recent, Interactions.list_recent())
+       |> assign(:planned, Interactions.list_planned())}
     else
       {:noreply, socket}
     end
@@ -214,6 +218,35 @@ defmodule PhoenixKitCRM.Web.CRMLive do
         </div>
       </div>
 
+      <%!-- What is planned across the CRM, soonest first; a plan past its
+           time with nothing said about it leads the list. Only drawn when
+           there is one — an empty "Planned" would be noise on a page most
+           installs open without ever planning. --%>
+      <div :if={@enabled && @planned != []} id="crm-overview-planned">
+        <h3 class="text-lg font-semibold mb-3">{gettext("Planned")}</h3>
+        <ol class="flex flex-col gap-2">
+          <li
+            :for={{i, name, path} <- Enum.map(@planned, &{&1, anchor_name(&1), anchor_path(&1)})}
+            class="relative rounded-box border border-base-200 bg-base-100 p-3 flex items-center justify-between gap-3 flex-wrap hover:border-primary transition-colors"
+          >
+            <div class="flex items-center gap-2 min-w-0">
+              <.row_link :if={path} navigate={path <> "?tab=interactions"} label={name} />
+              <span class="badge badge-ghost badge-sm shrink-0">
+                {Interaction.type_label(i.interaction_type)}
+              </span>
+              <span :if={name} class="font-medium truncate">{name}</span>
+              <span :if={i.subject} class="text-sm text-base-content/70 truncate">{i.subject}</span>
+              <span :if={Interaction.overdue?(i)} class="badge badge-warning badge-sm shrink-0">
+                {gettext("needs an outcome")}
+              </span>
+            </div>
+            <span class="text-xs text-base-content/60 shrink-0">
+              {format_span(i.occurred_at, ended_at(i), @tz)}
+            </span>
+          </li>
+        </ol>
+      </div>
+
       <%!-- Newest interactions across the CRM. There is no interactions index
            page — an interaction lives on its anchor (a contact or, since V05,
            a company) — so rows link to the anchor and the empty state points
@@ -277,7 +310,7 @@ defmodule PhoenixKitCRM.Web.CRMLive do
               </span>
             </div>
             <span class="text-xs text-base-content/60 shrink-0">
-              {format_local(i.occurred_at, @tz)}
+              {format_span(i.occurred_at, ended_at(i), @tz)}
             </span>
           </li>
         </ol>

@@ -121,6 +121,29 @@ defmodule PhoenixKitCRM.ProjectsLink do
     _ -> [project_uuid]
   end
 
+  @doc """
+  What to call each of `uuids` (projects) on a row that names where an
+  interaction was logged: its short name and its name. Empty without the
+  projects module; a project that is gone is simply not in the map.
+  """
+  @spec project_labels([String.t()]) :: %{
+          String.t() => %{key: String.t() | nil, name: String.t()}
+        }
+  def project_labels(uuids) when is_list(uuids) do
+    # One read for the whole list (`get_projects/1`), not one per project.
+    if Code.ensure_loaded?(@projects) and function_exported?(@projects, :get_projects, 1) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      for {uuid, %{name: name} = p} <- apply(@projects, :get_projects, [Enum.uniq(uuids)]),
+          into: %{} do
+        {uuid, %{key: Map.get(p, :key), name: name}}
+      end
+    else
+      %{}
+    end
+  rescue
+    _ -> %{}
+  end
+
   @doc "Whether the projects ledger is loaded and takes time entries."
   @spec available?() :: boolean()
   def available? do
@@ -219,8 +242,9 @@ defmodule PhoenixKitCRM.ProjectsLink do
   defp to_minutes(_), do: 0
 
   @doc """
-  The project's events (the plan: meetings as scheduled), newest first,
-  for the composer's "Planned as" pick. Empty when the projects module is
+  The project's calendar events, newest first — read only to label the
+  rows that still point at one (`metadata.event_uuid`, written before V9,
+  when a plan was a project event). Empty when the projects module is
   absent. Options go to the projects module's `list_for_project/2`.
   """
   @spec list_events(binary(), keyword()) :: [map()]
@@ -235,23 +259,26 @@ defmodule PhoenixKitCRM.ProjectsLink do
   end
 
   @doc """
-  Plans a meeting: a project event (`title`, `starts_at`, optional
-  `location`, no end — nobody knows how long it will take) created by the
-  projects module, which logs it and shows it on the project's calendar.
+  Tells the project's open pages that its interactions changed, so the
+  Calendar tab — which draws them through `CalendarItems.for_project/3` —
+  reads them again. `:ok` either way; nothing happens without the projects
+  module, or with one that predates the calendar hook.
   """
-  @spec create_event(binary(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def create_event(project_uuid, attrs, opts \\ [])
-      when is_binary(project_uuid) and is_map(attrs) do
-    if Code.ensure_loaded?(@events) and function_exported?(@events, :create, 3) do
-      apply(@events, :create, [%{uuid: project_uuid}, attrs, opts])
-    else
-      {:error, :unavailable}
-    end
+  @spec calendar_changed(binary() | nil) :: :ok
+  def calendar_changed(project_uuid) when is_binary(project_uuid) do
+    mod = PhoenixKitProjects.Extensions
+
+    if Code.ensure_loaded?(mod) and function_exported?(mod, :calendar_changed, 1),
+      do: apply(mod, :calendar_changed, [project_uuid])
+
+    :ok
   rescue
-    e ->
-      Logger.warning("[CRM] event create failed: #{Exception.message(e)}")
-      {:error, :unavailable}
+    _ -> :ok
+  catch
+    :exit, _ -> :ok
   end
+
+  def calendar_changed(_), do: :ok
 
   @doc "Subscribes to the projects module's own topic for calendar updates."
   @spec subscribe_events(binary()) :: :ok | {:error, term()}

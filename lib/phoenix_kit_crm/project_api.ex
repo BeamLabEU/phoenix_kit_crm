@@ -14,9 +14,12 @@ defmodule PhoenixKitCRM.ProjectApi do
   with its usual checks (scopes `interactions:read` / `interactions:write`,
   the Client extension on, the key's role at `log_interaction`) and hands
   the work here with a `ctx` (`project`, `key`, `user_uuid` = the person
-  the key acts for, else the one who minted it, `actor`). What an agent may write: `type`, `subject`,
-  `body`, `occurred_at` (ISO 8601, any offset), `time_zone`,
-  `duration_minutes`, `parties` (`{name, contact_uuid?, staff_person_uuid?}`
+  the key acts for, else the one who minted it, `actor`). What an agent may write: `status`
+  (`planned` | `happened` | `cancelled` — V9; a plan is the same row the
+  record will be, logged by PATCHing its status), `type`, `subject`,
+  `body`, `location`, `occurred_at` (ISO 8601, any offset; in the future only
+  for a plan or a cancellation), `time_zone`,
+  `duration_minutes` (or `ended_at`, the same said as a moment), `parties` (`{name, contact_uuid?, staff_person_uuid?}`
   — a replace, never a merge), and `event_uuid` (the project event this
   interaction is the record of — the plan → record link). The anchor is the
   project's client company and never changes; time entries are the ledger's
@@ -52,19 +55,71 @@ defmodule PhoenixKitCRM.ProjectApi do
     limit = list_limit(params["limit"])
     since = parse_since(params["since"])
 
-    rows =
-      project.uuid
-      |> Interactions.list_for_project(limit: 200)
-      |> Enum.filter(fn i -> is_nil(since) or DateTime.compare(i.occurred_at, since) == :gt end)
-      |> Enum.take(limit)
+    with {:ok, statuses} <- status_filter(params["status"]),
+         {:ok, updated_since} <- updated_since(params["updated_since"]),
+         {:ok, client} <- of_filter(params["of"], project) do
+      reach = ProjectsLink.subtree_uuids(project.uuid)
 
-    {:ok,
-     %{
-       interactions: Enum.map(rows, &to_json/1),
-       count: length(rows),
-       now: DateTime.utc_now() |> DateTime.truncate(:second)
-     }}
+      rows =
+        project.uuid
+        |> Interactions.list_for_project(limit: 200, client: client)
+        |> Enum.filter(&listed?(&1, statuses, since, updated_since))
+        |> order_for(statuses)
+        |> Enum.take(limit)
+
+      {:ok,
+       %{
+         interactions: Enum.map(rows, &to_json(&1, reach)),
+         count: length(rows),
+         now: DateTime.utc_now() |> DateTime.truncate(:second)
+       }}
+    end
   end
+
+  defp listed?(i, statuses, since, updated_since) do
+    i.status in statuses and
+      (is_nil(since) or DateTime.compare(i.occurred_at, since) == :gt) and
+      (is_nil(updated_since) or DateTime.compare(i.updated_at, updated_since) != :lt)
+  end
+
+  # Whose interactions a list answers: the project's own (unsaid, or
+  # `project`), or `client` — those plus what other projects logged with
+  # the same client company (read-only here; `project_uuid` says where
+  # each was logged).
+  defp of_filter(v, _project) when v in [nil, "", "project"], do: {:ok, nil}
+  defp of_filter("client", project), do: {:ok, client_company_uuid(project)}
+  defp of_filter(_, _project), do: invalid("of", "must be project or client")
+
+  # Which statuses a list answers. Unsaid, it is the record — what happened
+  # and what was cancelled — as it was before plans existed; `planned` is
+  # the plan (soonest first), `all` is everything.
+  defp status_filter(nil), do: {:ok, ["happened", "cancelled"]}
+  defp status_filter("all"), do: {:ok, Interaction.statuses()}
+
+  defp status_filter(v) when is_binary(v) do
+    wanted = v |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+
+    if wanted != [] and Enum.all?(wanted, &(&1 in Interaction.statuses())),
+      do: {:ok, wanted},
+      else: invalid("status", "must be all, or any of #{Enum.join(Interaction.statuses(), ", ")}")
+  end
+
+  defp status_filter(_), do: invalid("status", "must be a string")
+
+  defp updated_since(nil), do: {:ok, nil}
+
+  defp updated_since(v) when is_binary(v) do
+    case DateTime.from_iso8601(v) do
+      {:ok, dt, _} -> {:ok, DateTime.truncate(dt, :second)}
+      _ -> invalid("updated_since", "must be an ISO 8601 datetime")
+    end
+  end
+
+  defp updated_since(_), do: invalid("updated_since", "must be an ISO 8601 datetime")
+
+  # Plans alone read soonest first; anything else newest first, as loaded.
+  defp order_for(rows, ["planned"]), do: Enum.sort_by(rows, & &1.occurred_at, {:asc, DateTime})
+  defp order_for(rows, _statuses), do: rows
 
   defp list_limit(v) when is_binary(v) do
     case Integer.parse(v) do
@@ -87,18 +142,33 @@ defmodule PhoenixKitCRM.ProjectApi do
 
   @doc false
   def get(%{project: project}, id) do
-    case fetch(project, id) do
-      {:ok, i} -> {:ok, %{interaction: to_json(i)}}
-      error -> error
+    # A read reaches the client's interactions other projects logged (a
+    # task here may point at one); a write only the project's own (`fetch/2`).
+    case Interactions.get_for_project(project.uuid, id, client: client_company_uuid(project)) do
+      %Interaction{} = i ->
+        {:ok, %{interaction: to_json(i, ProjectsLink.subtree_uuids(project.uuid))}}
+
+      _ ->
+        {:error, {404, "not_found", "No such interaction on this project.", nil}}
     end
   end
+
+  @doc """
+  The project each of `uuids` (interactions) was logged on, for the ones
+  that have one — what the projects module asks before a project is moved,
+  to say which of its task links point at another project's interactions.
+  """
+  @spec projects_of([String.t()]) :: %{String.t() => String.t()}
+  def projects_of(uuids) when is_list(uuids), do: Interactions.projects_of(uuids)
+  def projects_of(_), do: %{}
 
   # ── Writes ──────────────────────────────────────────────────────────
 
   @doc false
   def create(%{project: project, user_uuid: user_uuid} = ctx, attrs) do
     with {:ok, company_uuid} <- client_company(project),
-         {:ok, fields} <- validate(attrs, :create),
+         {:ok, fields} <- validate(attrs, :create, nil),
+         :ok <- check_time(fields, nil),
          {:ok, parties} <- parties(attrs["parties"], required: false),
          :ok <- check_tasks(project, attrs["tasks"]) do
       row_attrs =
@@ -119,7 +189,8 @@ defmodule PhoenixKitCRM.ProjectApi do
   @doc false
   def update(%{project: project} = ctx, id, attrs) do
     with {:ok, i} <- fetch(project, id),
-         {:ok, fields} <- validate(attrs, :update),
+         {:ok, fields} <- validate(attrs, :update, i.occurred_at),
+         :ok <- check_time(fields, i),
          {:ok, parties} <- parties(attrs["parties"], required: false),
          :ok <- check_tasks(project, attrs["tasks"]) do
       row_attrs = put_metadata(fields, i.metadata, attrs, ctx)
@@ -134,7 +205,8 @@ defmodule PhoenixKitCRM.ProjectApi do
   # `tasks` are in the shape.
   defp answer({:ok, i}, attrs, ctx, status) do
     with :ok <- link_tasks(i, attrs["tasks"], ctx) do
-      json = %{interaction: to_json(Interactions.get_interaction(i.uuid) || i)}
+      reach = ProjectsLink.subtree_uuids(ctx.project.uuid)
+      json = %{interaction: to_json(Interactions.get_interaction(i.uuid) || i, reach)}
       if status, do: {:ok, json, status}, else: {:ok, json}
     end
   end
@@ -191,23 +263,41 @@ defmodule PhoenixKitCRM.ProjectApi do
 
   # ── Shapes ──────────────────────────────────────────────────────────
 
-  @doc "The JSON shape of an interaction on the API."
-  @spec to_json(Interaction.t()) :: map()
-  def to_json(%Interaction{} = i) do
+  @doc """
+  The JSON shape of an interaction on the API. `reach` (project uuids)
+  keeps `tasks` to the tasks of those projects: an interaction two
+  projects share must not show one of them the other's task titles.
+  """
+  @spec to_json(Interaction.t(), [String.t()] | nil) :: map()
+  def to_json(%Interaction{} = i, reach \\ nil) do
     parties = if Ecto.assoc_loaded?(i.parties), do: i.parties, else: []
 
     %{
       uuid: i.uuid,
+      # planned | happened | cancelled; a plan past its time with nothing
+      # said about it is `overdue` (never flipped by the clock)
+      status: i.status,
+      overdue: Interaction.overdue?(i),
       type: i.interaction_type,
       subject: i.subject,
       body: i.body,
+      location: i.location,
+      # while planned: when it is meant to start; afterwards: when it did
       occurred_at: i.occurred_at,
+      # the start that was agreed, kept once the real one is known; null on
+      # a row that was never a plan
+      planned_at: i.planned_at,
       time_zone: i.time_zone,
       duration_minutes: i.duration_minutes,
+      # the start plus the length; null when no length was given
+      ended_at: Interaction.ended_at(i),
       company_uuid: i.company_uuid,
       contact_uuid: i.contact_uuid,
+      # the project it was logged on — another project's when the list was
+      # asked for `of=client`, or a task here points at one of the client's
+      project_uuid: i.project_uuid,
       event_uuid: (i.metadata || %{})["event_uuid"],
-      tasks: linked_tasks(i),
+      tasks: linked_tasks(i, reach),
       parties:
         Enum.map(parties, fn p ->
           %{
@@ -223,12 +313,33 @@ defmodule PhoenixKitCRM.ProjectApi do
 
   # The tasks that came out of this interaction (the projects module's
   # link table, else the mention backlinks).
-  defp linked_tasks(%Interaction{uuid: uuid}), do: ProjectsLink.tasks_for_interaction(uuid)
+  defp linked_tasks(%Interaction{uuid: uuid}, nil), do: ProjectsLink.tasks_for_interaction(uuid)
+
+  defp linked_tasks(%Interaction{uuid: uuid}, reach) when is_list(reach) do
+    uuid
+    |> ProjectsLink.tasks_for_interaction()
+    |> Enum.filter(&(ProjectsLink.task_project(&1.uuid) in reach))
+  end
 
   @doc "Endpoint rows for the projects API docs."
   @spec docs() :: [map()]
   def docs do
     body = [
+      %{
+        name: "status",
+        in: :body,
+        type: "string",
+        required: false,
+        doc:
+          "planned | happened | cancelled (default happened). A plan is the same row the record will be: PATCH its status to happened (with what was discussed, the real start and length) or to cancelled (say why in body; time it still cost can be given as a length)."
+      },
+      %{
+        name: "location",
+        in: :body,
+        type: "string",
+        required: false,
+        doc: "where, ≤ 200"
+      },
       %{
         name: "type",
         in: :body,
@@ -243,7 +354,8 @@ defmodule PhoenixKitCRM.ProjectApi do
         in: :body,
         type: "string",
         required: false,
-        doc: "ISO 8601 datetime with offset, when it happened (default now); not in the future"
+        doc:
+          "ISO 8601 datetime with offset: when it happened (default now), or for a plan when it is meant to start. In the future only with status planned or cancelled."
       },
       %{
         name: "time_zone",
@@ -258,6 +370,14 @@ defmodule PhoenixKitCRM.ProjectApi do
         type: "integer",
         required: false,
         doc: "how long it took, whole minutes (1–1440)"
+      },
+      %{
+        name: "ended_at",
+        in: :body,
+        type: "string",
+        required: false,
+        doc:
+          "ISO 8601 datetime with offset, when it ended - the length said another way (stored as `duration_minutes` from the start); send this or `duration_minutes`, and if both they must agree"
       },
       %{
         name: "parties",
@@ -290,7 +410,7 @@ defmodule PhoenixKitCRM.ProjectApi do
         method: "GET",
         path: "/ext/interactions",
         summary:
-          "The project's interactions with its client — meetings, calls, messages — newest first, with who was involved, how long, and the planned event each is the record of. Needs the Client extension on the project.",
+          "The project's interactions with its client — meetings, calls, messages — newest first, with who was involved and how long. Without `status` this is the record (happened and cancelled); `status=planned` is what is planned, soonest first, each with `overdue` when its time has passed and nobody has said what happened. Needs the Client extension on the project.",
         auth: true,
         scope: @read,
         action: "view",
@@ -298,11 +418,35 @@ defmodule PhoenixKitCRM.ProjectApi do
         idempotency: nil,
         params: [
           %{
+            name: "of",
+            in: :query,
+            type: "string",
+            required: false,
+            doc:
+              "project (default) | client. `client` adds what other projects logged with the same client company: readable and linkable to a task here, changed only on the project that logged it (each row's `project_uuid`)"
+          },
+          %{
+            name: "status",
+            in: :query,
+            type: "string",
+            required: false,
+            doc:
+              "planned | happened | cancelled, several with commas, or all (default: happened,cancelled)"
+          },
+          %{
             name: "since",
             in: :query,
             type: "string",
             required: false,
-            doc: "ISO 8601; only interactions after that moment"
+            doc: "ISO 8601; only interactions whose occurred_at is after that moment"
+          },
+          %{
+            name: "updated_since",
+            in: :query,
+            type: "string",
+            required: false,
+            doc:
+              "ISO 8601; only rows changed at or after that moment — the one to poll with (pass the last answer's `now`), since a plan changes after it is first seen: it moves, is logged, is cancelled"
           },
           %{
             name: "limit",
@@ -319,7 +463,7 @@ defmodule PhoenixKitCRM.ProjectApi do
         method: "POST",
         path: "/ext/interactions",
         summary:
-          "Log an interaction with the client on this project (a meeting by default). The client company is the project's; you cannot pick another. Time spent is NOT logged here — use POST /time with occurred_at for each attendee. Idempotency-Key honoured.",
+          "Log an interaction with the client on this project (a meeting by default), or plan one with `status: \"planned\"` and a future `occurred_at`. The client company is the project's; you cannot pick another. Time spent is NOT logged here — use POST /time with occurred_at for each attendee, once it has happened. The people a plan names are notified. Idempotency-Key honoured.",
         auth: true,
         scope: @write,
         action: "log_interaction",
@@ -347,7 +491,7 @@ defmodule PhoenixKitCRM.ProjectApi do
         method: "PATCH",
         path: "/ext/interactions/{id}",
         summary:
-          "Edit an interaction: any of the fields of POST; `parties` replaces the whole list when sent; `event_uuid` links it to the planned event (null unlinks). The anchor company never changes.",
+          "Edit an interaction: any of the fields of POST; `parties` replaces the whole list when sent. This is also how a plan is moved (a new `occurred_at`), logged (`status: \"happened\"`) or cancelled (`status: \"cancelled\"`). The anchor company never changes.",
         auth: true,
         scope: @write,
         action: "log_interaction",
@@ -361,10 +505,24 @@ defmodule PhoenixKitCRM.ProjectApi do
 
   # ── Internals ───────────────────────────────────────────────────────
 
+  # For a WRITE: the project's own row. One another project logged with
+  # the same client is readable here and says so instead of a bare 404.
   defp fetch(project, id) do
     case Interactions.get_for_project(project.uuid, id) do
-      %Interaction{} = i -> {:ok, i}
-      _ -> {:error, {404, "not_found", "No such interaction on this project.", nil}}
+      %Interaction{} = i ->
+        {:ok, i}
+
+      _ ->
+        case Interactions.get_for_project(project.uuid, id, client: client_company_uuid(project)) do
+          %Interaction{project_uuid: other} ->
+            {:error,
+             {403, "other_project",
+              "This interaction was logged on another project; it can be read and linked here, and changed only there.",
+              %{project_uuid: other}}}
+
+          _ ->
+            {:error, {404, "not_found", "No such interaction on this project.", nil}}
+        end
     end
   end
 
@@ -395,17 +553,22 @@ defmodule PhoenixKitCRM.ProjectApi do
     _ -> nil
   end
 
-  defp validate(attrs, mode) do
+  defp validate(attrs, mode, started) do
     with {:ok, type} <- type(attrs["type"], mode),
+         {:ok, status} <- status(attrs["status"]),
+         {:ok, location} <- string(attrs["location"], "location", 200),
          {:ok, subject} <- string(attrs["subject"], "subject", 255),
          {:ok, body} <- string(attrs["body"], "body", 20_000),
          {:ok, occurred_at} <- occurred_at(attrs["occurred_at"]),
          {:ok, tz} <- string(attrs["time_zone"], "time_zone", 64),
          {:ok, minutes} <- duration(attrs["duration_minutes"]),
+         {:ok, minutes} <- ended_at(attrs["ended_at"], occurred_at || started, minutes),
          :ok <- event_uuid(attrs["event_uuid"]) do
       fields =
         %{}
         |> put_if("interaction_type", type)
+        |> put_if("status", status)
+        |> put_if("location", location)
         |> put_if("subject", subject)
         |> put_if("body", body)
         |> put_if("occurred_at", occurred_at)
@@ -423,6 +586,32 @@ defmodule PhoenixKitCRM.ProjectApi do
     if t in Interaction.types(),
       do: {:ok, t},
       else: invalid("type", "must be one of #{Enum.join(Interaction.types(), ", ")}")
+  end
+
+  defp status(nil), do: {:ok, nil}
+
+  defp status(s) do
+    if s in Interaction.statuses(),
+      do: {:ok, s},
+      else: invalid("status", "must be one of #{Enum.join(Interaction.statuses(), ", ")}")
+  end
+
+  # A record cannot be of something still to come: the start may be in the
+  # future only for a plan, or for one cancelled ahead of its time. Read
+  # against what the row WILL be — the fields sent over the row's own.
+  defp check_time(fields, existing) do
+    status = fields["status"] || (existing && existing.status) || "happened"
+    at = fields["occurred_at"] || (existing && existing.occurred_at)
+
+    if status == "happened" and match?(%DateTime{}, at) and
+         DateTime.diff(at, DateTime.utc_now(), :second) > @future_tolerance_seconds do
+      invalid(
+        "occurred_at",
+        "is in the future: send status planned to plan it, or when it really happened"
+      )
+    else
+      :ok
+    end
   end
 
   defp string(nil, _field, _max), do: {:ok, nil}
@@ -451,15 +640,38 @@ defmodule PhoenixKitCRM.ProjectApi do
   defp duration(n) when is_integer(n) and n > 0 and n <= 1440, do: {:ok, n}
   defp duration(_), do: invalid("duration_minutes", "must be whole minutes, 1–1440")
 
+  # `ended_at` is the length said another way: the row stores a start and
+  # whole minutes, so an end is turned into minutes from the start (the one
+  # sent, or the row's own on an update). Sent with `duration_minutes`, the
+  # two must agree.
+  defp ended_at(nil, _start, minutes), do: {:ok, minutes}
+
+  defp ended_at(value, %DateTime{} = start, minutes) when is_binary(value) do
+    with {:ok, dt, _} <- DateTime.from_iso8601(value),
+         span = DateTime.diff(DateTime.truncate(dt, :second), start, :minute),
+         {:ok, span} <- duration(span) do
+      if is_nil(minutes) or minutes == span,
+        do: {:ok, span},
+        else: invalid("ended_at", "does not agree with duration_minutes; send one of the two")
+    else
+      {:error, {422, _, _, %{"duration_minutes" => _}}} ->
+        invalid("ended_at", "must be after the start, by at most 1440 minutes")
+
+      _ ->
+        invalid("ended_at", "must be an ISO 8601 datetime")
+    end
+  end
+
+  defp ended_at(value, nil, _minutes) when is_binary(value),
+    do: invalid("ended_at", "needs occurred_at: an end is measured from the start")
+
+  defp ended_at(_, _start, _minutes), do: invalid("ended_at", "must be an ISO 8601 datetime")
+
   defp occurred_at(nil), do: {:ok, nil}
 
   defp occurred_at(value) when is_binary(value) do
-    with {:ok, dt, _} <- DateTime.from_iso8601(value),
-         dt = DateTime.truncate(dt, :second),
-         true <- DateTime.diff(dt, DateTime.utc_now(), :second) <= @future_tolerance_seconds do
-      {:ok, dt}
-    else
-      false -> invalid("occurred_at", "must not be in the future")
+    case DateTime.from_iso8601(value) do
+      {:ok, dt, _} -> {:ok, DateTime.truncate(dt, :second)}
       _ -> invalid("occurred_at", "must be an ISO 8601 datetime")
     end
   end

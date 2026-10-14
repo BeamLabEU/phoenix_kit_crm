@@ -183,7 +183,8 @@ defmodule PhoenixKitCRM.Web.ProjectClientLedgerTest do
     context.view |> with_target(composer) |> render_click("save_interaction", %{})
     html = render(context.view)
     assert html =~ "1 time entries could not be written"
-    assert html =~ "Edit interaction"
+    # the composer stays open on the saved row: a retry amends it
+    assert html =~ "Save changes"
     assert html =~ "Retry meeting"
     assert length(Interactions.list_for_project(@project)) == 2
     assert [%{actor_uuid: viewer}] = entries()
@@ -208,25 +209,92 @@ defmodule PhoenixKitCRM.Web.ProjectClientLedgerTest do
     assert entries() == [entry]
   end
 
-  test "a calendar notification reloads plans in the feed and an open drawer", context do
-    render_click(context.view, "open_composer", %{})
-
+  test "a plan made elsewhere shows under Planned; a calendar event is not a meeting to log",
+       context do
     event = %{
       uuid: Ecto.UUID.generate(),
-      title: "Calendar plan",
+      title: "Milestone on the calendar",
       location: nil,
       starts_at: ~U[2026-10-04 11:00:00Z]
     }
 
     Agent.update(@ledger_state, &%{&1 | events: [event]})
     send(context.view.pid, {:projects, :project_event_created, %{uuid: @project}})
-    assert render(context.view) =~ "Calendar plan"
+    refute render(context.view) =~ "Milestone on the calendar"
 
-    Agent.update(@ledger_state, &%{&1 | events: [%{event | title: "Moved plan"}]})
-    send(context.view.pid, {:projects, :project_event_updated, %{uuid: @project}})
+    {:ok, plan} =
+      Interactions.create_interaction(%{
+        "company_uuid" => context.row.company_uuid,
+        "project_uuid" => @project,
+        "interaction_type" => "meeting",
+        "subject" => "Planned elsewhere",
+        "status" => "planned",
+        "occurred_at" => DateTime.add(DateTime.utc_now(), 86_400)
+      })
+
     html = render(context.view)
-    refute html =~ "Calendar plan"
-    assert html =~ "Moved plan"
+    assert html =~ ~s(id="crm-planned-#{plan.uuid}")
+    assert html =~ "Planned elsewhere"
+  end
+
+  test "a plan logs no time; logging what happened does, once", context do
+    feed = "#crm-project-interactions-#{@project}"
+    context.view |> with_target(feed) |> render_click("start_planning", %{})
+    composer = composer_id(render(context.view))
+
+    context.view
+    |> with_target(composer)
+    |> render_click("stage_party", %{
+      "kind" => "staff",
+      "uuid" => context.staff,
+      "label" => "Staff attendee"
+    })
+
+    context.view
+    |> with_target(composer)
+    |> render_change("composer_change", %{
+      "interaction" => %{
+        "subject" => "Planned visit",
+        "occurred_at" => "2031-03-04T10:00",
+        "duration_minutes" => "60"
+      }
+    })
+
+    html = render(context.view)
+    # nothing has been spent yet: no billable switch, no minutes boxes
+    refute html =~ ~s(id="crm-billable")
+    assert html =~ "Time is logged on the project once this is saved as happened or cancelled."
+
+    context.view |> with_target(composer) |> render_click("save_interaction", %{})
+    assert entries() == []
+
+    assert [plan] =
+             Enum.filter(Interactions.list_for_project(@project), &(&1.status == "planned"))
+
+    assert plan.subject == "Planned visit"
+
+    # "Log what happened": the same row, now with its time
+    context.view |> with_target(feed) |> render_click("log_planned", %{"uuid" => plan.uuid})
+    composer = composer_id(render(context.view))
+
+    context.view
+    |> with_target(composer)
+    |> render_change("composer_change", %{
+      "interaction" => %{
+        "subject" => "Planned visit",
+        "occurred_at" => "2026-10-04T10:00",
+        "duration_minutes" => "60"
+      },
+      # the start is what was just changed: the end follows it
+      "_target" => ["interaction", "occurred_at"]
+    })
+
+    context.view |> with_target(composer) |> render_click("save_interaction", %{})
+
+    assert Interactions.get_interaction(plan.uuid).status == "happened"
+    assert [%{actor_uuid: actor, metadata: %{"interaction_uuid" => uuid}}] = entries()
+    assert actor == context.staff and uuid == plan.uuid
+    assert length(Interactions.list_for_project(@project)) == 2
   end
 
   defp seed_time(context, actor_uuid, billable) do
