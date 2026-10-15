@@ -6,7 +6,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   require Logger
 
   import PhoenixKitCRM.Web.PartyRoleHelpers,
-    only: [active_role_values: 1, role_label: 1, selected_roles: 1, sync_roles: 3]
+    only: [active_role_values: 1, form_types: 1, selected_roles: 2, sync_roles: 3]
 
   import PhoenixKitCRM.Web.Components.MirrorPanel, only: [mirror_panel: 1]
   import PhoenixKitCRM.Web.Components.MirrorConflictModal, only: [mirror_conflict_modal: 1]
@@ -14,8 +14,8 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
-  alias PhoenixKitCRM.{Activity, Companies, Mirror, Paths}
-  alias PhoenixKitCRM.Schemas.{Company, PartyRole}
+  alias PhoenixKitCRM.{Activity, Companies, Mirror, PartyRoleTypes, Paths}
+  alias PhoenixKitCRM.Schemas.Company
 
   # Whitelist for the conflict-resolution form's per-field radios — never
   # `String.to_existing_atom/1` a submitted param directly (same discipline
@@ -48,12 +48,14 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
 
   defp assign_form(socket, company) do
     roles_selected = if company.uuid, do: active_role_values(company), else: []
+    role_types = form_types(company)
     linked_user = linked_user_for(company)
 
     socket
     |> assign(:company, company)
     |> assign_header(company)
     |> assign(:roles_selected, roles_selected)
+    |> assign(:role_types, role_types)
     |> assign(:form, to_form(Companies.change_company(company)))
     |> assign(
       :org_accounts_enabled,
@@ -103,14 +105,14 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
 
     {:noreply,
      socket
-     |> assign(:roles_selected, selected_roles(payload))
+     |> assign(:roles_selected, selected_roles(payload, socket.assigns.role_types))
      |> assign(:form, to_form(changeset))}
   end
 
   def handle_event("save", %{"company" => params} = payload, socket) do
     # Normalize once so a forged non-map payload can't raise here OR in the rescue.
     params = safe_map(params)
-    socket = assign(socket, :roles_selected, selected_roles(payload))
+    socket = assign(socket, :roles_selected, selected_roles(payload, socket.assigns.role_types))
     save(socket, socket.assigns.live_action, params)
   rescue
     e ->
@@ -474,6 +476,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
      |> assign(:live_action, :edit)
      |> assign_header(company)
      |> assign(:roles_selected, active_role_values(company))
+     |> assign(:role_types, form_types(company))
      |> assign(:form, to_form(Companies.change_company(company)))
      |> assign(:linked_user, linked_user)
      |> assign(:linked_account_path, linked_user && Paths.user_view(linked_user.uuid))}
@@ -506,15 +509,21 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
                  `label` + `fieldset-legend` classes carry their own block
                  spacing and sat the text visibly off the checkbox. --%>
             <div class="flex flex-wrap gap-x-6 gap-y-2">
-              <label :for={role <- PartyRole.roles()} class="flex items-center cursor-pointer gap-2">
+              <label
+                :for={role_type <- @role_types}
+                class="flex items-center cursor-pointer gap-2"
+              >
                 <input
                   type="checkbox"
                   name="roles[]"
-                  value={role}
-                  checked={role in @roles_selected}
+                  value={role_type.key}
+                  checked={role_type.key in @roles_selected}
                   class="checkbox checkbox-sm"
                 />
-                <span class="text-sm">{role_label(role)}</span>
+                <span class="text-sm">{PartyRoleTypes.name(role_type)}</span>
+                <span :if={role_type.status == "archived"} class="badge badge-ghost badge-xs">
+                  {gettext("archived")}
+                </span>
               </label>
             </div>
 

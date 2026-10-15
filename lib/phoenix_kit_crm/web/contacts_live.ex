@@ -3,12 +3,11 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitCRM.Gettext
 
-  import PhoenixKitCRM.Web.PartyRoleHelpers, only: [role_label: 1, role_badge_class: 1]
+  import PhoenixKitCRM.Web.PartyRoleHelpers, only: [role_label: 2, role_badge_class: 2]
 
-  alias PhoenixKitCRM.{Activity, Contacts, PartyRoles, Paths}
+  alias PhoenixKitCRM.{Activity, Contacts, PartyRoles, PartyRoleTypes, Paths}
   alias PhoenixKitCRM.Schemas.Contact
 
-  @role_filters ~w(supplier customer manufacturer partner)
   @page_size 25
 
   @impl true
@@ -26,15 +25,18 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
        total_count: 0,
        total_pages: 1,
        status_counts: %{},
-       role_counts: %{}
+       role_counts: %{},
+       role_types: %{}
      )}
   end
 
   @impl true
   def handle_params(params, _uri, socket) do
+    role_types = PartyRoleTypes.types_by_key()
+
     filter =
       case params["filter"] do
-        f when f in ["trashed", "active", "inactive"] or f in @role_filters -> f
+        f when f in ["trashed", "active", "inactive"] or is_map_key(role_types, f) -> f
         _ -> "all"
       end
 
@@ -50,6 +52,7 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
 
     {:noreply,
      socket
+     |> assign(:role_types, role_types)
      |> assign(:filter, filter)
      |> assign(:page, page)
      |> assign(:search, search)
@@ -147,12 +150,12 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
         size="sm"
         toggleable
         items={@contacts}
-        card_title={fn c -> card_title_link(c, @roles_map) end}
+        card_title={fn c -> card_title_link(c, @roles_map, @role_types) end}
         card_fields={fn c -> card_fields(c) end}
       >
         <:toolbar_title>
           <span class="text-sm text-base-content/60">
-            {result_label(@filter, @total_count)}
+            {result_label(@filter, @total_count, @role_types)}
           </span>
         </:toolbar_title>
         <:toolbar_actions>
@@ -183,8 +186,8 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
               <.link navigate={Paths.contact(c.uuid)} class="link link-hover">
                 {Contact.display_name(c)}
               </.link>
-              <span :for={role <- Map.get(@roles_map, c.uuid, [])} class={["badge badge-sm ml-1", role_badge_class(role)]}>
-                {role_label(role)}
+              <span :for={role <- Map.get(@roles_map, c.uuid, [])} class={["badge badge-sm ml-1", role_badge_class(@role_types, role)]}>
+                {role_label(@role_types, role)}
               </span>
             </.table_default_cell>
             <.table_default_cell class="text-base-content/70">
@@ -221,7 +224,9 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
   # ── Private helpers ─────────────────────────────────────────────────
 
   defp load(socket) do
-    %{filter: filter, page: requested_page, search: search} = socket.assigns
+    %{filter: filter, page: requested_page, search: search, role_types: role_types} =
+      socket.assigns
+
     search_opt = if search == "", do: nil, else: search
     count_opts = [] |> maybe_put(:search, search_opt)
 
@@ -233,8 +238,11 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
     # even feed straight into `<.pagination>`'s range math.
     total_count =
       case filter do
-        role when role in @role_filters -> PartyRoles.count_contacts_with_role(role, count_opts)
-        _ -> Contacts.count_contacts(filter_scope(filter) ++ count_opts)
+        role when is_map_key(role_types, role) ->
+          PartyRoles.count_contacts_with_role(role, count_opts)
+
+        _ ->
+          Contacts.count_contacts(filter_scope(filter) ++ count_opts)
       end
 
     total_pages = max(ceil(total_count / @page_size), 1)
@@ -245,8 +253,11 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
 
     contacts =
       case filter do
-        role when role in @role_filters -> PartyRoles.list_contacts_with_role(role, page_opts)
-        _ -> Contacts.list_contacts(filter_scope(filter) ++ page_opts)
+        role when is_map_key(role_types, role) ->
+          PartyRoles.list_contacts_with_role(role, page_opts)
+
+        _ ->
+          Contacts.list_contacts(filter_scope(filter) ++ page_opts)
       end
 
     socket
@@ -300,28 +311,33 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
 
   # The toolbar count names what the filter shows — "5 suppliers", not
   # "5 contacts" with the reader left to remember which tab is on.
-  defp result_label("active", n),
+  defp result_label("active", n, _types),
     do: ngettext("%{count} active contact", "%{count} active contacts", n, count: n)
 
-  defp result_label("inactive", n),
+  defp result_label("inactive", n, _types),
     do: ngettext("%{count} inactive contact", "%{count} inactive contacts", n, count: n)
 
-  defp result_label("trashed", n),
+  defp result_label("trashed", n, _types),
     do: ngettext("%{count} trashed contact", "%{count} trashed contacts", n, count: n)
 
-  defp result_label("supplier", n),
+  defp result_label("supplier", n, _types),
     do: ngettext("%{count} supplier", "%{count} suppliers", n, count: n)
 
-  defp result_label("customer", n),
+  defp result_label("customer", n, _types),
     do: ngettext("%{count} customer", "%{count} customers", n, count: n)
 
-  defp result_label("manufacturer", n),
+  defp result_label("manufacturer", n, _types),
     do: ngettext("%{count} manufacturer", "%{count} manufacturers", n, count: n)
 
-  defp result_label("partner", n),
+  defp result_label("partner", n, _types),
     do: ngettext("%{count} partner", "%{count} partners", n, count: n)
 
-  defp result_label(_all, n),
+  # A role someone defined: no plural forms to choose from, so its name and
+  # the count (Russian and Estonian cannot be derived from one field).
+  defp result_label(role, n, types) when is_map_key(types, role),
+    do: gettext("%{role}: %{count}", role: PartyRoleTypes.label(types, role), count: n)
+
+  defp result_label(_all, n, _types),
     do: ngettext("%{count} contact", "%{count} contacts", n, count: n)
 
   # Takes an assigns-shaped map — either a LiveView `socket.assigns` (from an
@@ -357,12 +373,9 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
       end
     )
     |> Kernel.++(
-      [
-        {"supplier", gettext("Suppliers")},
-        {"customer", gettext("Customers")},
-        {"manufacturer", gettext("Manufacturers")},
-        {"partner", gettext("Partners")}
-      ]
+      assigns.role_types
+      |> PartyRoleTypes.ordered()
+      |> Enum.map(&{&1.key, PartyRoleTypes.plural_name(assigns.role_types, &1.key)})
       |> Enum.filter(fn {id, _label} -> Map.get(rc, id, 0) > 0 or filter == id end)
       |> Enum.map(fn {id, label} -> %{id: id, label: counted(label, Map.get(rc, id, 0))} end)
     )
@@ -411,15 +424,15 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
   defp company_name(%{company: %{name: name}}) when is_binary(name), do: name
   defp company_name(_), do: nil
 
-  defp card_title_link(contact, roles_map) do
-    assigns = %{contact: contact, roles: Map.get(roles_map, contact.uuid, [])}
+  defp card_title_link(contact, roles_map, types) do
+    assigns = %{contact: contact, roles: Map.get(roles_map, contact.uuid, []), types: types}
 
     ~H"""
     <.link navigate={Paths.contact(@contact.uuid)} class="link link-hover font-medium">
       {Contact.display_name(@contact)}
     </.link>
-    <span :for={role <- @roles} class={["badge badge-sm ml-1", role_badge_class(role)]}>
-      {role_label(role)}
+    <span :for={role <- @roles} class={["badge badge-sm ml-1", role_badge_class(@types, role)]}>
+      {role_label(@types, role)}
     </span>
     """
   end

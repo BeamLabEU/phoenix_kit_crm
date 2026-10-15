@@ -1,7 +1,8 @@
 defmodule PhoenixKitCRM.Schemas.PartyRole do
   @moduledoc """
-  A commercial party role — marks an existing CRM company or contact as a
-  `supplier`, `customer`, `partner`, or `manufacturer` (Odoo's
+  A commercial party role — marks an existing CRM company or contact with
+  a role from the vocabulary in `PhoenixKitCRM.Schemas.PartyRoleType` — by
+  default `supplier`, `customer`, `partner` or `manufacturer` (Odoo's
   `supplier_rank`/`customer_rank`, SAP's Business-Partner roles, expressed as
   rows). One party can hold several roles at once (a company that's both
   supplier and customer has two rows).
@@ -32,10 +33,12 @@ defmodule PhoenixKitCRM.Schemas.PartyRole do
   use PhoenixKit.SchemaPrefix
   import Ecto.Changeset
 
+  alias PhoenixKitCRM.Schemas.PartyRoleType
+
   @primary_key {:uuid, UUIDv7, autogenerate: true}
 
   @roleable_types ~w(company contact)
-  @roles ~w(supplier customer partner manufacturer)
+  @builtin_roles ~w(supplier customer partner manufacturer)
 
   @type t :: %__MODULE__{
           uuid: UUIDv7.t() | nil,
@@ -70,7 +73,15 @@ defmodule PhoenixKitCRM.Schemas.PartyRole do
     |> cast(attrs, @castable)
     |> validate_required([:roleable_type, :roleable_uuid, :role])
     |> validate_inclusion(:roleable_type, @roleable_types)
-    |> validate_inclusion(:role, @roles, message: "must be one of: #{Enum.join(@roles, ", ")}")
+    # The vocabulary lives in `phoenix_kit_crm_party_role_types` (V10). The
+    # FK is the backstop for a key that is not in it; "is it still ACTIVE" is
+    # the context's call (`PartyRoles.grant_role/4`), because a party may keep
+    # holding a role whose type has since been archived.
+    |> validate_length(:role, max: PartyRoleType.key_max())
+    |> foreign_key_constraint(:role,
+      name: :phoenix_kit_crm_party_roles_role_fkey,
+      message: "is not a known party role"
+    )
     |> validate_date_range()
     |> unique_constraint([:roleable_type, :roleable_uuid, :role],
       name: :phoenix_kit_crm_party_roles_uniq,
@@ -111,6 +122,15 @@ defmodule PhoenixKitCRM.Schemas.PartyRole do
   @spec roleable_types() :: [String.t()]
   def roleable_types, do: @roleable_types
 
+  @doc """
+  Keys of the roles that can currently be granted (the active types, in
+  display order). Reads `phoenix_kit_crm_party_role_types`; the four built-ins
+  are always among them.
+  """
   @spec roles() :: [String.t()]
-  def roles, do: @roles
+  def roles, do: PhoenixKitCRM.PartyRoleTypes.active_keys()
+
+  @doc "The four roles the module seeds and the catalogue depends on."
+  @spec builtin_roles() :: [String.t()]
+  def builtin_roles, do: @builtin_roles
 end

@@ -653,4 +653,72 @@ defmodule PhoenixKitCRM.PartyRolesTest do
       assert PartyRoles.role_counts("company")["supplier"] == 1
     end
   end
+
+  describe "admin-defined roles" do
+    alias PhoenixKitCRM.PartyRoleTypes
+
+    setup do
+      {:ok, carrier} = PartyRoleTypes.ensure("carrier", name: "Carrier")
+      {:ok, carrier: carrier}
+    end
+
+    test "any active key can be granted, queried and counted" do
+      company = company_fixture(%{"name" => "Fast Freight"})
+      contact = contact_fixture(%{"name" => "Solo Driver"})
+
+      assert {:ok, %PartyRole{role: "carrier"}} = PartyRoles.grant_role(company, "carrier")
+      assert {:ok, _} = PartyRoles.grant_role(contact, "carrier")
+
+      assert PartyRoles.has_role?(company, "carrier")
+
+      assert [%{uuid: uuid, source: :crm_company}, %{source: :crm_contact}] =
+               PartyRoles.list_parties_with_role("carrier")
+
+      assert uuid == company.uuid
+
+      assert Map.keys(PartyRoles.get_parties_with_role([company.uuid], "carrier")) == [
+               company.uuid
+             ]
+
+      assert PartyRoles.role_counts("company")["carrier"] == 1
+      assert PartyRoles.role_counts("contact")["carrier"] == 1
+    end
+
+    test "an unknown key is rejected the way a bad role always was" do
+      company = company_fixture()
+      assert {:error, cs} = PartyRoles.grant_role(company, "forwarder")
+      assert cs.errors[:role]
+      assert PartyRoles.list_roles(company) == []
+    end
+
+    test "an archived key is rejected for a new grant", %{carrier: carrier} do
+      {:ok, _} = PartyRoleTypes.archive_type(carrier)
+      company = company_fixture()
+
+      assert {:error, cs} = PartyRoles.grant_role(company, "carrier")
+      assert {"is not an active party role", _} = cs.errors[:role]
+      refute PartyRoles.has_role?(company, "carrier")
+    end
+
+    test "archiving keeps what is already held: lookups work, re-granting is a no-op, revoking works",
+         %{carrier: carrier} do
+      company = company_fixture()
+      {:ok, granted} = PartyRoles.grant_role(company, "carrier")
+      {:ok, _} = PartyRoleTypes.archive_type(carrier)
+
+      assert PartyRoles.has_role?(company, "carrier")
+      assert [%{uuid: uuid}] = PartyRoles.list_parties_with_role("carrier")
+      assert uuid == company.uuid
+      assert PartyRoles.role_counts("company")["carrier"] == 1
+
+      assert {:ok, same} = PartyRoles.grant_role(company, "carrier")
+      assert same.uuid == granted.uuid
+
+      assert {:ok, _} = PartyRoles.revoke_role(company, "carrier")
+      refute PartyRoles.has_role?(company, "carrier")
+
+      # Revoked and archived: it cannot be brought back without restoring the type.
+      assert {:error, _} = PartyRoles.grant_role(company, "carrier")
+    end
+  end
 end

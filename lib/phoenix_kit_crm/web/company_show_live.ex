@@ -29,7 +29,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Users.Auth
-  alias PhoenixKitCRM.{Activity, Attachments, Companies, PartyRoles, Paths}
+  alias PhoenixKitCRM.{Activity, Attachments, Companies, PartyRoles, PartyRoleTypes, Paths}
   alias PhoenixKitCRM.PubSub, as: CRMPubSub
   alias PhoenixKitCRM.Schemas.{Company, Contact}
   alias PhoenixKitCRM.Web.Components.MirrorPanel
@@ -41,7 +41,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   import PhoenixKitCRM.Web.InteractionHelpers,
     only: [viewer_tz: 1, current_user_uuid: 1, current_user_name: 1]
 
-  import PhoenixKitCRM.Web.PartyRoleHelpers, only: [role_label: 1, role_badge_class: 1]
+  import PhoenixKitCRM.Web.PartyRoleHelpers, only: [role_label: 2, role_badge_class: 2]
   alias PhoenixKitWeb.Actor
   alias PhoenixKitWeb.Live.Components.MediaSelectorModal
   alias PhoenixKitWeb.TableColumns, as: ColumnPrefs
@@ -111,6 +111,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
            :company_roles,
            Map.get(PartyRoles.active_roles_map("company", [company.uuid]), company.uuid, [])
          )
+         |> assign(:role_types, PartyRoleTypes.types_by_key())
          |> assign(:page_title, Company.display_name(company))
          |> assign(:page_section, gettext("CRM"))
          |> assign(:page_section_path, Paths.index())
@@ -643,9 +644,9 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
             <.status_badge status={@company.status} size={:sm} />
             <span
               :for={role <- @company_roles}
-              class={["badge badge-sm", role_badge_class(role)]}
+              class={["badge badge-sm", role_badge_class(@role_types, role)]}
             >
-              {role_label(role)}
+              {role_label(@role_types, role)}
             </span>
           </div>
           <.field label={gettext("Website")} value={@company.website} />

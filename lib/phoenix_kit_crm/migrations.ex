@@ -64,7 +64,7 @@ defmodule PhoenixKitCRM.Migrations do
 
   use Ecto.Migration
 
-  @current_version 9
+  @current_version 10
   @marker_prefix "crm_schema:"
   @version_table "phoenix_kit_crm_contacts"
 
@@ -154,6 +154,7 @@ defmodule PhoenixKitCRM.Migrations do
       v7_statements(prefix, p),
       v8_statements(p),
       v9_statements(prefix, p),
+      v10_statements(prefix, p),
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{@current_version}'"
     ])
   end
@@ -355,6 +356,10 @@ defmodule PhoenixKitCRM.Migrations do
       """
       DO $$
       BEGIN
+        -- V10 replaced this CHECK with a FK to the role-type table. `up/1`
+        -- replays every version, so once that table exists the CHECK must
+        -- not come back: it would reject (or fail to validate against) any
+        -- admin-defined role.
         IF NOT EXISTS (
           SELECT 1 FROM pg_constraint c
           JOIN pg_class t ON t.oid = c.conrelid
@@ -362,6 +367,10 @@ defmodule PhoenixKitCRM.Migrations do
           WHERE c.conname = 'phoenix_kit_crm_party_roles_role_check'
             AND t.relname = 'phoenix_kit_crm_party_roles'
             AND n.nspname = '#{prefix}'
+        ) AND NOT EXISTS (
+          SELECT 1 FROM pg_class t JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE t.relname = 'phoenix_kit_crm_party_role_types'
+            AND n.nspname = '#{prefix}' AND t.relkind = 'r'
         ) THEN
           ALTER TABLE #{p}phoenix_kit_crm_party_roles
             ADD CONSTRAINT phoenix_kit_crm_party_roles_role_check
@@ -620,6 +629,62 @@ defmodule PhoenixKitCRM.Migrations do
         ON #{p}phoenix_kit_crm_interactions (occurred_at)
         WHERE status = 'planned'
       """
+    ]
+  end
+
+  # ── V10: the party-role vocabulary is data ───────────────────────────
+  #
+  # The four roles were a CHECK on `party_roles.role` and a module attribute.
+  # They are now rows of `phoenix_kit_crm_party_role_types`, so a host can add
+  # its own ("carrier") without a release. `key` is the stable machine value
+  # `party_roles.role` stores; `data` holds the translated `name` /
+  # `description` (core's multilang shape). The four seeded rows are `builtin`
+  # and carry no `data`: their names are the gettext strings, so the existing
+  # en/et/ru translations stay the default until an admin overrides them.
+  # Positions are spaced so a role can be slotted between two others.
+  #
+  # The CHECK is replaced by a FK with ON DELETE/UPDATE RESTRICT: a role in use
+  # can only be archived, one nobody holds can be deleted, and a key can never
+  # be rewritten under existing assignments. Dropping the CHECK drops a
+  # constraint, not data. The manifest in core tracks this table's columns,
+  # indexes and primary key — not its CHECKs or FKs — so no core release is
+  # owed for the swap.
+  defp v10_statements(prefix, p) do
+    [
+      """
+      CREATE TABLE IF NOT EXISTS #{p}phoenix_kit_crm_party_role_types (
+        uuid UUID PRIMARY KEY DEFAULT #{p}uuid_generate_v7(),
+        key VARCHAR(30) NOT NULL,
+        badge VARCHAR(30) NOT NULL DEFAULT 'badge-ghost',
+        icon VARCHAR(60) NOT NULL DEFAULT 'hero-tag',
+        data JSONB NOT NULL DEFAULT '{}',
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        builtin BOOLEAN NOT NULL DEFAULT FALSE,
+        position INTEGER NOT NULL DEFAULT 0,
+        inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT phoenix_kit_crm_party_role_types_key_uniq UNIQUE (key),
+        CONSTRAINT phoenix_kit_crm_party_role_types_status_check
+          CHECK (status IN ('active', 'archived'))
+      )
+      """,
+      "CREATE INDEX IF NOT EXISTS idx_crm_party_role_types_position ON #{p}phoenix_kit_crm_party_role_types (position)",
+      """
+      INSERT INTO #{p}phoenix_kit_crm_party_role_types (key, badge, icon, builtin, position)
+      VALUES
+        ('supplier', 'badge-info', 'hero-truck', TRUE, 10),
+        ('manufacturer', 'badge-warning', 'hero-wrench-screwdriver', TRUE, 20),
+        ('customer', 'badge-success', 'hero-user-group', TRUE, 30),
+        ('partner', 'badge-accent', 'hero-puzzle-piece', TRUE, 40)
+      ON CONFLICT (key) DO NOTHING
+      """,
+      "ALTER TABLE #{p}phoenix_kit_crm_party_roles DROP CONSTRAINT IF EXISTS phoenix_kit_crm_party_roles_role_check",
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_crm_party_roles",
+        "phoenix_kit_crm_party_roles_role_fkey",
+        "ALTER TABLE #{p}phoenix_kit_crm_party_roles ADD CONSTRAINT phoenix_kit_crm_party_roles_role_fkey FOREIGN KEY (role) REFERENCES #{p}phoenix_kit_crm_party_role_types(key) ON DELETE RESTRICT ON UPDATE RESTRICT"
+      )
     ]
   end
 

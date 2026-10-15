@@ -8,35 +8,47 @@ defmodule PhoenixKitCRM.Web.PartyRoleHelpers do
 
   require Logger
 
-  alias PhoenixKitCRM.PartyRoles
-  alias PhoenixKitCRM.Schemas.PartyRole
+  alias PhoenixKitCRM.{PartyRoles, PartyRoleTypes}
+  alias PhoenixKitCRM.Schemas.PartyRoleType
 
-  @doc "Human label for a role value."
-  def role_label("supplier"), do: gettext("Supplier")
-  def role_label("customer"), do: gettext("Customer")
-  def role_label("partner"), do: gettext("Partner")
-  def role_label("manufacturer"), do: gettext("Manufacturer")
-  def role_label(role), do: role
+  @doc """
+  Human label for a role key, in the viewer's language. `types` is the
+  `PartyRoleTypes.types_by_key/0` map the page loaded once.
+  """
+  def role_label(types, role, lang \\ nil), do: PartyRoleTypes.label(types, role, lang)
 
-  @doc "daisyUI badge modifier for a role value."
-  def role_badge_class("supplier"), do: "badge-info"
-  def role_badge_class("customer"), do: "badge-success"
-  def role_badge_class("manufacturer"), do: "badge-warning"
-  def role_badge_class("partner"), do: "badge-accent"
-  def role_badge_class(_), do: "badge-ghost"
+  @doc "daisyUI badge modifier for a role key. See `role_label/2`."
+  def role_badge_class(types, role), do: PartyRoleTypes.badge_class(types, role)
+
+  @doc """
+  The role types a company/contact form offers: every active type, plus any
+  archived type the party still holds -- so an archived role can be unticked
+  but never newly ticked. Pass `nil` for a record not yet saved.
+  """
+  @spec form_types(struct() | nil) :: [PartyRoleType.t()]
+  def form_types(roleable \\ nil) do
+    held = if roleable && roleable.uuid, do: active_role_values(roleable), else: []
+
+    Enum.filter(PartyRoleTypes.list_types(), fn type ->
+      type.status == "active" or type.key in held
+    end)
+  end
 
   @doc """
   Reads the checked `roles[]` checkboxes from a raw form event payload,
-  keeping only known roles (a forged payload can't invent one).
+  keeping only the roles the form offered (`role_types`, from `form_types/1`)
+  -- a forged payload can't invent one.
   """
-  def selected_roles(payload) when is_map(payload) do
+  def selected_roles(payload, role_types) when is_map(payload) do
+    offered = MapSet.new(role_types, & &1.key)
+
     payload
     |> Map.get("roles", [])
     |> List.wrap()
-    |> Enum.filter(&(&1 in PartyRole.roles()))
+    |> Enum.filter(&MapSet.member?(offered, &1))
   end
 
-  def selected_roles(_), do: []
+  def selected_roles(_, _), do: []
 
   @doc """
   Active role values currently held by a company/contact — the initial
@@ -75,13 +87,18 @@ defmodule PhoenixKitCRM.Web.PartyRoleHelpers do
          end) do
       {:ok, :ok} -> :ok
       {:ok, {:partial, roles}} -> {:partial, roles}
-      {:error, _reason} -> {:partial, PartyRole.roles()}
+      {:error, _reason} -> {:partial, offered_keys(roleable)}
     end
   end
 
+  # Only the roles the form offered are reconciled: an archived role the party
+  # holds is shown (so it can be unticked); one the form never showed must not
+  # be revoked just because it isn't ticked.
+  defp offered_keys(roleable), do: Enum.map(form_types(roleable), & &1.key)
+
   defp reconcile(roleable, selected, actor_uuid) do
     failed =
-      Enum.reduce(PartyRole.roles(), [], fn role, failed ->
+      Enum.reduce(offered_keys(roleable), [], fn role, failed ->
         result =
           cond do
             role in selected ->

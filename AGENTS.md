@@ -7,7 +7,7 @@ Guidance for AI agents working on `phoenix_kit_crm`.
 An interaction-tracking CRM built on two primary entities — **contacts**
 (people) and **companies** (legal entities) — with the **interactions** logged
 between them. Around those sit party roles (supplier / customer / manufacturer
-/ partner), mailing lists with CSV import, a duplicate/overlap comparison
+/ partner, plus any a host or admin defines), mailing lists with CSV import, a duplicate/overlap comparison
 report, an optional CRM↔user mirror, and per-user column configuration. Each
 contact and company carries media (Files/Images, when core Storage is on),
 comments (when `phoenix_kit_comments` is enabled), and an Events activity feed.
@@ -154,6 +154,29 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
   `PhoenixKitCRM.ActivityLabels`. Never put PII (email, phone, free-text body)
   in activity metadata, and never set `target_uuid` to a non-user — it drives
   core notifications.
+- **Party roles are data (V10).** The vocabulary is
+  `phoenix_kit_crm_party_role_types`, managed through
+  `PhoenixKitCRM.PartyRoleTypes` — nothing iterates a hard-coded role list
+  any more (`PartyRole.roles/0` is the ACTIVE keys; `builtin_roles/0` is the
+  seeded four). `grant_role/4` accepts only an ACTIVE key (unknown or archived
+  → changeset error on `:role`); a party that already holds a role keeps it
+  when the type is archived, and every lookup, badge, tab and count still
+  works for it. Built-ins can be relabelled, never archived or deleted (the
+  catalogue grants `supplier` / `manufacturer` by key); a custom type nobody
+  ever held can be deleted, otherwise only archived (the FK is RESTRICT, and a
+  revoked row still counts). A key is immutable and cannot be an index filter
+  id (`all active inactive trashed`). A host creates its roles idempotently
+  with `PartyRoleTypes.ensure/3`, which never overwrites an admin's edit.
+  Pages load `PartyRoleTypes.types_by_key/0` ONCE and pass the map to
+  `PartyRoleHelpers.role_label/2,3` / `role_badge_class/2` — never a query per
+  badge. Names: the viewer's language → the primary language → (built-in)
+  gettext → the key. Tabs and overview cards name a SET, so a built-in uses
+  its gettext plural (until an admin renames it) and a custom role its plain
+  name — plurals cannot be derived from one field in ru/et. The forms offer
+  the active types plus any archived one the party still holds (so it can be
+  unticked); `sync_roles/3` only reconciles those. `up/1` replays every
+  version, so V04's `role_check` is guarded on the types table not existing —
+  without that, a replay would re-add the CHECK and reject custom roles.
 - **Soft delete** is a `status` string column with the sentinel `"trashed"` and
   the prior status stashed in `metadata`; the changeset logic is shared through
   `PhoenixKitCRM.SoftDelete`. Every listing query filters it.
@@ -314,7 +337,8 @@ lib/phoenix_kit_crm/
 ├── projects_link.ex                         # Soft (apply/3) reads of events, writes into the ledger
 ├── project_api.ex                           # `/ext/interactions` for the projects JSON API
 ├── project_columns.ex                       # The Client column on the projects list
-├── party_roles.ex                           # supplier/customer/manufacturer/partner on a party
+├── party_roles.ex                           # grant/revoke/query a role on a party
+├── party_role_types.ex                      # The role vocabulary as data (V10): built-ins + admin/host-defined
 ├── lists.ex + lists/{import,import_report}.ex  # Contact lists, CSV/plaintext import engine
 ├── schemas/                                 # Contact, Company, CompanyMembership, Interaction,
 │                                            # InteractionParty, PartyRole, ContactList, ListMember
@@ -422,7 +446,7 @@ and core's `PhoenixKit.Users.ViewPrefs` for column choices.
 
 Owns a versioned chain: `PhoenixKitCRM.Migrations` via `migration_module/0`,
 marker `crm_schema:<N>` as a `COMMENT ON TABLE phoenix_kit_crm_contacts`,
-currently **V09**. `mix phoenix_kit.update` applies it in hosts; the test suite
+currently **V10**. `mix phoenix_kit.update` applies it in hosts; the test suite
 applies it through `PhoenixKitCRM.Test.SchemaMigration` (see Testing).
 A marker-less table reads as version 0 — the core-baseline shape from before
 the chain existed.
@@ -455,7 +479,8 @@ Module-owned tables:
 - `phoenix_kit_crm_company_memberships` — contact↔company associations (role / department)
 - `phoenix_kit_crm_interactions` — logged interactions, anchored to a contact XOR a company; V8 adds `project_uuid` (soft ref, partial index `idx_crm_interactions_project`) and `duration_minutes`; V9 adds `status` (CHECK `planned|happened|cancelled`, default `happened`), `planned_at`, `location` and the partial index `idx_crm_interactions_planned`
 - `phoenix_kit_crm_interaction_parties` — an interaction's involved parties and their frozen snapshots
-- `phoenix_kit_crm_party_roles` — supplier/customer/manufacturer/partner on companies and contacts (polymorphic soft ref); a CHECK pins the vocabulary and a partial unique index on `(roleable_uuid, role) WHERE is_active` makes a duplicate active role impossible
+- `phoenix_kit_crm_party_role_types` — the role vocabulary (V10): `key` (unique, immutable, `[a-z][a-z0-9_]*`, ≤ 30), `badge`, `icon`, multilang `data` (`name` / `description`), `status` `active|archived`, `builtin`, `position`. Four rows are seeded (supplier, manufacturer, customer, partner; positions 10–40, empty `data` so the gettext names stay the default)
+- `phoenix_kit_crm_party_roles` — a role from that vocabulary on a company or contact (polymorphic soft ref); `role` is a FK to `party_role_types.key` (`ON DELETE/UPDATE RESTRICT`, replacing the pre-V10 CHECK) and a partial unique index on `(roleable_uuid, role) WHERE is_active` makes a duplicate active role impossible
 - `phoenix_kit_crm_lists` / `phoenix_kit_crm_list_members` — mailing lists and members
 - `phoenix_kit_crm_role_settings` — primary key `role_uuid` (FK → `phoenix_kit_user_roles`); columns `enabled`, `inserted_at`, `updated_at`
 - `phoenix_kit_crm_user_role_view` — UUIDv7 PK; `(user_uuid, scope)` unique; `view_config` is a JSON map. Kept, not read: V7 copied its column lists into core's view preferences; a later version may drop it

@@ -34,7 +34,16 @@ defmodule PhoenixKitCRM.Web.CRMLive do
   # deliberately not auto-imported by `use PhoenixKitWeb` — see its moduledoc.
   import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
 
-  alias PhoenixKitCRM.{Companies, Contacts, Interactions, Lists, PartyRoles, Paths}
+  alias PhoenixKitCRM.{
+    Companies,
+    Contacts,
+    Interactions,
+    Lists,
+    PartyRoles,
+    PartyRoleTypes,
+    Paths
+  }
+
   alias PhoenixKitCRM.Schemas.{Company, Contact, Interaction}
 
   @impl true
@@ -51,6 +60,7 @@ defmodule PhoenixKitCRM.Web.CRMLive do
        # `time_zone` fallback is a settings query, and mount runs twice.
        tz: "0",
        counts: nil,
+       role_types: %{},
        company_roles: nil,
        contact_roles: nil,
        no_contact_companies: nil,
@@ -68,6 +78,7 @@ defmodule PhoenixKitCRM.Web.CRMLive do
        socket
        |> assign(:tz, viewer_tz(socket.assigns[:phoenix_kit_current_user]))
        |> assign(:counts, load_counts())
+       |> assign(:role_types, PartyRoleTypes.types_by_key())
        |> assign(:company_roles, PartyRoles.role_counts("company"))
        |> assign(:contact_roles, PartyRoles.role_counts("contact"))
        |> assign(:no_contact_companies, Companies.count_companies(without_contacts: true))
@@ -174,13 +185,13 @@ defmodule PhoenixKitCRM.Web.CRMLive do
         </div>
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <.role_tile
-            :for={{role, label, icon} <- role_defs()}
-            label={label}
-            icon={icon}
-            company_count={@company_roles && Map.fetch!(@company_roles, role)}
-            contact_count={@contact_roles && Map.fetch!(@contact_roles, role)}
-            companies_path={filtered_path(Paths.companies(), role)}
-            contacts_path={filtered_path(Paths.contacts(), role)}
+            :for={type <- overview_roles(@role_types, @company_roles, @contact_roles)}
+            label={PartyRoleTypes.plural_name(@role_types, type.key)}
+            icon={type.icon}
+            company_count={@company_roles && Map.fetch!(@company_roles, type.key)}
+            contact_count={@contact_roles && Map.fetch!(@contact_roles, type.key)}
+            companies_path={filtered_path(Paths.companies(), type.key)}
+            contacts_path={filtered_path(Paths.contacts(), type.key)}
           />
         </div>
       </div>
@@ -352,16 +363,20 @@ defmodule PhoenixKitCRM.Web.CRMLive do
     """
   end
 
-  # Overview order leads with the two the business runs on; the index's tab
-  # strip has its own order and both link into the same filters. Labels are
-  # the plural forms the destination tabs use, not the singular role badge.
-  defp role_defs do
-    [
-      {"supplier", gettext("Suppliers"), "hero-truck"},
-      {"manufacturer", gettext("Manufacturers"), "hero-wrench-screwdriver"},
-      {"customer", gettext("Customers"), "hero-user-group"},
-      {"partner", gettext("Partners"), "hero-puzzle-piece"}
-    ]
+  # The band follows the roles' `position` (the seeded order leads with the
+  # two the business runs on) and offers every active role; an archived one
+  # stays while somebody still holds it, so its parties remain one click away.
+  # Labels are the plural forms the destination tabs use, not the singular
+  # role badge.
+  defp overview_roles(types, company_roles, contact_roles) do
+    held = fn counts, key -> is_map(counts) and Map.get(counts, key, 0) > 0 end
+
+    types
+    |> PartyRoleTypes.ordered()
+    |> Enum.filter(fn type ->
+      type.status == "active" or held.(company_roles, type.key) or
+        held.(contact_roles, type.key)
+    end)
   end
 
   defp filtered_path(base, filter), do: base <> "?filter=" <> filter

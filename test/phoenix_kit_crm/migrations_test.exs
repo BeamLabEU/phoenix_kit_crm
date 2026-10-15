@@ -30,8 +30,8 @@ defmodule PhoenixKitCRM.MigrationsTest do
   alias PhoenixKitCRM.Migrations
 
   describe "current_version/0 and version_table/0" do
-    test "current_version is 9" do
-      assert Migrations.current_version() == 9
+    test "current_version is 10" do
+      assert Migrations.current_version() == 10
     end
 
     test "version_table is the contacts table (the marker carrier)" do
@@ -88,7 +88,8 @@ defmodule PhoenixKitCRM.MigrationsTest do
     test "every statement is guarded (IF NOT EXISTS / DO-block / COMMENT)" do
       for stmt <- Migrations.up_statements() do
         guarded? =
-          stmt =~ "IF NOT EXISTS" or
+          stmt =~ "IF NOT EXISTS" or stmt =~ "DROP CONSTRAINT IF EXISTS" or
+            stmt =~ "ON CONFLICT" or
             String.starts_with?(String.trim(stmt), "DO $$") or
             String.starts_with?(String.trim(stmt), "COMMENT ON TABLE")
 
@@ -105,7 +106,7 @@ defmodule PhoenixKitCRM.MigrationsTest do
       statements = Migrations.up_statements()
 
       assert List.last(statements) ==
-               "COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:9'"
+               "COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:10'"
     end
 
     test "the extension guard runs first, before any citext column is created" do
@@ -243,6 +244,55 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
     end
   end
 
+  describe "party_role_types (V10: the role vocabulary is data)" do
+    test "the four built-in roles are seeded, in the overview's order, with no data override" do
+      %{rows: rows} =
+        Repo.query!("""
+        SELECT key, builtin, status, data::text FROM phoenix_kit_crm_party_role_types
+        WHERE builtin ORDER BY position
+        """)
+
+      assert [
+               ["supplier", true, "active", "{}"],
+               ["manufacturer", true, "active", "{}"],
+               ["customer", true, "active", "{}"],
+               ["partner", true, "active", "{}"]
+             ] = rows
+    end
+
+    test "the role CHECK is gone and a RESTRICT FK to the types' key took its place" do
+      assert %{rows: []} =
+               Repo.query!(
+                 "SELECT 1 FROM pg_constraint WHERE conname = 'phoenix_kit_crm_party_roles_role_check'"
+               )
+
+      %{rows: [[def_sql]]} =
+        Repo.query!("""
+        SELECT pg_get_constraintdef(oid) FROM pg_constraint
+        WHERE conname = 'phoenix_kit_crm_party_roles_role_fkey'
+        """)
+
+      assert def_sql =~ "REFERENCES phoenix_kit_crm_party_role_types(key)"
+      assert def_sql =~ "ON UPDATE RESTRICT"
+      assert def_sql =~ "ON DELETE RESTRICT"
+    end
+
+    test "replaying the whole chain does not bring the CHECK back" do
+      # up/1 replays every version; V04's CHECK would reject custom roles.
+      for stmt <- Migrations.up_statements(), do: Repo.query!(stmt)
+
+      assert %{rows: []} =
+               Repo.query!(
+                 "SELECT 1 FROM pg_constraint WHERE conname = 'phoenix_kit_crm_party_roles_role_check'"
+               )
+
+      assert %{rows: [[4]]} =
+               Repo.query!(
+                 "SELECT count(*)::int FROM phoenix_kit_crm_party_role_types WHERE builtin"
+               )
+    end
+  end
+
   describe "companies.user_uuid (the new mirror link)" do
     test "the column exists, nullable, uuid" do
       %{rows: [[data_type, is_nullable]]} =
@@ -282,8 +332,8 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
   end
 
   describe "migrated_version_runtime/1" do
-    test "reads back 8 after the chain has applied" do
-      assert Migrations.migrated_version_runtime(prefix: "public") == 9
+    test "reads back 10 after the chain has applied" do
+      assert Migrations.migrated_version_runtime(prefix: "public") == 10
     end
 
     test "an unsafe prefix reads as 0, not raised — the function guards its own boundary" do
@@ -315,7 +365,7 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
       assert result in [:already_up, :ok]
 
       # And the effects are unchanged.
-      assert Migrations.migrated_version_runtime(prefix: "public") == 9
+      assert Migrations.migrated_version_runtime(prefix: "public") == 10
     end
   end
 

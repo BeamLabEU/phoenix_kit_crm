@@ -10,15 +10,15 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
   require Logger
 
   import PhoenixKitCRM.Web.PartyRoleHelpers,
-    only: [active_role_values: 1, role_label: 1, selected_roles: 1, sync_roles: 3]
+    only: [active_role_values: 1, form_types: 1, selected_roles: 2, sync_roles: 3]
 
   import PhoenixKitCRM.Web.Components.MirrorPanel, only: [mirror_panel: 1]
   import PhoenixKitCRM.Web.Components.MirrorConflictModal, only: [mirror_conflict_modal: 1]
 
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
-  alias PhoenixKitCRM.{Activity, Companies, Contacts, Mirror, Paths}
-  alias PhoenixKitCRM.Schemas.{Contact, PartyRole}
+  alias PhoenixKitCRM.{Activity, Companies, Contacts, Mirror, PartyRoleTypes, Paths}
+  alias PhoenixKitCRM.Schemas.Contact
 
   # Whitelist for the conflict-resolution form's per-field radios — never
   # `String.to_atom/1` (atom-exhaustion) or `String.to_existing_atom/1`
@@ -73,6 +73,7 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
     |> assign(:role_in_company, "")
     |> assign(:department, "")
     |> assign(:roles_selected, [])
+    |> assign(:role_types, form_types(nil))
     |> assign(:allow_login, false)
     |> assign_mirror_defaults(nil, nil)
   end
@@ -112,6 +113,7 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
     |> assign(:role_in_company, (membership && membership.role_in_company) || "")
     |> assign(:department, (membership && membership.department) || "")
     |> assign(:roles_selected, active_role_values(contact))
+    |> assign(:role_types, form_types(contact))
     |> assign(:allow_login, not is_nil(contact.user_uuid))
     |> assign_mirror_defaults(
       linked_user,
@@ -149,12 +151,12 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
      |> assign(:company_uuid, blank_to_nil(params["company_uuid"]))
      |> assign(:role_in_company, safe_text(params["role_in_company"]))
      |> assign(:department, safe_text(params["department"]))
-     |> assign(:roles_selected, selected_roles(params))
+     |> assign(:roles_selected, selected_roles(params, socket.assigns.role_types))
      |> assign(:allow_login, params["allow_login"] == "true")}
   end
 
   def handle_event("save", params, socket) do
-    socket = assign(socket, :roles_selected, selected_roles(params))
+    socket = assign(socket, :roles_selected, selected_roles(params, socket.assigns.role_types))
     contact_params = safe_map(params["contact"])
     company_uuid = blank_to_nil(params["company_uuid"])
     role = safe_text(params["role_in_company"])
@@ -497,6 +499,7 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
            |> assign(:live_action, :edit)
            |> assign_header(contact)
            |> assign(:roles_selected, active_role_values(contact))
+           |> assign(:role_types, form_types(contact))
            |> assign(:linked_user, linked_user)
            |> assign(:linked_account_path, linked_user && Paths.user_view(linked_user.uuid))
            |> restore_form(
@@ -673,15 +676,21 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
                  `label` + `fieldset-legend` classes carry their own block
                  spacing and sat the text visibly off the checkbox. --%>
             <div class="flex flex-wrap gap-x-6 gap-y-2">
-              <label :for={role <- PartyRole.roles()} class="flex items-center cursor-pointer gap-2">
+              <label
+                :for={role_type <- @role_types}
+                class="flex items-center cursor-pointer gap-2"
+              >
                 <input
                   type="checkbox"
                   name="roles[]"
-                  value={role}
-                  checked={role in @roles_selected}
+                  value={role_type.key}
+                  checked={role_type.key in @roles_selected}
                   class="checkbox checkbox-sm"
                 />
-                <span class="text-sm">{role_label(role)}</span>
+                <span class="text-sm">{PartyRoleTypes.name(role_type)}</span>
+                <span :if={role_type.status == "archived"} class="badge badge-ghost badge-xs">
+                  {gettext("archived")}
+                </span>
               </label>
             </div>
 

@@ -1,7 +1,9 @@
 defmodule PhoenixKitCRM.PartyRoles do
   @moduledoc """
   Context for CRM party roles — marks an existing company or contact as a
-  `supplier`, `customer`, or `partner` (see `PhoenixKitCRM.Schemas.PartyRole`).
+  `supplier`, `customer`, `partner`, `manufacturer` or any role an admin or host
+  has defined (see `PhoenixKitCRM.PartyRoleTypes` for the vocabulary and
+  `PhoenixKitCRM.Schemas.PartyRole` for the row).
 
   Mutations are logged here (not in the LiveViews) because `grant_role/3`
   and `revoke_role/2` are called from both the company form and the contact
@@ -15,6 +17,7 @@ defmodule PhoenixKitCRM.PartyRoles do
 
   alias PhoenixKit.RepoHelper
   alias PhoenixKitCRM.Activity
+  alias PhoenixKitCRM.PartyRoleTypes
   alias PhoenixKitCRM.Schemas.{Company, Contact, PartyRole}
   alias PhoenixKitCRM.Search
 
@@ -52,6 +55,11 @@ defmodule PhoenixKitCRM.PartyRoles do
   but no resolver reports the role until that date. Never pass caller-supplied
   `metadata` here from a UI path.
 
+  `role` must be the key of an ACTIVE `PhoenixKitCRM.PartyRoleTypes` type: an
+  unknown or archived key is `{:error, changeset}` with an error on `:role`.
+  A party that already holds a role keeps it when its type is archived --
+  re-granting it is still the no-op described above.
+
   Pass `:actor_uuid` in `opts` so the activity log entry records who granted
   the role (mirrors every other logged CRM mutation).
   """
@@ -64,24 +72,9 @@ defmodule PhoenixKitCRM.PartyRoles do
 
     case repo().get_by(PartyRole, roleable_type: type, roleable_uuid: uuid, role: role) do
       nil ->
-        %PartyRole{}
-        |> PartyRole.changeset(
-          attrs
-          |> Map.merge(%{
-            "roleable_type" => type,
-            "roleable_uuid" => uuid,
-            "role" => role
-          })
-          # `is_active` is this function's to decide, not the caller's: casting
-          # a caller-supplied `is_active: false` would insert a dormant row and
-          # then log it as granted. `valid_from`/`valid_to` stay caller-settable
-          # as documented — an expired window is no longer dangerous now that
-          # `in_force/1` makes every query respect it.
-          |> Map.merge(%{"is_active" => true})
-        )
-        |> repo().insert()
-        |> reconcile_grant_conflict(type, uuid, role)
-        |> log_on_ok("crm.party_role_granted", type, uuid, opts)
+        with :ok <- ensure_grantable(role, attrs, type, uuid) do
+          insert_role(type, uuid, role, attrs, opts)
+        end
 
       %PartyRole{is_active: true} = existing ->
         # `is_active` alone is not "holds the role": `in_force/1` also requires
@@ -89,14 +82,61 @@ defmodule PhoenixKitCRM.PartyRoles do
         # `valid_to` has passed resolves nowhere, so returning it unchanged
         # would report a grant that never took effect. Reopen it instead.
         if window_lapsed?(existing) do
-          reopen(existing, attrs, type, uuid, opts)
+          reopen_if_grantable(existing, attrs, type, uuid, opts)
         else
           {:ok, existing}
         end
 
       %PartyRole{is_active: false} = existing ->
-        reopen(existing, attrs, type, uuid, opts)
+        reopen_if_grantable(existing, attrs, type, uuid, opts)
     end
+  end
+
+  # A role can be granted only while its type is ACTIVE: unknown keys and
+  # archived types are refused with a changeset error on `:role` (the same
+  # shape a bad role always produced). A party that already holds an archived
+  # role keeps it -- the in-force branch above never gets here -- so a form
+  # re-save does not turn into a failure.
+  defp ensure_grantable(role, attrs, type, uuid) do
+    if PartyRoleTypes.active?(role) do
+      :ok
+    else
+      cs =
+        %PartyRole{}
+        |> PartyRole.changeset(
+          Map.merge(attrs, %{"roleable_type" => type, "roleable_uuid" => uuid, "role" => role})
+        )
+        |> Ecto.Changeset.add_error(:role, "is not an active party role")
+
+      {:error, %{cs | action: :insert}}
+    end
+  end
+
+  defp reopen_if_grantable(%PartyRole{} = existing, attrs, type, uuid, opts) do
+    with :ok <- ensure_grantable(existing.role, attrs, type, uuid) do
+      reopen(existing, attrs, type, uuid, opts)
+    end
+  end
+
+  defp insert_role(type, uuid, role, attrs, opts) do
+    %PartyRole{}
+    |> PartyRole.changeset(
+      attrs
+      |> Map.merge(%{
+        "roleable_type" => type,
+        "roleable_uuid" => uuid,
+        "role" => role
+      })
+      # `is_active` is this function's to decide, not the caller's: casting
+      # a caller-supplied `is_active: false` would insert a dormant row and
+      # then log it as granted. `valid_from`/`valid_to` stay caller-settable
+      # as documented — an expired window is no longer dangerous now that
+      # `in_force/1` makes every query respect it.
+      |> Map.merge(%{"is_active" => true})
+    )
+    |> repo().insert()
+    |> reconcile_grant_conflict(type, uuid, role)
+    |> log_on_ok("crm.party_role_granted", type, uuid, opts)
   end
 
   # Fresh tenure: keeping the ORIGINAL `valid_from` while clearing `valid_to`
@@ -303,8 +343,8 @@ defmodule PhoenixKitCRM.PartyRoles do
 
   @doc """
   Active-role counts for one roleable type in a single grouped query, as a
-  `%{role => count}` map covering every role in `PartyRole.roles/0` (zeros
-  included, so a caller can render the full vocabulary without guessing).
+  `%{role => count}` map covering every party-role type, archived ones too
+  (`PhoenixKitCRM.PartyRoleTypes`; zeros included, so a caller can render the full vocabulary without guessing).
 
   Each number matches the no-options `count_companies_with_role/2` /
   `count_contacts_with_role/2` for that role — in-force roles only, trashed
@@ -327,7 +367,10 @@ defmodule PhoenixKitCRM.PartyRoles do
       |> repo().all()
       |> Map.new()
 
-    Map.new(PartyRole.roles(), &{&1, Map.get(counted, &1, 0)})
+    # Every type, archived included: a count next to an archived role's tab
+    # must still be there while parties hold it.
+    PartyRoleTypes.list_types()
+    |> Map.new(&{&1.key, Map.get(counted, &1.key, 0)})
   end
 
   @doc """
