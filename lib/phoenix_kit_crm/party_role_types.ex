@@ -129,6 +129,32 @@ defmodule PhoenixKitCRM.PartyRoleTypes do
   # ── Writes ──────────────────────────────────────────────────────────
 
   @doc """
+  A changeset for the add / edit form: a new type (no uuid yet) validated as a
+  creation -- key derived from the name unless given -- a saved one as an
+  edit. The primary-language name and description are filled in from `data`
+  for the form's primary tab.
+  """
+  @spec change_type(PartyRoleType.t(), map()) :: Ecto.Changeset.t()
+  def change_type(%PartyRoleType{} = type, attrs \\ %{}) do
+    type = hydrate(type)
+    attrs = stringify_keys(attrs)
+
+    if is_nil(type.uuid),
+      do: PartyRoleType.create_changeset(type, attrs),
+      else: PartyRoleType.update_changeset(type, attrs)
+  end
+
+  @doc "Fills the virtual `name` / `description` from the primary-language `data`."
+  @spec hydrate(PartyRoleType.t()) :: PartyRoleType.t()
+  def hydrate(%PartyRoleType{} = type) do
+    %{
+      type
+      | name: type.name || name_from_data(type.data),
+        description: type.description || field_from_data(type.data, "description", nil)
+    }
+  end
+
+  @doc """
   Creates a custom type. `attrs` takes `key`, `data` (the translations map —
   see `build_data/2`), `badge`, `icon`, `position`, `status`. `position`
   defaults to the end of the list.
@@ -315,7 +341,7 @@ defmodule PhoenixKitCRM.PartyRoleTypes do
     entries =
       for lang <- langs, into: %{} do
         entry =
-          %{"name" => names[lang], "description" => descriptions[lang]}
+          %{"_name" => names[lang], "_description" => descriptions[lang]}
           |> Enum.reject(fn {_k, v} -> v in [nil, ""] end)
           |> Map.new()
 
@@ -449,12 +475,16 @@ defmodule PhoenixKitCRM.PartyRoleTypes do
   @spec name_from_data(term(), String.t() | nil) :: String.t() | nil
   def name_from_data(data, lang \\ nil), do: field_from_data(data, "name", lang)
 
+  # The multilang form stores `"_name"` (the `_title` convention); data written
+  # by hand or by `ensure/3` from a plain map may use the bare `"name"`.
   defp field_from_data(%{} = data, field, lang) do
     entry =
       if lang, do: Multilang.get_language_data(data, lang), else: Multilang.get_primary_data(data)
 
-    case entry do
-      %{^field => value} when is_binary(value) ->
+    value = Map.get(entry, "_" <> field) || Map.get(entry, field)
+
+    case value do
+      value when is_binary(value) ->
         case String.trim(value) do
           "" -> nil
           text -> text

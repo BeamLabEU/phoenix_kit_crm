@@ -29,6 +29,8 @@ defmodule PhoenixKitCRM.Schemas.PartyRoleType do
   use PhoenixKit.SchemaPrefix
   import Ecto.Changeset
 
+  alias PhoenixKit.Utils.Multilang
+
   @primary_key {:uuid, UUIDv7, autogenerate: true}
 
   @statuses ~w(active archived)
@@ -72,10 +74,18 @@ defmodule PhoenixKitCRM.Schemas.PartyRoleType do
     field(:builtin, :boolean, default: false)
     field(:position, :integer, default: 0)
 
+    # The primary-language name / description, for the form's primary tab
+    # (the translations themselves live in `data`). Never persisted: `sync_data/1`
+    # folds a change into `data`, and `PartyRoleTypes.hydrate/1` fills them
+    # from it.
+    field(:name, :string, virtual: true)
+    field(:description, :string, virtual: true)
+
     timestamps(type: :utc_datetime)
   end
 
   @editable ~w(badge icon data status position)a
+  @virtual ~w(name description)a
 
   @doc """
   Creates a custom type. `key` is cast here and nowhere else; `builtin` is
@@ -84,7 +94,9 @@ defmodule PhoenixKitCRM.Schemas.PartyRoleType do
   @spec create_changeset(t(), map()) :: Ecto.Changeset.t(t())
   def create_changeset(%__MODULE__{} = type, attrs) do
     type
-    |> cast(attrs, [:key | @editable])
+    |> cast(attrs, [:key | @editable] ++ @virtual)
+    |> sync_data()
+    |> derive_key()
     |> validate_required([:key])
     |> validate_key()
     |> validate_editable()
@@ -99,10 +111,59 @@ defmodule PhoenixKitCRM.Schemas.PartyRoleType do
   @spec update_changeset(t(), map()) :: Ecto.Changeset.t(t())
   def update_changeset(%__MODULE__{} = type, attrs) do
     type
-    |> cast(attrs, @editable)
+    |> cast(attrs, @editable ++ @virtual)
+    |> sync_data()
     |> validate_editable()
     |> validate_builtin_stays_active()
     |> validate_primary_name()
+  end
+
+  # The form edits the primary-language name as a plain field (and, with
+  # translations on, ships the merged `data` alongside it). When only the plain
+  # fields arrive -- a site with one language, or a caller that has no
+  # translations -- they are folded into `data` under the primary language.
+  # When `data` itself changed it is the truth: the form already merged it.
+  defp sync_data(changeset) do
+    if Map.has_key?(changeset.changes, :data) do
+      changeset
+    else
+      fields =
+        for {field, key} <- [name: "_name", description: "_description"],
+            Map.has_key?(changeset.changes, field),
+            into: %{},
+            do: {key, changeset.changes[field] || ""}
+
+      if fields == %{} do
+        changeset
+      else
+        primary = Multilang.primary_language()
+
+        data =
+          Multilang.put_language_data(
+            get_field(changeset, :data),
+            primary,
+            fields
+          )
+
+        put_change(changeset, :data, data)
+      end
+    end
+  end
+
+  # The key is derived from the primary-language name unless one was given.
+  defp derive_key(changeset) do
+    case get_field(changeset, :key) do
+      key when key in [nil, ""] ->
+        name = PhoenixKitCRM.PartyRoleTypes.name_from_data(get_field(changeset, :data))
+
+        case PhoenixKitCRM.PartyRoleTypes.derive_key(name) do
+          "" -> changeset
+          derived -> put_change(changeset, :key, derived)
+        end
+
+      _ ->
+        changeset
+    end
   end
 
   defp validate_key(changeset) do
@@ -149,7 +210,7 @@ defmodule PhoenixKitCRM.Schemas.PartyRoleType do
       changeset
     else
       case PhoenixKitCRM.PartyRoleTypes.name_from_data(get_field(changeset, :data)) do
-        nil -> add_error(changeset, :data, "needs a name")
+        nil -> add_error(changeset, :name, "can't be blank")
         _name -> changeset
       end
     end

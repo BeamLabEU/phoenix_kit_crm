@@ -29,6 +29,7 @@ defmodule PhoenixKitCRM.Routes do
     list_form = Web.ListFormLive
     list_members = Web.ListMembersLive
     list_import = Web.ListImportLive
+    party_role_form = Web.PartyRoleFormLive
 
     quote do
       live("/admin/crm/role/:role_uuid", unquote(role_view), :index,
@@ -76,6 +77,18 @@ defmodule PhoenixKitCRM.Routes do
 
       live("/admin/crm/lists/:uuid/import", unquote(list_import), :index,
         as: :"crm_list_import#{unquote(suffix)}"
+      )
+
+      # Party roles live under Settings → CRM: the list is a tab of the
+      # settings page itself (a `live_view:` tab, auto-routed), the add / edit
+      # form is a page of its own. `new` precedes `:uuid/edit` for symmetry
+      # with the other forms.
+      live("/admin/settings/crm/party-roles/new", unquote(party_role_form), :new,
+        as: :"crm_party_role_new#{unquote(suffix)}"
+      )
+
+      live("/admin/settings/crm/party-roles/:uuid/edit", unquote(party_role_form), :edit,
+        as: :"crm_party_role_edit#{unquote(suffix)}"
       )
 
       # NOTE: no route for ComparisonLive here. Its tab in `admin_tabs/0`

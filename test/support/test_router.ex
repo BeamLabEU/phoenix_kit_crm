@@ -35,6 +35,8 @@ defmodule PhoenixKitCRM.Test.RouterRoutes do
       # LiveViews can be driven by tests.
       live("/roles/:role_uuid", RoleView, :index, as: :crm_role)
       live("/settings", SettingsLive, :index, as: :crm_settings)
+      live("/settings/party-roles/new", PartyRoleFormLive, :new)
+      live("/settings/party-roles/:uuid/edit", PartyRoleFormLive, :edit)
     end
   end
 end

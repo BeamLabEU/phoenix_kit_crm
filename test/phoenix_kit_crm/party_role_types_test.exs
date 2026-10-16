@@ -90,7 +90,6 @@ defmodule PhoenixKitCRM.PartyRoleTypesTest do
             "1carrier",
             "car rier",
             "car-rier",
-            "",
             "a" <> String.duplicate("b", 30)
           ] do
         assert {:error, cs} = PartyRoleTypes.create_type(carrier_attrs(%{"key" => bad}))
@@ -110,9 +109,39 @@ defmodule PhoenixKitCRM.PartyRoleTypesTest do
       assert {"is already taken", _} = cs.errors[:key]
     end
 
+    test "a missing key is derived from the name; a name with no Latin letters needs one given" do
+      assert {:ok, type} =
+               PartyRoleTypes.create_type(%{
+                 "data" => PartyRoleTypes.build_data("Freight forwarder")
+               })
+
+      assert type.key == "freight_forwarder"
+
+      assert {:error, cs} =
+               PartyRoleTypes.create_type(%{"data" => PartyRoleTypes.build_data("Перевозчик")})
+
+      assert cs.errors[:key]
+
+      assert {:ok, %{key: "vedaja"}} =
+               PartyRoleTypes.create_type(%{
+                 "key" => "vedaja",
+                 "data" => PartyRoleTypes.build_data("Перевозчик")
+               })
+    end
+
+    test "the form's plain name / description fields fold into data under the primary language" do
+      assert {:ok, type} =
+               PartyRoleTypes.create_type(%{"name" => "Installer", "description" => "Fits it"})
+
+      assert type.key == "installer"
+      assert PartyRoleTypes.name(type) == "Installer"
+      assert PartyRoleTypes.description(type) == "Fits it"
+      assert PartyRoleTypes.hydrate(type).name == "Installer"
+    end
+
     test "a custom type needs a name, and badge / icon come from the short lists" do
       assert {:error, cs} = PartyRoleTypes.create_type(%{"key" => "carrier"})
-      assert cs.errors[:data]
+      assert cs.errors[:name]
 
       assert {:error, cs} = PartyRoleTypes.create_type(carrier_attrs(%{"badge" => "badge-evil"}))
       assert cs.errors[:badge]
@@ -251,7 +280,7 @@ defmodule PhoenixKitCRM.PartyRoleTypesTest do
       assert cs.errors[:key]
 
       assert {:error, cs} = PartyRoleTypes.ensure("nameless")
-      assert cs.errors[:data]
+      assert cs.errors[:name]
     end
 
     test "ensure/3 on a built-in key returns the built-in" do
@@ -279,8 +308,8 @@ defmodule PhoenixKitCRM.PartyRoleTypesTest do
       data =
         PartyRoleTypes.build_data(%{"en" => " Carrier ", "et" => "  "}, %{"en" => "Moves goods"})
 
-      assert get_in(data, ["en", "name"]) == "Carrier"
-      assert get_in(data, ["en", "description"]) == "Moves goods"
+      assert get_in(data, ["en", "_name"]) == "Carrier"
+      assert get_in(data, ["en", "_description"]) == "Moves goods"
       refute Map.has_key?(data, "et")
       assert PartyRoleTypes.build_data(nil) == %{}
     end

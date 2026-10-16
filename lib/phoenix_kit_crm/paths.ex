@@ -15,6 +15,13 @@ defmodule PhoenixKitCRM.Paths do
   def role(role_uuid) when is_binary(role_uuid), do: Routes.path("#{@base}/role/#{role_uuid}")
   def settings, do: Routes.path(@settings_base)
 
+  # ── Party roles (under Settings → CRM) ──────────────────────────────
+  def party_roles, do: Routes.path(@settings_base) <> "?tab=party-roles"
+  def party_role_new, do: Routes.path("#{@settings_base}/party-roles/new")
+
+  def party_role_edit(uuid) when is_binary(uuid),
+    do: Routes.path("#{@settings_base}/party-roles/#{uuid}/edit")
+
   # ── Contacts ────────────────────────────────────────────────────────
   def contacts, do: Routes.path("#{@base}/contacts")
   def contact_new, do: Routes.path("#{@base}/contacts/new")

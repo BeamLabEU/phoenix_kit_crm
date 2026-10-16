@@ -40,7 +40,9 @@ discovers it by adding the package to `deps` — no other config.
   (`/admin/crm/comparison`) and Organizations (`/admin/crm/organizations`,
   visible only while core's `enable_organization_accounts` setting is on), plus
   one runtime-registered subtab per opted-in role
-  (`/admin/crm/role/:role_uuid`). Settings tab at `/admin/settings/crm`.
+  (`/admin/crm/role/:role_uuid`). Settings tab at `/admin/settings/crm`, whose
+  Party roles tab (`?tab=party-roles`) manages the role vocabulary; its add / edit
+  form is `/admin/settings/crm/party-roles/new` and `/:uuid/edit`.
 - **Module key** `"crm"`; settings prefix `crm_`.
 
 ## What this module does NOT do
@@ -107,7 +109,8 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
 - **Routing — two patterns coexist, never on the same path.** Tabs carrying
   `live_view:` generate their own routes (the list/index pages and settings);
   `PhoenixKitCRM.Routes` hand-declares only *parameterized and detail* routes
-  (`/role/:role_uuid`, `new`, `:uuid`, `:uuid/edit`, list members/import),
+  (`/role/:role_uuid`, `new`, `:uuid`, `:uuid/edit`, list members/import,
+  `/admin/settings/crm/party-roles/new` and `:uuid/edit`),
   because dynamic tabs registered into the Dashboard Registry at runtime do not
   trigger router compilation. Declaring one path in both places compiles the
   host router with "this clause cannot match…", which breaks any host running
@@ -118,7 +121,7 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
   `live` declarations and nothing else. Never hand-register CRM routes in a
   host router — routes outside that live_session lose the admin layout and
   crash on cross-page navigation.
-- **LiveViews use `use PhoenixKitWeb, :live_view`** (all 16 of them). That
+- **LiveViews use `use PhoenixKitWeb, :live_view`** (all 17 of them). That
   imports core's components (`<.icon>`, `<.button>`, `<.input>`,
   `TableDefault`, …), gettext and the admin layout. Do not switch to
   `use Phoenix.LiveView`, and do not wrap templates in `LayoutWrapper` — admin
@@ -166,7 +169,14 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
   ever held can be deleted, otherwise only archived (the FK is RESTRICT, and a
   revoked row still counts). A key is immutable and cannot be an index filter
   id (`all active inactive trashed`). A host creates its roles idempotently
-  with `PartyRoleTypes.ensure/3`, which never overwrites an admin's edit.
+  with `PartyRoleTypes.ensure/3`, which never overwrites an admin's edit. The
+  admin manages them in Settings → CRM → Party roles (`SettingsLive` list:
+  drag to reorder via core's `sortable_tbody`, archive / restore / delete;
+  `PartyRoleFormLive`: translated name and description through core's
+  `MultilangForm` — stored as `"_name"` / `"_description"` in `data`, the
+  `_title` convention — plus badge and icon from short lists). The key is derived
+  from the primary-language name on create (`PartyRoleTypes.derive_key/1`;
+  a name with no Latin letters needs one typed) and is read-only afterwards.
   Pages load `PartyRoleTypes.types_by_key/0` ONCE and pass the map to
   `PartyRoleHelpers.role_label/2,3` / `role_badge_class/2` — never a query per
   badge. Names: the viewer's language → the primary language → (built-in)
@@ -358,7 +368,8 @@ lib/phoenix_kit_crm/
     ├── companies_live.ex / company_form_live.ex / company_show_live.ex
     ├── lists_live.ex / list_form_live.ex / list_members_live.ex / list_import_live.ex
     ├── comparison_live.ex                   # Duplicate-email + list-overlap report
-    ├── organizations_view.ex / role_view.ex / settings_live.ex
+    ├── organizations_view.ex / role_view.ex / settings_live.ex  # settings: General, Role Access, Party roles
+    ├── party_role_form_live.ex              # Add / edit a party role (MultilangForm)
     ├── project_client_live.ex               # The Client tab contributed to phoenix_kit_projects
     ├── interactions_component.ex            # Dual-anchor composer + feed (contact AND company)
     ├── events_component.ex / media_component.ex
