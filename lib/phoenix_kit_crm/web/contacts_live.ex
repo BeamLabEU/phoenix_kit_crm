@@ -320,22 +320,8 @@ defmodule PhoenixKitCRM.Web.ContactsLive do
   defp result_label("trashed", n, _types),
     do: ngettext("%{count} trashed contact", "%{count} trashed contacts", n, count: n)
 
-  defp result_label("supplier", n, _types),
-    do: ngettext("%{count} supplier", "%{count} suppliers", n, count: n)
-
-  defp result_label("customer", n, _types),
-    do: ngettext("%{count} customer", "%{count} customers", n, count: n)
-
-  defp result_label("manufacturer", n, _types),
-    do: ngettext("%{count} manufacturer", "%{count} manufacturers", n, count: n)
-
-  defp result_label("partner", n, _types),
-    do: ngettext("%{count} partner", "%{count} partners", n, count: n)
-
-  # A role someone defined: no plural forms to choose from, so its name and
-  # the count (Russian and Estonian cannot be derived from one field).
   defp result_label(role, n, types) when is_map_key(types, role),
-    do: gettext("%{role}: %{count}", role: PartyRoleTypes.label(types, role), count: n)
+    do: PartyRoleTypes.count_label(types, role, n)
 
   defp result_label(_all, n, _types),
     do: ngettext("%{count} contact", "%{count} contacts", n, count: n)

@@ -154,9 +154,50 @@ defmodule PhoenixKitCRM.PartyRoleTypesTest do
 
       assert cs.errors[:data]
     end
+
+    test "malformed translations return data errors instead of crashing readers" do
+      for data <- [
+            %{"_primary_language" => 42},
+            %{"_primary_language" => "en", "en" => "Carrier"},
+            %{"_primary_language" => "en", "en" => %{"_name" => "Carrier"}, "et" => []},
+            %{"_primary_language" => "en", "en" => %{"_name" => ["Carrier"]}}
+          ] do
+        assert {:error, cs} = PartyRoleTypes.create_type(carrier_attrs(%{"data" => data}))
+        assert cs.errors[:data]
+      end
+    end
   end
 
   describe "update_type/3" do
+    test "plain field edits preserve the other primary fields and translations" do
+      {:ok, type} =
+        PartyRoleTypes.ensure("carrier",
+          names: %{"en" => "Carrier", "et" => "Vedaja"},
+          descriptions: %{"en" => "Moves goods", "et" => "Veab kaupu"}
+        )
+
+      assert {:ok, updated} = PartyRoleTypes.update_type(type, %{"name" => "Hauler"})
+      assert PartyRoleTypes.name(updated, "en") == "Hauler"
+      assert PartyRoleTypes.description(updated, "en") == "Moves goods"
+      assert PartyRoleTypes.name(updated, "et") == "Vedaja"
+      assert PartyRoleTypes.description(updated, "et") == "Veab kaupu"
+
+      assert {:ok, updated} =
+               PartyRoleTypes.update_type(updated, %{"description" => "Delivers goods"})
+
+      assert PartyRoleTypes.name(updated, "en") == "Hauler"
+      assert PartyRoleTypes.description(updated, "en") == "Delivers goods"
+    end
+
+    test "required persisted fields return changeset errors when cleared" do
+      {:ok, type} = PartyRoleTypes.create_type(carrier_attrs())
+
+      for field <- ~w(badge icon status position data) do
+        assert {:error, cs} = PartyRoleTypes.update_type(type, %{field => nil})
+        assert cs.errors[String.to_existing_atom(field)]
+      end
+    end
+
     test "relabels, restyles and never touches the key" do
       {:ok, type} = PartyRoleTypes.create_type(carrier_attrs())
 

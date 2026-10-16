@@ -440,6 +440,20 @@ defmodule PhoenixKitCRM.PartyRoleTypes do
     end
   end
 
+  @doc "A result count: built-in gettext plurals until renamed, then the role's name and count."
+  @spec count_label(types_map(), String.t(), non_neg_integer()) :: String.t()
+  def count_label(types, key, count) do
+    type = Map.get(types, key)
+    renamed = match?(%PartyRoleType{}, type) and name_from_data(type.data, locale())
+
+    if renamed do
+      gettext("%{role}: %{count}", role: renamed, count: count)
+    else
+      builtin_count(key, count) ||
+        gettext("%{role}: %{count}", role: label(types, key), count: count)
+    end
+  end
+
   @doc "The translated description, or `nil`."
   @spec description(PartyRoleType.t(), String.t() | nil) :: String.t() | nil
   def description(%PartyRoleType{} = type, lang \\ nil) do
@@ -510,6 +524,20 @@ defmodule PhoenixKitCRM.PartyRoleTypes do
   defp builtin_plural("partner"), do: gettext("Partners")
   defp builtin_plural("manufacturer"), do: gettext("Manufacturers")
   defp builtin_plural(_), do: nil
+
+  defp builtin_count("supplier", n),
+    do: ngettext("%{count} supplier", "%{count} suppliers", n, count: n)
+
+  defp builtin_count("customer", n),
+    do: ngettext("%{count} customer", "%{count} customers", n, count: n)
+
+  defp builtin_count("manufacturer", n),
+    do: ngettext("%{count} manufacturer", "%{count} manufacturers", n, count: n)
+
+  defp builtin_count("partner", n),
+    do: ngettext("%{count} partner", "%{count} partners", n, count: n)
+
+  defp builtin_count(_, _), do: nil
 
   defp locale do
     Multilang.current_locale()

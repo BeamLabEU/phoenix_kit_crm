@@ -95,6 +95,7 @@ defmodule PhoenixKitCRM.Schemas.PartyRoleType do
   def create_changeset(%__MODULE__{} = type, attrs) do
     type
     |> cast(attrs, [:key | @editable] ++ @virtual)
+    |> validate_data_shape()
     |> sync_data()
     |> derive_key()
     |> validate_required([:key])
@@ -112,6 +113,7 @@ defmodule PhoenixKitCRM.Schemas.PartyRoleType do
   def update_changeset(%__MODULE__{} = type, attrs) do
     type
     |> cast(attrs, @editable ++ @virtual)
+    |> validate_data_shape()
     |> sync_data()
     |> validate_editable()
     |> validate_builtin_stays_active()
@@ -123,6 +125,8 @@ defmodule PhoenixKitCRM.Schemas.PartyRoleType do
   # fields arrive -- a site with one language, or a caller that has no
   # translations -- they are folded into `data` under the primary language.
   # When `data` itself changed it is the truth: the form already merged it.
+  defp sync_data(%Ecto.Changeset{valid?: false} = changeset), do: changeset
+
   defp sync_data(changeset) do
     if Map.has_key?(changeset.changes, :data) do
       changeset
@@ -136,13 +140,15 @@ defmodule PhoenixKitCRM.Schemas.PartyRoleType do
       if fields == %{} do
         changeset
       else
-        primary = Multilang.primary_language()
+        existing_data = get_field(changeset, :data) || %{}
+        primary = existing_data["_primary_language"] || Multilang.primary_language()
+        primary_data = Multilang.get_primary_data(existing_data)
 
         data =
           Multilang.put_language_data(
-            get_field(changeset, :data),
+            existing_data,
             primary,
-            fields
+            Map.merge(primary_data, fields)
           )
 
         put_change(changeset, :data, data)
@@ -151,6 +157,8 @@ defmodule PhoenixKitCRM.Schemas.PartyRoleType do
   end
 
   # The key is derived from the primary-language name unless one was given.
+  defp derive_key(%Ecto.Changeset{valid?: false} = changeset), do: changeset
+
   defp derive_key(changeset) do
     case get_field(changeset, :key) do
       key when key in [nil, ""] ->
@@ -177,22 +185,40 @@ defmodule PhoenixKitCRM.Schemas.PartyRoleType do
 
   defp validate_editable(changeset) do
     changeset
+    |> validate_required(@editable)
     |> validate_inclusion(:status, @statuses)
     |> validate_inclusion(:badge, @badges)
     |> validate_inclusion(:icon, @icons)
     |> validate_number(:position, greater_than_or_equal_to: 0)
-    |> validate_data_shape()
   end
 
   # `data` is the translations map and nothing else: a string or list there
   # would crash every reader, and it is the one castable free-form field.
   defp validate_data_shape(changeset) do
-    case fetch_change(changeset, :data) do
-      {:ok, data} when is_map(data) -> changeset
-      {:ok, _} -> add_error(changeset, :data, "is invalid")
-      :error -> changeset
+    if valid_data?(get_field(changeset, :data)) do
+      changeset
+    else
+      add_error(changeset, :data, "is invalid")
     end
   end
+
+  defp valid_data?(%{"_primary_language" => primary} = data) do
+    is_binary(primary) and String.trim(primary) != "" and is_map(data[primary]) and
+      Enum.all?(Map.delete(data, "_primary_language"), fn {_lang, entry} ->
+        valid_text_fields?(entry)
+      end)
+  end
+
+  defp valid_data?(%{} = data), do: valid_text_fields?(data)
+  defp valid_data?(_), do: false
+
+  defp valid_text_fields?(%{} = entry) do
+    Enum.all?(~w(name _name description _description), fn key ->
+      is_nil(entry[key]) or is_binary(entry[key])
+    end)
+  end
+
+  defp valid_text_fields?(_), do: false
 
   defp validate_builtin_stays_active(changeset) do
     if changeset.data.builtin and get_field(changeset, :status) == "archived" do
@@ -205,6 +231,8 @@ defmodule PhoenixKitCRM.Schemas.PartyRoleType do
   # A custom role without a name is a blank badge. A built-in is exempt: its
   # name falls back to the gettext string, so an admin clearing the field
   # simply resets it.
+  defp validate_primary_name(%Ecto.Changeset{valid?: false} = changeset), do: changeset
+
   defp validate_primary_name(changeset) do
     if changeset.data.builtin do
       changeset

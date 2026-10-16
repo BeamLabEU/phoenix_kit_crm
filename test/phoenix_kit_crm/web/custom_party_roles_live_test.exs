@@ -120,6 +120,22 @@ defmodule PhoenixKitCRM.Web.CustomPartyRolesLiveTest do
   end
 
   describe "the lists" do
+    test "renamed built-ins use the new name in result counts on both lists", %{conn: conn} do
+      supplier = PartyRoleTypes.get_type_by_key("supplier")
+      {:ok, _} = PartyRoleTypes.update_type(supplier, %{"name" => "Vendor"})
+      {:ok, _} = PartyRoles.grant_role(company_fixture(), "supplier")
+      {:ok, contact} = Contacts.create_contact(%{"name" => "Vendor contact"})
+      {:ok, _} = PartyRoles.grant_role(contact, "supplier")
+
+      for path <- ~w(companies contacts) do
+        {:ok, view, _html} = live(conn, "/en/admin/crm/#{path}?filter=supplier")
+
+        assert has_element?(view, "a.tab-active", "Vendor (1)")
+        assert render(view) =~ "Vendor: 1"
+        refute render(view) =~ "1 supplier"
+      end
+    end
+
     test "the badge carries the role's name and badge class; a tab counts the holders",
          %{conn: conn} do
       company = company_fixture()
