@@ -6,7 +6,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   require Logger
 
   import PhoenixKitCRM.Web.PartyRoleHelpers,
-    only: [active_role_values: 1, form_types: 1, selected_roles: 2, sync_roles: 3]
+    only: [active_role_values: 1, form_types: 1, selected_roles: 2, sync_roles: 4]
 
   import PhoenixKitCRM.Web.Components.MirrorPanel, only: [mirror_panel: 1]
   import PhoenixKitCRM.Web.Components.MirrorConflictModal, only: [mirror_conflict_modal: 1]
@@ -418,7 +418,13 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   defp save(socket, :new, params) do
     case Companies.create_company(params) do
       {:ok, company} ->
-        roles = sync_roles(company, socket.assigns.roles_selected, Activity.actor_uuid(socket))
+        roles =
+          sync_roles(
+            company,
+            socket.assigns.roles_selected,
+            Activity.actor_uuid(socket),
+            socket.assigns.role_types
+          )
 
         Activity.log(
           "crm.company_created",
@@ -436,7 +442,13 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   defp save(socket, :edit, params) do
     case Companies.update_company(socket.assigns.company, params) do
       {:ok, company} ->
-        roles = sync_roles(company, socket.assigns.roles_selected, Activity.actor_uuid(socket))
+        roles =
+          sync_roles(
+            company,
+            socket.assigns.roles_selected,
+            Activity.actor_uuid(socket),
+            socket.assigns.role_types
+          )
 
         Activity.log(
           "crm.company_updated",

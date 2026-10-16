@@ -27,6 +27,47 @@ defmodule PhoenixKitCRM.Web.CustomPartyRolesLiveTest do
   end
 
   describe "the company form" do
+    test "saving a checked expired role preserves its validity window", %{conn: conn} do
+      company = company_fixture()
+      expired = Date.add(Date.utc_today(), -1)
+      {:ok, _} = PartyRoles.grant_role(company, "carrier", %{valid_to: expired})
+      {:ok, view, _html} = live(conn, "/en/admin/crm/companies/#{company.uuid}/edit")
+
+      view |> form("#company-form", %{}) |> render_submit()
+
+      assert [%{valid_to: ^expired, is_active: true}] = PartyRoles.list_roles(company)
+      refute PartyRoles.has_role?(company, "carrier")
+    end
+
+    test "unticking a scheduled archived role revokes its grant", %{conn: conn, carrier: carrier} do
+      company = company_fixture()
+
+      {:ok, _} =
+        PartyRoles.grant_role(company, "carrier", %{valid_from: Date.add(Date.utc_today(), 7)})
+
+      {:ok, _} = PartyRoleTypes.archive_type(carrier)
+      {:ok, view, _html} = live(conn, "/en/admin/crm/companies/#{company.uuid}/edit")
+      assert has_element?(view, ~s{input[name="roles[]"][value="carrier"][checked]})
+
+      view |> form("#company-form", %{"roles" => []}) |> render_submit()
+
+      assert [%{role: "carrier", is_active: false}] = PartyRoles.list_roles(company)
+    end
+
+    test "a role absent from the open form is kept if it is restored and granted elsewhere",
+         %{conn: conn, carrier: carrier} do
+      company = company_fixture()
+      {:ok, archived} = PartyRoleTypes.archive_type(carrier)
+      {:ok, view, _html} = live(conn, "/en/admin/crm/companies/#{company.uuid}/edit")
+      refute has_element?(view, ~s{input[name="roles[]"][value="carrier"]})
+
+      {:ok, _} = PartyRoleTypes.restore_type(archived)
+      {:ok, _} = PartyRoles.grant_role(company, "carrier")
+      view |> form("#company-form", %{}) |> render_submit()
+
+      assert PartyRoles.has_role?(company, "carrier")
+    end
+
     test "offers the custom role beside the built-ins, in position order", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/en/admin/crm/companies/new")
 
@@ -106,6 +147,34 @@ defmodule PhoenixKitCRM.Web.CustomPartyRolesLiveTest do
   end
 
   describe "the contact form" do
+    test "unticking a scheduled archived role revokes it", %{conn: conn, carrier: carrier} do
+      {:ok, contact} = Contacts.create_contact(%{"name" => "Solo Driver"})
+
+      {:ok, _} =
+        PartyRoles.grant_role(contact, "carrier", %{valid_from: Date.add(Date.utc_today(), 7)})
+
+      {:ok, _} = PartyRoleTypes.archive_type(carrier)
+      {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}/edit")
+      assert has_element?(view, ~s{input[name="roles[]"][value="carrier"][checked]})
+
+      view |> form("form", %{"roles" => []}) |> render_submit()
+
+      assert [%{role: "carrier", is_active: false}] = PartyRoles.list_roles(contact)
+    end
+
+    test "saving an older form preserves a role it never offered", %{conn: conn, carrier: carrier} do
+      {:ok, contact} = Contacts.create_contact(%{"name" => "Solo Driver"})
+      {:ok, archived} = PartyRoleTypes.archive_type(carrier)
+      {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}/edit")
+      refute has_element?(view, ~s{input[name="roles[]"][value="carrier"]})
+
+      {:ok, _} = PartyRoleTypes.restore_type(archived)
+      {:ok, _} = PartyRoles.grant_role(contact, "carrier")
+      view |> form("form", %{}) |> render_submit()
+
+      assert PartyRoles.has_role?(contact, "carrier")
+    end
+
     test "offers the custom role and grants it", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/new")
       assert has_element?(view, ~s{input[name="roles[]"][value="carrier"]})

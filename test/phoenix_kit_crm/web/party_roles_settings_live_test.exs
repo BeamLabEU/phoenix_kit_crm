@@ -120,6 +120,34 @@ defmodule PhoenixKitCRM.Web.PartyRolesSettingsLiveTest do
   end
 
   describe "the form" do
+    test "clearing an existing description saves the empty value", %{conn: conn} do
+      {:ok, carrier} =
+        PartyRoleTypes.ensure("carrier", name: "Carrier", description: "Moves goods")
+
+      {:ok, view, _html} = live(conn, "/en/admin/crm/settings/party-roles/#{carrier.uuid}/edit")
+
+      view
+      |> form("#party-role-form", party_role: %{description: ""})
+      |> render_change()
+
+      view
+      |> form("#party-role-form", party_role: %{description: ""})
+      |> render_submit()
+
+      assert_redirect(view, Paths.party_roles())
+      assert PartyRoleTypes.description(PartyRoleTypes.get_type(carrier.uuid)) == nil
+    end
+
+    test "clearing a custom role's name is refused on save", %{conn: conn} do
+      carrier = carrier!()
+      {:ok, view, _html} = live(conn, "/en/admin/crm/settings/party-roles/#{carrier.uuid}/edit")
+
+      html = view |> form("#party-role-form", party_role: %{name: ""}) |> render_submit()
+
+      assert html =~ "can&#39;t be blank"
+      assert PartyRoleTypes.name(PartyRoleTypes.get_type(carrier.uuid)) == "Carrier"
+    end
+
     test "creating a role derives its key from the name and returns to the list", %{conn: conn} do
       {:ok, view, _html} = live(conn, @new)
 

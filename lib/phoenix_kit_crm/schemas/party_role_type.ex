@@ -124,18 +124,20 @@ defmodule PhoenixKitCRM.Schemas.PartyRoleType do
   # translations on, ships the merged `data` alongside it). When only the plain
   # fields arrive -- a site with one language, or a caller that has no
   # translations -- they are folded into `data` under the primary language.
-  # When `data` itself changed it is the truth: the form already merged it.
+  # When `data` is supplied it is the truth: the form already merged it.
   defp sync_data(%Ecto.Changeset{valid?: false} = changeset), do: changeset
 
   defp sync_data(changeset) do
-    if Map.has_key?(changeset.changes, :data) do
+    if Map.has_key?(changeset.params, "data") do
       changeset
     else
+      # An explicit clear casts to nil, which is already the default for a
+      # reloaded virtual field. Params still record that the field was sent.
       fields =
         for {field, key} <- [name: "_name", description: "_description"],
-            Map.has_key?(changeset.changes, field),
+            Map.has_key?(changeset.params, Atom.to_string(field)),
             into: %{},
-            do: {key, changeset.changes[field] || ""}
+            do: {key, get_field(changeset, field) || ""}
 
       if fields == %{} do
         changeset

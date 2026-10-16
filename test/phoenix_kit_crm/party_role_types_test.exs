@@ -169,6 +169,28 @@ defmodule PhoenixKitCRM.PartyRoleTypesTest do
   end
 
   describe "update_type/3" do
+    test "clearing plain fields on a reloaded type persists the clear" do
+      {:ok, type} = PartyRoleTypes.ensure("carrier", name: "Carrier", description: "Moves goods")
+      type = PartyRoleTypes.get_type(type.uuid)
+
+      assert {:ok, updated} = PartyRoleTypes.update_type(type, %{"description" => ""})
+      assert PartyRoleTypes.description(PartyRoleTypes.get_type(updated.uuid)) == nil
+      assert PartyRoleTypes.name(updated) == "Carrier"
+
+      assert {:error, cs} = PartyRoleTypes.update_type(type, %{"name" => ""})
+      assert cs.errors[:name]
+    end
+
+    test "clearing a built-in's plain name restores the gettext default" do
+      supplier = PartyRoleTypes.get_type_by_key("supplier")
+      {:ok, renamed} = PartyRoleTypes.update_type(supplier, %{"name" => "Vendor"})
+      renamed = PartyRoleTypes.get_type(renamed.uuid)
+
+      assert {:ok, reset} = PartyRoleTypes.update_type(renamed, %{"name" => ""})
+      assert PartyRoleTypes.name(reset) == "Supplier"
+      assert PartyRoleTypes.plural_name(%{"supplier" => reset}, "supplier") == "Suppliers"
+    end
+
     test "plain field edits preserve the other primary fields and translations" do
       {:ok, type} =
         PartyRoleTypes.ensure("carrier",
@@ -331,6 +353,37 @@ defmodule PhoenixKitCRM.PartyRoleTypesTest do
   end
 
   describe "display" do
+    test "blank translated fields fall back to the primary text" do
+      {:ok, type} =
+        PartyRoleTypes.create_type(
+          carrier_attrs(%{
+            "data" => %{
+              "_primary_language" => "en",
+              "en" => %{"_name" => "Carrier", "_description" => "Moves goods"},
+              "et" => %{"_name" => "  ", "_description" => nil}
+            }
+          })
+        )
+
+      assert PartyRoleTypes.name(type, "et") == "Carrier"
+      assert PartyRoleTypes.description(type, "et") == "Moves goods"
+    end
+
+    test "bare-key translations override primary text stored with underscored keys" do
+      {:ok, type} =
+        PartyRoleTypes.create_type(
+          carrier_attrs(%{
+            "data" => %{
+              "_primary_language" => "en",
+              "en" => %{"_name" => "Carrier"},
+              "et" => %{"name" => "Vedaja"}
+            }
+          })
+        )
+
+      assert PartyRoleTypes.name(type, "et-EE") == "Vedaja"
+    end
+
     test "a translation falls back to the primary language, then the key" do
       {:ok, type} =
         PartyRoleTypes.create_type(

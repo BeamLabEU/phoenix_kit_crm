@@ -62,6 +62,15 @@ defmodule PhoenixKitCRM.LiveCase do
   end
 
   @doc """
+  The admin root as the app writes it in a link: `/en/admin` on a
+  multilingual site, `/admin` on a single-language one — core 2.62 dropped
+  the language segment there, and a test site is single-language.
+  Assertions on a WRITTEN link use this; navigating still uses
+  `/en/admin/...`, the scope the test router mounts.
+  """
+  def admin, do: Routes.path("/admin")
+
+  @doc """
   A real `PhoenixKit.Users.Auth.Scope` for testing. The CRM LiveViews read
   `socket.assigns[:phoenix_kit_current_user]` (via `Activity.actor_opts/1`) to
   thread the actor uuid into activity logging; production
@@ -79,15 +88,6 @@ defmodule PhoenixKitCRM.LiveCase do
     * `:user_timezone` — the profile timezone value (an IANA id or a legacy
       offset); absent by default, so the user map has no such key
   """
-  @doc """
-  The admin root as the app writes it in a link: `/en/admin` on a
-  multilingual site, `/admin` on a single-language one — core 2.62 dropped
-  the language segment there, and a test site is single-language.
-  Assertions on a WRITTEN link use this; navigating still uses
-  `/en/admin/...`, the scope the test router mounts.
-  """
-  def admin, do: Routes.path("/admin")
-
   def fake_scope(opts \\ []) do
     user_uuid = Keyword.get(opts, :user_uuid, Ecto.UUID.generate())
     email = Keyword.get(opts, :email, "test-#{System.unique_integer([:positive])}@example.com")

@@ -10,7 +10,7 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
   require Logger
 
   import PhoenixKitCRM.Web.PartyRoleHelpers,
-    only: [active_role_values: 1, form_types: 1, selected_roles: 2, sync_roles: 3]
+    only: [active_role_values: 1, form_types: 1, selected_roles: 2, sync_roles: 4]
 
   import PhoenixKitCRM.Web.Components.MirrorPanel, only: [mirror_panel: 1]
   import PhoenixKitCRM.Web.Components.MirrorConflictModal, only: [mirror_conflict_modal: 1]
@@ -466,7 +466,14 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
       {:ok, contact} ->
         # All three are best-effort secondary ops (each logs + swallows its own
         # failure). roles returns :ok | {:partial, _}; membership/login :ok | :error.
-        roles = sync_roles(contact, socket.assigns.roles_selected, Activity.actor_uuid(socket))
+        roles =
+          sync_roles(
+            contact,
+            socket.assigns.roles_selected,
+            Activity.actor_uuid(socket),
+            socket.assigns.role_types
+          )
+
         membership = apply_membership(contact, company_uuid, role, dept)
         login = apply_login(contact, allow_login, email, Activity.actor_uuid(socket))
 

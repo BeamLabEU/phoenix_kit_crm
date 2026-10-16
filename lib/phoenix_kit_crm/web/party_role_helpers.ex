@@ -74,40 +74,53 @@ defmodule PhoenixKitCRM.Web.PartyRoleHelpers do
   Pass the acting user's uuid as `actor_uuid` so grant/revoke activity log
   entries record who made the change (mirrors every other logged CRM
   mutation instead of landing with `actor_uuid: nil`).
+
+  Forms pass the `role_types` they displayed so a role restored or granted
+  elsewhere while the form was open is not revoked without being shown.
+  Other callers may omit it to reconcile the currently available types.
   """
-  @spec sync_roles(struct(), [String.t()], UUIDv7.t() | String.t() | nil) ::
+  @spec sync_roles(
+          struct(),
+          [String.t()],
+          UUIDv7.t() | String.t() | nil,
+          [PartyRoleType.t()] | nil
+        ) ::
           :ok | {:partial, [String.t()]}
-  def sync_roles(roleable, selected, actor_uuid \\ nil) when is_list(selected) do
-    # One transaction: a crash or dropped connection halfway through used to
-    # leave an arbitrary prefix of the checkboxes applied, with the form still
-    # showing what the user asked for. Either every role matches the form or
-    # none of them moved.
+  def sync_roles(roleable, selected, actor_uuid \\ nil, role_types \\ nil)
+      when is_list(selected) do
+    offered = Enum.map(role_types || form_types(roleable), & &1.key)
+
+    # A crash or dropped connection rolls back the whole reconciliation;
+    # individual validation failures are returned for the form's warning.
     case PhoenixKit.RepoHelper.repo().transaction(fn ->
-           reconcile(roleable, selected, actor_uuid)
+           reconcile(roleable, selected, offered, actor_uuid)
          end) do
       {:ok, :ok} -> :ok
       {:ok, {:partial, roles}} -> {:partial, roles}
-      {:error, _reason} -> {:partial, offered_keys(roleable)}
+      {:error, _reason} -> {:partial, offered}
     end
   end
 
   # Only the roles the form offered are reconciled: an archived role the party
   # holds is shown (so it can be unticked); one the form never showed must not
   # be revoked just because it isn't ticked.
-  defp offered_keys(roleable), do: Enum.map(form_types(roleable), & &1.key)
+  defp reconcile(roleable, selected, offered, actor_uuid) do
+    # Checkbox state tracks is_active, including scheduled and expired grants.
+    # Re-saving a checked role keeps its window; unticking it revokes the row
+    # even when it is not in force today.
+    held = MapSet.new(active_role_values(roleable))
 
-  defp reconcile(roleable, selected, actor_uuid) do
     failed =
-      Enum.reduce(offered_keys(roleable), [], fn role, failed ->
+      Enum.reduce(offered, [], fn role, failed ->
         result =
-          cond do
-            role in selected ->
+          case {role in selected, MapSet.member?(held, role)} do
+            {true, false} ->
               PartyRoles.grant_role(roleable, role, %{}, actor_uuid: actor_uuid)
 
-            PartyRoles.has_role?(roleable, role) ->
+            {false, true} ->
               PartyRoles.revoke_role(roleable, role, actor_uuid: actor_uuid)
 
-            true ->
+            _ ->
               :ok
           end
 

@@ -492,9 +492,17 @@ defmodule PhoenixKitCRM.PartyRoleTypes do
   # The multilang form stores `"_name"` (the `_title` convention); data written
   # by hand or by `ensure/3` from a plain map may use the bare `"name"`.
   defp field_from_data(%{} = data, field, lang) do
-    entry =
-      if lang, do: Multilang.get_language_data(data, lang), else: Multilang.get_primary_data(data)
+    primary = Multilang.get_primary_data(data)
+    entry = if lang, do: Multilang.get_raw_language_data(data, lang), else: primary
 
+    # Read each language before falling back so a blank override inherits the
+    # primary text, and a bare `name` override can replace a primary `_name`.
+    text_field(entry, field) || text_field(primary, field)
+  end
+
+  defp field_from_data(_, _, _), do: nil
+
+  defp text_field(entry, field) do
     value = Map.get(entry, "_" <> field) || Map.get(entry, field)
 
     case value do
@@ -508,8 +516,6 @@ defmodule PhoenixKitCRM.PartyRoleTypes do
         nil
     end
   end
-
-  defp field_from_data(_, _, _), do: nil
 
   # The four seeded roles' names are gettext strings (literal msgids so the
   # extractor sees them); a custom key has none.
