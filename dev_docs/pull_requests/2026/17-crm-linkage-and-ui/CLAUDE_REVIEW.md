@@ -161,7 +161,7 @@ Test added in `lists_test.exs`.
 
 `lib/phoenix_kit_crm/web/crm_live.ex:128` (pre-fix)
 
-The empty-state card printed `the host application's backfill mix task` to every consumer
+The empty-state card printed the host application's backfill mix task to every consumer
 of this package. The moduledoc immediately above it argues — correctly — that
 CRM must not reach into the host's order tables, and that this is why the
 backfill lives in the host. Printing the host's command name is the same

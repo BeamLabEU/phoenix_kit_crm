@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   shows the tab must add `config :phoenix_kit_crm, orders_bridge: MyApp.CRMBridge`,
   a module exporting `orders_for_contact/1` (a list of maps with `:number`,
   `:path`, `:inserted_at`). Without the key the tab stays hidden.
+  **Upgrading:** a host that shows the Orders tab today must add this config
+  line before taking this version, or the tab disappears. The rescue covers
+  the bridge call only: a bridge that returns something other than such a
+  list breaks the tab's render.
 
 ## 0.16.0 - 2026-10-05
 
