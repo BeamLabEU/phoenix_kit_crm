@@ -1,7 +1,8 @@
 defmodule PhoenixKitCRM.Web.ContactShowLive do
   @moduledoc """
   Show page for a CRM contact. Tabs: Overview, Interactions, Events always;
-  Orders when the host app's `CRMBridge` is available; Files + Images
+  Orders when a host order bridge is configured (`config :phoenix_kit_crm,
+  orders_bridge: MyApp.CRMBridge`, see `orders_for_contact/1` below); Files + Images
   when core Storage is enabled; Comments when the comments module is
   enabled. The header shows a circular avatar (initials fallback).
   """
@@ -12,16 +13,6 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   use PhoenixKitComments.Embed
 
   require Logger
-
-  # Guarded soft-dependency on the host app's order bridge for the Orders tab.
-  # CRM has no compile-time dependency on the host — that module is absent from this
-  # package's own mix.exs and its test suite — so a plain qualified call would
-  # warn under `--warnings-as-errors` there. Same idiom as
-  # `PhoenixKitCRM.StaffLink`'s guard on the optional `phoenix_kit_staff` dep
-  # (`staff_link.ex:1-5`) and core's own guard on this same optional CRM
-  # module (`phoenix_kit_web/live/users/user_details.ex:16,19`); `orders_bridge_available?/0`
-  # below gates every actual call at runtime.
-  @compile {:no_warn_undefined, Andi.CRMBridge}
 
   # Not part of `use PhoenixKitWeb, :live_view`'s auto-imports (see
   # `user_details.ex:12-14`) — explicit import needed for the Orders tab's
@@ -317,13 +308,21 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
     _ -> false
   end
 
-  # Whether the host app's order bridge is present. The bridge module is not a
-  # dependency of this package (the host depends on CRM, never the reverse), so
-  # this is `false` — safely, not an error — whenever this module runs outside
-  # the host app (this package's own test suite, `mix docs`, etc.).
+  # The Orders tab is a guarded soft dependency on the host application. A host
+  # turns it on with `config :phoenix_kit_crm, orders_bridge: MyApp.CRMBridge`,
+  # where the module exports `orders_for_contact/1`: it takes the CRM contact
+  # and returns a list of maps with `:number` (shown as "#number"), `:path`
+  # (the row's link target, a host path) and `:inserted_at` (a `DateTime` or
+  # `NaiveDateTime`). Unset (the default), not loaded, or lacking that function
+  # means the tab is hidden — not an error. Read at runtime, so no compile-time
+  # dependency on the host exists.
+  defp orders_bridge, do: Application.get_env(:phoenix_kit_crm, :orders_bridge)
+
   defp orders_bridge_available? do
-    Code.ensure_loaded?(Andi.CRMBridge) and
-      function_exported?(Andi.CRMBridge, :orders_for_contact, 1)
+    mod = orders_bridge()
+
+    is_atom(mod) and not is_nil(mod) and Code.ensure_loaded?(mod) and
+      function_exported?(mod, :orders_for_contact, 1)
   rescue
     _ -> false
   end
@@ -337,10 +336,13 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   # exception raised in there must cost the Orders tab its rows, not take down
   # a contact profile whose other five tabs never touch it.
   defp load_contact_orders(true, "orders", contact) do
-    Andi.CRMBridge.orders_for_contact(contact)
+    orders_bridge().orders_for_contact(contact)
   rescue
     e ->
-      Logger.warning("[CRM] Andi.CRMBridge.orders_for_contact failed: #{Exception.message(e)}")
+      Logger.warning(
+        "[CRM] #{inspect(orders_bridge())}.orders_for_contact failed: #{Exception.message(e)}"
+      )
+
       []
   end
 

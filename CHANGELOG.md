@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Changed
+
+- **The contact Orders tab now reads its bridge from config.** A host that
+  shows the tab must add `config :phoenix_kit_crm, orders_bridge: MyApp.CRMBridge`,
+  a module exporting `orders_for_contact/1` (a list of maps with `:number`,
+  `:path`, `:inserted_at`). Without the key the tab stays hidden.
+
 ## 0.16.0 - 2026-10-05
 
 ### Added

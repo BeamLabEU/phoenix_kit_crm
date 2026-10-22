@@ -5,6 +5,27 @@ defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.{Attachments, Contacts, Interactions}
 
+  defmodule OrdersBridge do
+    def orders_for_contact(_contact) do
+      [%{number: 4711, path: "/host/orders/1", inserted_at: ~U[2026-01-02 03:04:05Z]}]
+    end
+  end
+
+  defmodule RaisingBridge do
+    def orders_for_contact(_contact), do: raise("boom")
+  end
+
+  defp put_bridge(mod) do
+    previous = Application.get_env(:phoenix_kit_crm, :orders_bridge)
+    Application.put_env(:phoenix_kit_crm, :orders_bridge, mod)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:phoenix_kit_crm, :orders_bridge, previous),
+        else: Application.delete_env(:phoenix_kit_crm, :orders_bridge)
+    end)
+  end
+
   setup %{conn: conn} do
     {:ok, conn: put_test_scope(conn, fake_scope())}
   end
@@ -144,13 +165,6 @@ defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
     assert has_element?(view, "#test-page-title", "Edit")
   end
 
-  # The host's order bridge (`CRMBridge`) is not a dependency of this package
-  # (the host depends on CRM, never the reverse) — this suite's own compile/test run never has it
-  # loaded, so these two only exercise the "unavailable" branch of the guard.
-  # The "available" branch (a real order rendering with a working row-link
-  # into the host's order edit page) was verified separately by invoking
-  # `ContactShowLive.render/1` directly inside the running host app against a
-  # real order — see the crm-fix-spec.md Batch G execution notes.
   test "the show strip is core nav_tabs (border) with prefixed patch hrefs", %{conn: conn} do
     {:ok, contact} = Contacts.create_contact(%{"name" => "Grace Hopper"})
 
@@ -182,5 +196,38 @@ defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
     {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=orders")
 
     assert has_element?(view, "a.tab-active", "Overview")
+  end
+
+  describe "configured orders bridge" do
+    test "shows the Orders tab with the bridge's rows", %{conn: conn} do
+      put_bridge(OrdersBridge)
+      {:ok, contact} = Contacts.create_contact(%{"name" => "Grace Hopper"})
+
+      {:ok, view, html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=orders")
+
+      assert has_element?(view, "a[href$='?tab=orders']")
+      assert html =~ "#4711"
+      assert html =~ "2026-01-02"
+      assert html =~ "/host/orders/1"
+    end
+
+    test "a bridge that raises leaves the tab empty and the page rendered", %{conn: conn} do
+      put_bridge(RaisingBridge)
+      {:ok, contact} = Contacts.create_contact(%{"name" => "Grace Hopper"})
+
+      {:ok, view, html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=orders")
+
+      assert has_element?(view, "a[href$='?tab=orders']")
+      assert html =~ "No orders yet"
+    end
+
+    test "a configured module that is not loadable hides the tab", %{conn: conn} do
+      put_bridge(Does.Not.Exist)
+      {:ok, contact} = Contacts.create_contact(%{"name" => "Grace Hopper"})
+
+      {:ok, view, _html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}")
+
+      refute has_element?(view, "a[href$='?tab=orders']")
+    end
   end
 end
