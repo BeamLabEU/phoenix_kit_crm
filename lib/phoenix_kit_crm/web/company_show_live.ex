@@ -17,7 +17,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
   require Logger
 
   # Guarded soft-dependency on the catalogue for the Catalogue tab — same idiom
-  # as the contact page's Andi.CRMBridge Orders tab and `StaffLink`. CRM has no
+  # as the contact page's host-bridge Orders tab and `StaffLink`. CRM has no
   # compile-time dependency on the catalogue, so a plain qualified call would
   # warn under --warnings-as-errors; `catalogue_available?/0` gates every call.
   @compile {:no_warn_undefined,

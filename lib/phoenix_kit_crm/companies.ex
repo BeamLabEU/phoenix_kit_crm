@@ -399,7 +399,7 @@ defmodule PhoenixKitCRM.Companies do
   @doc """
   Reverse of `create_mirror_user/2`: given an organization-`User`, adopts
   an existing UNLINKED company (matched by name first, then email —
-  mirrors `Andi.CRMBridge`'s adopt-by-email precedent for contacts) or
+  mirrors the host `CRMBridge`'s adopt-by-email precedent for contacts) or
   creates a new one from `Mirror.attrs_to_crm/2`, then links it — the
   create-then-link is wrapped in one transaction, so a `connect_user/2`
   failure (a race against a concurrent caller linking the same user

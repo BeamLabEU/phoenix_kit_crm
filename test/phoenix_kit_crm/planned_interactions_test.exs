@@ -72,10 +72,10 @@ defmodule PhoenixKitCRM.PlannedInteractionsTest do
     test "planned_at follows the start while it is a plan, and stays once it is logged", %{
       company: company
     } do
-      i = plan(company, %{"location" => "  ANDI office  "})
+      i = plan(company, %{"location" => "  ACME office  "})
       assert i.status == "planned"
       assert i.planned_at == @tomorrow
-      assert i.location == "ANDI office"
+      assert i.location == "ACME office"
 
       moved = DateTime.add(@tomorrow, 3600)
       {:ok, i} = Interactions.update_interaction(i, %{"occurred_at" => moved})

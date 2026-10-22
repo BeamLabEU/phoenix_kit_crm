@@ -70,7 +70,7 @@ defmodule PhoenixKitCRM.Web.PlannedInteractionsLiveTest do
       "subject" => "Showroom visit",
       "occurred_at" => "2031-03-04T10:00",
       "ended_at" => "2031-03-04T11:30",
-      "location" => "ANDI showroom"
+      "location" => "ACME showroom"
     })
 
     html = save(view)
@@ -78,14 +78,14 @@ defmodule PhoenixKitCRM.Web.PlannedInteractionsLiveTest do
     assert [i] = Interactions.list_for_company(company.uuid)
     assert i.status == "planned"
     assert i.interaction_type == "meeting"
-    assert i.location == "ANDI showroom"
+    assert i.location == "ACME showroom"
     assert i.occurred_at == ~U[2031-03-04 08:00:00Z]
     assert i.planned_at == i.occurred_at
     assert [%{raw_name: "Maria Tamm"}] = i.parties
 
     assert html =~ ~s(id="crm-planned-#{i.uuid}")
     assert html =~ "Showroom visit"
-    assert html =~ "ANDI showroom"
+    assert html =~ "ACME showroom"
     assert html =~ "Maria Tamm"
     refute html =~ ~s(id="crm-interaction-#{i.uuid}")
     refute html =~ "needs an outcome"

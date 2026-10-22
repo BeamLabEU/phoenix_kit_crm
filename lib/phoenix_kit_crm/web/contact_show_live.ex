@@ -1,7 +1,7 @@
 defmodule PhoenixKitCRM.Web.ContactShowLive do
   @moduledoc """
   Show page for a CRM contact. Tabs: Overview, Interactions, Events always;
-  Orders when the host app's `Andi.CRMBridge` is available; Files + Images
+  Orders when the host app's `CRMBridge` is available; Files + Images
   when core Storage is enabled; Comments when the comments module is
   enabled. The header shows a circular avatar (initials fallback).
   """
@@ -13,13 +13,13 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
 
   require Logger
 
-  # Guarded soft-dependency on Andi (the host app) for the Orders tab. CRM has
-  # no compile-time dependency on Andi — `Andi.CRMBridge` is absent from this
+  # Guarded soft-dependency on the host app's order bridge for the Orders tab.
+  # CRM has no compile-time dependency on the host — that module is absent from this
   # package's own mix.exs and its test suite — so a plain qualified call would
   # warn under `--warnings-as-errors` there. Same idiom as
   # `PhoenixKitCRM.StaffLink`'s guard on the optional `phoenix_kit_staff` dep
   # (`staff_link.ex:1-5`) and core's own guard on this same optional CRM
-  # module (`phoenix_kit_web/live/users/user_details.ex:16,19`); `andi_available?/0`
+  # module (`phoenix_kit_web/live/users/user_details.ex:16,19`); `orders_bridge_available?/0`
   # below gates every actual call at runtime.
   @compile {:no_warn_undefined, Andi.CRMBridge}
 
@@ -67,14 +67,18 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
       contact ->
         storage_enabled = storage_enabled?()
         comments_enabled = comments_available?()
-        andi_available = andi_available?()
+        orders_bridge_available = orders_bridge_available?()
 
         tab =
-          if params["tab"] in valid_tabs(storage_enabled, comments_enabled, andi_available),
-            do: params["tab"],
-            else: "overview"
+          if params["tab"] in valid_tabs(
+               storage_enabled,
+               comments_enabled,
+               orders_bridge_available
+             ),
+             do: params["tab"],
+             else: "overview"
 
-        contact_orders = load_contact_orders(andi_available, tab, contact)
+        contact_orders = load_contact_orders(orders_bridge_available, tab, contact)
 
         {:noreply,
          socket
@@ -83,7 +87,7 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
          |> assign(:tab, tab)
          |> assign(:storage_enabled, storage_enabled)
          |> assign(:comments_enabled, comments_enabled)
-         |> assign(:andi_available, andi_available)
+         |> assign(:orders_bridge_available, orders_bridge_available)
          |> assign(:contact_orders, contact_orders)
          |> assign(:avatar_url, Attachments.avatar_url(contact))
          |> assign(:membership, Contacts.primary_membership(contact))
@@ -262,19 +266,19 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   end
 
   # Tab definitions drive both the nav and `valid_tabs/3` (deep-link clamp).
-  # Orders appears only when the host app's `Andi.CRMBridge` is available;
+  # Orders appears only when the host app's order bridge is available;
   # Files + Images only when core Storage is enabled; Comments only when the
   # comments module is enabled.
   # nav_tabs maps rather than tuples: positional tuples cannot grow a
   # :badge or link key without breaking every consumer at once. Kept
   # uuid-free so valid_tabs/3 shares the same list; nav_tab_defs/4 adds the
   # patch URLs for the strip.
-  defp tab_defs(storage_enabled?, comments_enabled?, andi_available?) do
+  defp tab_defs(storage_enabled?, comments_enabled?, orders_bridge_available?) do
     [
       %{id: "overview", label: gettext("Overview"), icon: "hero-identification"},
       %{id: "interactions", label: gettext("Interactions"), icon: "hero-chat-bubble-left-right"}
     ]
-    |> maybe_concat(andi_available?, [
+    |> maybe_concat(orders_bridge_available?, [
       %{id: "orders", label: gettext("Orders"), icon: "hero-clipboard-document-list"}
     ])
     |> maybe_concat(storage_enabled?, [
@@ -287,16 +291,16 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
     ])
   end
 
-  defp nav_tab_defs(uuid, storage_enabled?, comments_enabled?, andi_available?) do
-    tab_defs(storage_enabled?, comments_enabled?, andi_available?)
+  defp nav_tab_defs(uuid, storage_enabled?, comments_enabled?, orders_bridge_available?) do
+    tab_defs(storage_enabled?, comments_enabled?, orders_bridge_available?)
     |> Enum.map(&Map.put(&1, :patch, tab_path(uuid, &1.id)))
   end
 
   defp maybe_concat(list, true, extra), do: list ++ extra
   defp maybe_concat(list, false, _extra), do: list
 
-  defp valid_tabs(storage_enabled?, comments_enabled?, andi_available?),
-    do: Enum.map(tab_defs(storage_enabled?, comments_enabled?, andi_available?), & &1.id)
+  defp valid_tabs(storage_enabled?, comments_enabled?, orders_bridge_available?),
+    do: Enum.map(tab_defs(storage_enabled?, comments_enabled?, orders_bridge_available?), & &1.id)
 
   defp tab_path(uuid, "overview"), do: Paths.contact(uuid)
   defp tab_path(uuid, tab), do: Paths.contact(uuid) <> "?tab=#{tab}"
@@ -313,11 +317,11 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
     _ -> false
   end
 
-  # Whether the host app's order bridge is present. `Andi.CRMBridge` is not a
-  # dependency of this package (Andi depends on CRM, never the reverse), so
+  # Whether the host app's order bridge is present. The bridge module is not a
+  # dependency of this package (the host depends on CRM, never the reverse), so
   # this is `false` — safely, not an error — whenever this module runs outside
-  # the Andi app (this package's own test suite, `mix docs`, etc.).
-  defp andi_available? do
+  # the host app (this package's own test suite, `mix docs`, etc.).
+  defp orders_bridge_available? do
     Code.ensure_loaded?(Andi.CRMBridge) and
       function_exported?(Andi.CRMBridge, :orders_for_contact, 1)
   rescue
@@ -340,7 +344,7 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
       []
   end
 
-  defp load_contact_orders(_andi_available?, _tab, _contact), do: []
+  defp load_contact_orders(_orders_bridge_available?, _tab, _contact), do: []
 
   @impl true
   def render(assigns) do
@@ -373,7 +377,7 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
       <.nav_tabs
         variant={:border}
         active_tab={@tab}
-        tabs={nav_tab_defs(@contact.uuid, @storage_enabled, @comments_enabled, @andi_available)}
+        tabs={nav_tab_defs(@contact.uuid, @storage_enabled, @comments_enabled, @orders_bridge_available)}
       />
 
       <div :if={@tab == "overview"} class="card bg-base-100 shadow-sm">

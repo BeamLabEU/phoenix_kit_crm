@@ -14,7 +14,7 @@ defmodule PhoenixKitCRM.InteractionLinksContextTest do
     {:ok, _} = PhoenixKitCRM.enable_system()
     on_exit(fn -> PhoenixKitCRM.disable_system() end)
 
-    {:ok, company} = Companies.create_company(%{"name" => "ANDI"})
+    {:ok, company} = Companies.create_company(%{"name" => "ACME"})
     here = Ecto.UUID.generate()
     elsewhere = Ecto.UUID.generate()
 
@@ -31,9 +31,9 @@ defmodule PhoenixKitCRM.InteractionLinksContextTest do
       i
     end
 
-    make.("ANDI kickoff", here)
-    make.("ANDI website call", elsewhere)
-    make.("ANDI stray note", nil)
+    make.("ACME kickoff", here)
+    make.("ACME website call", elsewhere)
+    make.("ACME stray note", nil)
 
     {:ok, scope: fake_scope(), here: here}
   end
@@ -41,21 +41,21 @@ defmodule PhoenixKitCRM.InteractionLinksContextTest do
   defp titles(results), do: results |> Enum.map(& &1.title) |> Enum.sort()
 
   test "the context keeps the search inside the project", %{scope: scope, here: here} do
-    assert titles(InteractionLinks.search_resources("ANDI", scope: scope)) ==
-             ["ANDI kickoff", "ANDI stray note", "ANDI website call"]
+    assert titles(InteractionLinks.search_resources("ACME", scope: scope)) ==
+             ["ACME kickoff", "ACME stray note", "ACME website call"]
 
     assert titles(
-             InteractionLinks.search_resources("ANDI",
+             InteractionLinks.search_resources("ACME",
                scope: scope,
                context: %{"project" => here}
              )
            ) ==
-             ["ANDI kickoff"]
+             ["ACME kickoff"]
 
     # a context the viewer may not search from still needs CRM access
     none = fake_scope(permissions: [])
 
-    assert InteractionLinks.search_resources("ANDI", scope: none, context: %{"project" => here}) ==
+    assert InteractionLinks.search_resources("ACME", scope: none, context: %{"project" => here}) ==
              []
   end
 end

@@ -435,7 +435,7 @@ defmodule PhoenixKitCRM.MediaReorganizerTest do
       refute {:contact, without_folder.uuid} in per_record_calls
     end
 
-    # R8: the reorganizer never calls the hook without a subject (Andi's
+    # R8: the reorganizer never calls the hook without a subject (the host's
     # `Containers.ensure`/`Settings.update_setting` would otherwise write on
     # every dry-run plan even with zero candidates for a kind). A single
     # contact candidate exists here so the plan does real work — companies

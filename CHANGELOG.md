@@ -695,7 +695,7 @@ The task is idempotent and a no-op on databases that never granted the role.
   per-role users table linking to the matching contact, and a real link from a
   contact's Overview to its login account.
 - **Orders tab on the contact profile**, populated by the host application's
-  optional `Andi.CRMBridge` and hidden entirely when that bridge is absent
+  optional `CRMBridge` module and hidden entirely when that bridge is absent
   (PR #17).
 - **CRM landing page** — company / contact / interaction / list counts, each
   linking to the page that manages it, plus a clearer "Portal access" section

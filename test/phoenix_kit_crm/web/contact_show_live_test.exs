@@ -144,12 +144,12 @@ defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
     assert has_element?(view, "#test-page-title", "Edit")
   end
 
-  # `Andi.CRMBridge` is not a dependency of this package (Andi depends on CRM,
-  # never the reverse) — this suite's own compile/test run never has it
+  # The host's order bridge (`CRMBridge`) is not a dependency of this package
+  # (the host depends on CRM, never the reverse) — this suite's own compile/test run never has it
   # loaded, so these two only exercise the "unavailable" branch of the guard.
   # The "available" branch (a real order rendering with a working row-link
-  # into `/admin/andi/orders/:uuid/edit`) was verified separately by invoking
-  # `ContactShowLive.render/1` directly inside the running Andi app against a
+  # into the host's order edit page) was verified separately by invoking
+  # `ContactShowLive.render/1` directly inside the running host app against a
   # real order — see the crm-fix-spec.md Batch G execution notes.
   test "the show strip is core nav_tabs (border) with prefixed patch hrefs", %{conn: conn} do
     {:ok, contact} = Contacts.create_contact(%{"name" => "Grace Hopper"})
