@@ -25,7 +25,7 @@ before RBAC is even considered:
 Add core's RBAC `PhoenixKit.Users.Role` (Owner/Admin/User, plus custom values
 like `Client` and `Partner`) and the same word covers five unrelated concepts.
 
-It is not academic. The customer portal on the Andi host gates on the RBAC role
+It is not academic. The customer portal on a consuming host app gates on the RBAC role
 `Client`, which has no relationship to the CRM `customer` party role — different
 table, neither writes the other. The review measured 11 `Client` role
 assignments against 1 `customer` party role, describing unrelated sets of

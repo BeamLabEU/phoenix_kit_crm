@@ -8,8 +8,10 @@ defmodule PhoenixKitCRM.CompanyApiTest do
   alias PhoenixKitCRM.Schemas.CompanyMembership
 
   test "the company resource answers with the client's people; nothing without a client" do
-    {:ok, company} = Companies.create_company(%{"name" => "ANDI"})
-    {:ok, contact} = Contacts.create_contact(%{"name" => "Maria Kottel", "email" => "m@andi.ee"})
+    {:ok, company} = Companies.create_company(%{"name" => "ACME"})
+
+    {:ok, contact} =
+      Contacts.create_contact(%{"name" => "Maria Kottel", "email" => "m@example.com"})
 
     {:ok, _} =
       %CompanyMembership{}
@@ -21,8 +23,8 @@ defmodule PhoenixKitCRM.CompanyApiTest do
       |> RepoHelper.repo().insert()
 
     json = CompanyApi.to_json(Companies.get_company(company.uuid))
-    assert json.name == "ANDI"
-    assert [%{name: "Maria Kottel", email: "m@andi.ee", role: "owner"}] = json.contacts
+    assert json.name == "ACME"
+    assert [%{name: "Maria Kottel", email: "m@example.com", role: "owner"}] = json.contacts
 
     # without the projects module there is no client link to read
     assert {:ok, %{companies: [], count: 0}} =
@@ -37,7 +39,7 @@ defmodule PhoenixKitCRM.CompanyApiTest do
   end
 
   test "tasks on an interaction are checked before anything is written" do
-    {:ok, company} = Companies.create_company(%{"name" => "ANDI"})
+    {:ok, company} = Companies.create_company(%{"name" => "ACME"})
     project_uuid = Ecto.UUID.generate()
 
     {:ok, i} =
@@ -64,7 +66,7 @@ defmodule PhoenixKitCRM.CompanyApiTest do
   end
 
   test "the interactions list honours since and limit, newest first" do
-    {:ok, company} = Companies.create_company(%{"name" => "ANDI"})
+    {:ok, company} = Companies.create_company(%{"name" => "ACME"})
     project_uuid = Ecto.UUID.generate()
 
     for {subject, at} <- [

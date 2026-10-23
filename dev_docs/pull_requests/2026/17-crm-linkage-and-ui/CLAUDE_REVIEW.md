@@ -14,7 +14,7 @@ Four largely independent changes landed together:
 2. **Contact ⇄ login-account linkage**: a `crm_contact` column on the per-role
    users table (`RoleView`), a real link to the login account on the contact
    profile's Overview, and an **Orders** tab fed by the host application's
-   optional `Andi.CRMBridge`.
+   optional `CRMBridge`.
 3. **A real CRM landing page** (`CRMLive`) — four count cards, an empty-state
    card, a re-labelled "Portal access" roles section — plus a `Compare` tab
    registration.
@@ -27,7 +27,7 @@ Four largely independent changes landed together:
 The linkage work and the UI sweep are sound, and most of the individual
 mechanics check out (the `<.checkbox>` component does declare `attr :rest,
 :global`, so the `phx-click` / `phx-value-uuid` forwarding the conversions rely
-on genuinely works; the `Andi.CRMBridge` guard is the same shape as
+on genuinely works; the `CRMBridge` guard is the same shape as
 `StaffLink`'s and core's own guard on this module; `handle_params/3` is used
 for every DB read, not `mount/3`). The findings below are what the diff got
 wrong.
@@ -130,7 +130,7 @@ isn't reintroduced.
 
 `lib/phoenix_kit_crm/web/contact_show_live.ex:62` (pre-fix)
 
-`Andi.CRMBridge.orders_for_contact(contact)` ran on every `handle_params/3` —
+`CRMBridge.orders_for_contact(contact)` ran on every `handle_params/3` —
 i.e. on Overview, Files, Images, Comments and Events too, none of which display
 orders. And unlike every other soft dependency in this file
 (`storage_enabled?/0`, `comments_available?/0`, `StaffLink`), the call was not
@@ -161,11 +161,11 @@ Test added in `lists_test.exs`.
 
 `lib/phoenix_kit_crm/web/crm_live.ex:128` (pre-fix)
 
-The empty-state card printed `mix andi.crm_backfill_clients` to every consumer
+The empty-state card printed the host application's backfill mix task to every consumer
 of this package. The moduledoc immediately above it argues — correctly — that
 CRM must not reach into the host's order tables, and that this is why the
 backfill lives in the host. Printing the host's command name is the same
-boundary violation wearing a different hat: in any consumer that isn't Andi,
+boundary violation wearing a different hat: in any consumer that isn't the originating host app,
 the page names a task that does not exist.
 
 **Fixed**: the card now offers this package's own next steps (a **New contact**
@@ -189,18 +189,18 @@ merged tree (verified by stashing this review's changes) gives:
 
 ```
 lib/phoenix_kit_crm/web/contact_show_live.ex:63:49:unknown_function
-Function Andi.CRMBridge.orders_for_contact/1 does not exist.
+Function CRMBridge.orders_for_contact/1 does not exist.
 ```
 
 AGENTS.md names `mix precommit` / `mix quality.ci` as the release bar, so both
 should have blocked the merge.
 
 **Fixed**: the credo issue is gone as a side effect of finding 5's move to
-context functions. The dialyzer warning is correct-but-intended — Andi depends
+context functions. The dialyzer warning is correct-but-intended — the host depends
 on CRM, never the reverse, so the module genuinely is not in this package's
 PLT — and is now silenced by a scoped `.dialyzer_ignore.exs` entry documented
 alongside the two existing ones, the Dialyzer counterpart to the
-`@compile {:no_warn_undefined, Andi.CRMBridge}` the PR already added for the
+`@compile {:no_warn_undefined, CRMBridge}` the PR already added for the
 compiler. The gate is green on the current tree.
 
 ### 8. NITPICK — `Compare` renders after `Organizations` despite being declared before it
@@ -235,13 +235,13 @@ than loudly. **Fixed** by asserting `"crm_contact" in ids` in
   pre-existing state of the catalogues, not something this PR introduced; the
   two strings this review adds are extracted and merged but left untranslated
   like the rest.
-- **The `Andi.CRMBridge` order struct contract is unvalidated.** The Orders tab
+- **The `CRMBridge` order struct contract is unvalidated.** The Orders tab
   reads `order.path`, `order.number` and `order.inserted_at` off whatever the
   bridge returns, and `function_exported?/3` only checks the arity. Normalising
   each row defensively would add a schema this package would then have to keep
   in step with the host's — the rescue added in finding 4 already contains the
   blast radius to the tab, which is the proportionate guard.
-- **No LiveView test covers the Orders tab's "available" branch.** `Andi` is
+- **No LiveView test covers the Orders tab's "available" branch.** The host app is
   not (and must not become) a dependency of this package, so the suite can only
   exercise the unavailable branch — which the PR's own two new tests do. This
   limitation is inherited, not introduced.

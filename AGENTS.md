@@ -12,7 +12,10 @@ report, an optional CRM↔user mirror, and per-user column configuration. Each
 contact and company carries media (Files/Images, when core Storage is on),
 comments (when `phoenix_kit_comments` is enabled), and an Events activity feed.
 It implements the `PhoenixKit.Module` behaviour, so a host application
-discovers it by adding the package to `deps` — no other config.
+discovers it by adding the package to `deps` — no other config. The one optional key:
+`config :phoenix_kit_crm, orders_bridge: MyApp.CRMBridge` turns on the contact
+Orders tab (a module exporting `orders_for_contact/1`, returning maps with
+`:number`, `:path`, `:inserted_at`); unset, the tab is hidden.
 
 - **Depends on:** `phoenix_kit` `>= 2.38.0 and < 3.0.0` (Hex — the release that
   carries `PhoenixKitWeb.Actor`, `Activity.log/3`, `ResourceFolders`,

@@ -66,7 +66,7 @@ defmodule PhoenixKitCRM.ProjectColumnsTest do
 
   test "a project's client is the linked company, by name, with its page" do
     modules_table!()
-    {:ok, andi} = Companies.create_company(%{"name" => "ANDI Mööbel OÜ"})
+    {:ok, acme} = Companies.create_company(%{"name" => "Acme Furniture OÜ"})
     {:ok, gone} = Companies.create_company(%{"name" => "Gone"})
     {:ok, _} = Companies.trash_company(gone)
 
@@ -78,18 +78,18 @@ defmodule PhoenixKitCRM.ProjectColumnsTest do
     other_ext = Ecto.UUID.generate()
     not_asked = Ecto.UUID.generate()
 
-    link!(with_client, %{"company_uuid" => andi.uuid})
-    link!(same_client, %{"company_uuid" => andi.uuid})
+    link!(with_client, %{"company_uuid" => acme.uuid})
+    link!(same_client, %{"company_uuid" => acme.uuid})
     link!(trashed_client, %{"company_uuid" => gone.uuid})
     link!(no_company, %{})
     link!(garbage, %{"company_uuid" => "not a uuid"})
-    link!(other_ext, %{"company_uuid" => andi.uuid}, "something_else")
-    link!(not_asked, %{"company_uuid" => andi.uuid})
+    link!(other_ext, %{"company_uuid" => acme.uuid}, "something_else")
+    link!(not_asked, %{"company_uuid" => acme.uuid})
 
     asked = [with_client, same_client, trashed_client, no_company, garbage, other_ext]
     assert [%{key: "client", values: values}] = ProjectColumns.for_projects(asked)
 
-    client = %{text: "ANDI Mööbel OÜ", url: Paths.company(andi.uuid)}
+    client = %{text: "Acme Furniture OÜ", url: Paths.company(acme.uuid)}
     assert values == %{with_client => client, same_client => client}
   end
 
