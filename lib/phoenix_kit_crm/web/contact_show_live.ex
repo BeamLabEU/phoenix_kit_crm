@@ -335,8 +335,24 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   # the host's code, outside this package's tests and its release cycle. An
   # exception raised in there must cost the Orders tab its rows, not take down
   # a contact profile whose other five tabs never touch it.
+  #
+  # The rows are checked as well: the template reads `:number`, `:path` and
+  # `:inserted_at` straight off each one, so a malformed row would crash the
+  # render — which no rescue here can reach — instead of costing the tab one row.
   defp load_contact_orders(true, "orders", contact) do
-    orders_bridge().orders_for_contact(contact)
+    case orders_bridge().orders_for_contact(contact) do
+      rows when is_list(rows) ->
+        {valid, invalid} = Enum.split_with(rows, &valid_order?/1)
+        if invalid != [], do: warn_invalid_orders(length(invalid))
+        valid
+
+      other ->
+        Logger.warning(
+          "[CRM] #{inspect(orders_bridge())}.orders_for_contact returned #{inspect(other, limit: 3)}, not a list"
+        )
+
+        []
+    end
   rescue
     e ->
       Logger.warning(
@@ -347,6 +363,20 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
   end
 
   defp load_contact_orders(_orders_bridge_available?, _tab, _contact), do: []
+
+  defp valid_order?(%{number: number, path: path, inserted_at: %date_type{}})
+       when (is_integer(number) or is_binary(number)) and is_binary(path) and
+              date_type in [DateTime, NaiveDateTime, Date],
+       do: true
+
+  defp valid_order?(_row), do: false
+
+  defp warn_invalid_orders(count) do
+    Logger.warning(
+      "[CRM] #{inspect(orders_bridge())}.orders_for_contact returned #{count} row(s) " <>
+        "without a :number, a binary :path and a date :inserted_at; they were skipped"
+    )
+  end
 
   @impl true
   def render(assigns) do

@@ -15,6 +15,21 @@ defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
     def orders_for_contact(_contact), do: raise("boom")
   end
 
+  defmodule MalformedBridge do
+    def orders_for_contact(_contact) do
+      [
+        %{number: 1, path: "/host/orders/ok", inserted_at: ~N[2026-02-03 04:05:06]},
+        %{number: 2, path: nil, inserted_at: ~U[2026-01-02 03:04:05Z]},
+        %{number: 3, path: "/host/orders/3"},
+        "not a row"
+      ]
+    end
+  end
+
+  defmodule NotAListBridge do
+    def orders_for_contact(_contact), do: %{number: 1}
+  end
+
   defp put_bridge(mod) do
     previous = Application.get_env(:phoenix_kit_crm, :orders_bridge)
     Application.put_env(:phoenix_kit_crm, :orders_bridge, mod)
@@ -218,6 +233,27 @@ defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
       {:ok, view, html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=orders")
 
       assert has_element?(view, "a[href$='?tab=orders']")
+      assert html =~ "No orders yet"
+    end
+
+    test "malformed rows are skipped, the good ones still render", %{conn: conn} do
+      put_bridge(MalformedBridge)
+      {:ok, contact} = Contacts.create_contact(%{"name" => "Grace Hopper"})
+
+      {:ok, _view, html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=orders")
+
+      assert html =~ "/host/orders/ok"
+      assert html =~ "2026-02-03"
+      refute html =~ "/host/orders/3"
+      refute html =~ "No orders yet"
+    end
+
+    test "a bridge that does not return a list leaves the tab empty", %{conn: conn} do
+      put_bridge(NotAListBridge)
+      {:ok, contact} = Contacts.create_contact(%{"name" => "Grace Hopper"})
+
+      {:ok, _view, html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=orders")
+
       assert html =~ "No orders yet"
     end
 
