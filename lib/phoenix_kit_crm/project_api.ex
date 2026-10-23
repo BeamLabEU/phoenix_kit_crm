@@ -52,6 +52,9 @@ defmodule PhoenixKitCRM.ProjectApi do
 
   @doc false
   def list(%{project: project}, params) do
+    # A polling cursor must precede the read: writes racing the query must
+    # remain eligible for the next poll's inclusive updated_since filter.
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
     limit = list_limit(params["limit"])
     since = parse_since(params["since"])
 
@@ -61,25 +64,22 @@ defmodule PhoenixKitCRM.ProjectApi do
       reach = ProjectsLink.subtree_uuids(project.uuid)
 
       rows =
-        project.uuid
-        |> Interactions.list_for_project(limit: 200, client: client)
-        |> Enum.filter(&listed?(&1, statuses, since, updated_since))
-        |> order_for(statuses)
-        |> Enum.take(limit)
+        Interactions.list_for_project(project.uuid,
+          limit: limit,
+          client: client,
+          statuses: statuses,
+          since: since,
+          updated_since: updated_since,
+          order: if(statuses == ["planned"], do: :asc, else: :desc)
+        )
 
       {:ok,
        %{
          interactions: Enum.map(rows, &to_json(&1, reach)),
          count: length(rows),
-         now: DateTime.utc_now() |> DateTime.truncate(:second)
+         now: now
        }}
     end
-  end
-
-  defp listed?(i, statuses, since, updated_since) do
-    i.status in statuses and
-      (is_nil(since) or DateTime.compare(i.occurred_at, since) == :gt) and
-      (is_nil(updated_since) or DateTime.compare(i.updated_at, updated_since) != :lt)
   end
 
   # Whose interactions a list answers: the project's own (unsaid, or
@@ -97,7 +97,7 @@ defmodule PhoenixKitCRM.ProjectApi do
   defp status_filter("all"), do: {:ok, Interaction.statuses()}
 
   defp status_filter(v) when is_binary(v) do
-    wanted = v |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+    wanted = v |> String.split(",", trim: true) |> Enum.map(&String.trim/1) |> Enum.uniq()
 
     if wanted != [] and Enum.all?(wanted, &(&1 in Interaction.statuses())),
       do: {:ok, wanted},
@@ -116,10 +116,6 @@ defmodule PhoenixKitCRM.ProjectApi do
   end
 
   defp updated_since(_), do: invalid("updated_since", "must be an ISO 8601 datetime")
-
-  # Plans alone read soonest first; anything else newest first, as loaded.
-  defp order_for(rows, ["planned"]), do: Enum.sort_by(rows, & &1.occurred_at, {:asc, DateTime})
-  defp order_for(rows, _statuses), do: rows
 
   defp list_limit(v) when is_binary(v) do
     case Integer.parse(v) do

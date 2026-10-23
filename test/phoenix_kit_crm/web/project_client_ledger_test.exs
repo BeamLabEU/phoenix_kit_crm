@@ -2,7 +2,7 @@ defmodule PhoenixKitCRM.Web.ProjectClientLedgerTest do
   use PhoenixKitCRM.LiveCase
 
   alias PhoenixKit.Users.Auth
-  alias PhoenixKitCRM.{Companies, Interactions}
+  alias PhoenixKitCRM.{Companies, Interactions, ProjectApi}
   alias PhoenixKitCRM.Web.ProjectClientLive
 
   @project "0199a0e0-0000-7000-8000-0000000000fd"
@@ -207,6 +207,24 @@ defmodule PhoenixKitCRM.Web.ProjectClientLedgerTest do
     context.view |> with_target(composer) |> render_click("save_interaction", %{})
     assert Interactions.get_interaction(context.row.uuid).subject == "Ledger meeting"
     assert entries() == [entry]
+  end
+
+  test "the API refuses re-planning a row with logged time or an unreadable ledger", context do
+    entry = seed_time(context, context.staff, false)
+    ctx = %{project: %{uuid: @project}, user_uuid: context.user.uuid}
+
+    assert {:error, {422, _, _, %{"status" => _}}} =
+             ProjectApi.update(ctx, context.row.uuid, %{"status" => "planned"})
+
+    assert Interactions.get_interaction(context.row.uuid).status == "happened"
+    assert entries() == [entry]
+
+    Agent.update(@ledger_state, &%{&1 | entries: %{}, fail_read: true})
+
+    assert {:error, {422, _, _, %{"status" => _}}} =
+             ProjectApi.update(ctx, context.row.uuid, %{"status" => "planned"})
+
+    assert Interactions.get_interaction(context.row.uuid).status == "happened"
   end
 
   test "a plan made elsewhere shows under Planned; a calendar event is not a meeting to log",

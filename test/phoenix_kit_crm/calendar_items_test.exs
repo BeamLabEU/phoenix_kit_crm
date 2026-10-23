@@ -46,6 +46,34 @@ defmodule PhoenixKitCRM.CalendarItemsTest do
   end
 
   describe "for_project/3" do
+    test "non-overlapping rows do not consume the cap or hide truncation", %{company: company} do
+      project = Ecto.UUID.generate()
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      rows =
+        for {start, count} <- [{~U[2026-09-30 10:00:00Z], 201}, {@from, 201}],
+            offset <- 1..count do
+          %{
+            uuid: UUIDv7.generate(),
+            company_uuid: company.uuid,
+            project_uuid: project,
+            occurred_at: DateTime.add(start, offset),
+            interaction_type: "meeting",
+            duration_minutes: 30,
+            inserted_at: now,
+            updated_at: now
+          }
+        end
+
+      Repo.insert_all(PhoenixKitCRM.Schemas.Interaction, rows)
+
+      assert %{items: items, truncated: true} =
+               CalendarItems.for_project(project, @from, @until)
+
+      assert Enum.map(items, & &1.id) ==
+               rows |> Enum.drop(201) |> Enum.take(200) |> Enum.map(& &1.uuid)
+    end
+
     test "the project's interactions in the window, soonest first, as plain maps", %{
       company: company
     } do

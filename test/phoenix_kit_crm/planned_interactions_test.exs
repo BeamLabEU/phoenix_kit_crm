@@ -55,6 +55,24 @@ defmodule PhoenixKitCRM.PlannedInteractionsTest do
   end
 
   describe "the row" do
+    test "an explicit blank status returns a changeset on create and update", %{company: company} do
+      i = plan(company)
+
+      for status <- [nil, "", "  "] do
+        assert {:error, cs} =
+                 Interactions.create_interaction(%{
+                   "company_uuid" => company.uuid,
+                   "status" => status
+                 })
+
+        assert cs.errors[:status]
+        assert {:error, cs} = Interactions.update_interaction(i, %{"status" => status})
+        assert cs.errors[:status]
+      end
+
+      assert Interactions.get_interaction(i.uuid).status == "planned"
+    end
+
     test "a row is happened unless said otherwise; a bad status is refused", %{company: company} do
       {:ok, i} = Interactions.create_interaction(%{"company_uuid" => company.uuid})
       assert i.status == "happened"
@@ -149,6 +167,24 @@ defmodule PhoenixKitCRM.PlannedInteractionsTest do
   end
 
   describe "the trail" do
+    test "reinstating a cancelled plan records a new plan for its existing parties", %{
+      company: company
+    } do
+      {contact, _user} = linked_contact("Returning attendee")
+      i = plan(company, %{}, [%{raw_name: contact.name, contact_uuid: contact.uuid}])
+      {:ok, i} = Interactions.update_interaction(i, %{"status" => "cancelled"})
+      {:ok, _} = Interactions.update_interaction(i, %{"status" => "planned"})
+
+      assert_activity_logged("crm.interaction_planned",
+        resource_uuid: company.uuid,
+        metadata_has: %{
+          "interaction_uuid" => i.uuid,
+          "status_from" => "cancelled",
+          "status" => "planned"
+        }
+      )
+    end
+
     test "planning, moving, cancelling and logging each leave their own entry", %{
       company: company
     } do
@@ -258,6 +294,71 @@ defmodule PhoenixKitCRM.PlannedInteractionsTest do
 
       planned = plan(company, %{"project_uuid" => project_uuid, "subject" => "Review"})
       {:ok, ctx: ctx, done: done, planned: planned}
+    end
+
+    test "filters and plan ordering apply before the result cap", %{
+      company: company,
+      ctx: ctx,
+      done: done,
+      planned: planned
+    } do
+      rows =
+        for offset <- 1..205 do
+          %{
+            uuid: UUIDv7.generate(),
+            company_uuid: company.uuid,
+            project_uuid: ctx.project.uuid,
+            interaction_type: "meeting",
+            status: "planned",
+            occurred_at: DateTime.add(@tomorrow, offset * 60),
+            inserted_at: @yesterday,
+            updated_at: @yesterday
+          }
+        end
+
+      Repo.insert_all(Interaction, rows)
+
+      assert {:ok, %{interactions: [record]}} = ProjectApi.list(ctx, %{})
+      assert record.uuid == done.uuid
+
+      assert {:ok, %{interactions: [next]}} =
+               ProjectApi.list(ctx, %{"status" => "planned", "limit" => 1})
+
+      assert next.uuid == planned.uuid
+
+      assert {:ok, %{interactions: [changed]}} =
+               ProjectApi.list(ctx, %{
+                 "status" => "all",
+                 "updated_since" => DateTime.to_iso8601(done.updated_at),
+                 "since" => DateTime.to_iso8601(DateTime.add(@yesterday, -1)),
+                 "limit" => 1
+               })
+
+      assert changed.uuid == planned.uuid
+    end
+
+    test "the polling cursor precedes a slow interaction read", %{ctx: ctx} do
+      handler = {__MODULE__, make_ref()}
+      event = Repo.config()[:telemetry_prefix] ++ [:query]
+      parent = self()
+
+      :telemetry.attach(
+        handler,
+        event,
+        fn _, _, metadata, _ ->
+          if self() == parent and metadata[:source] == "phoenix_kit_crm_interactions" do
+            send(parent, {:interaction_read, DateTime.utc_now() |> DateTime.truncate(:second)})
+            Process.sleep(1100)
+          end
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      assert {:ok, %{now: cursor}} = ProjectApi.list(ctx, %{})
+      assert_received {:interaction_read, read_at}
+      assert DateTime.compare(cursor, read_at) != :gt
     end
 
     test "the list is the record unless asked; status=planned is the plan", %{

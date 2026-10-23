@@ -360,6 +360,13 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
       )
 
       []
+  catch
+    kind, reason ->
+      Logger.warning(
+        "[CRM] #{inspect(orders_bridge())}.orders_for_contact failed: #{inspect({kind, reason})}"
+      )
+
+      []
   end
 
   defp load_contact_orders(_orders_bridge_available?, _tab, _contact), do: []

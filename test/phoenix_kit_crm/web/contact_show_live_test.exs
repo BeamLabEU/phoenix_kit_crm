@@ -15,6 +15,10 @@ defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
     def orders_for_contact(_contact), do: raise("boom")
   end
 
+  defmodule ExitingBridge do
+    def orders_for_contact(_contact), do: exit({:timeout, {GenServer, :call, [:orders]}})
+  end
+
   defmodule MalformedBridge do
     def orders_for_contact(_contact) do
       [
@@ -228,6 +232,16 @@ defmodule PhoenixKitCRM.Web.ContactShowLiveTest do
 
     test "a bridge that raises leaves the tab empty and the page rendered", %{conn: conn} do
       put_bridge(RaisingBridge)
+      {:ok, contact} = Contacts.create_contact(%{"name" => "Grace Hopper"})
+
+      {:ok, view, html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=orders")
+
+      assert has_element?(view, "a[href$='?tab=orders']")
+      assert html =~ "No orders yet"
+    end
+
+    test "a bridge call that times out leaves the contact page available", %{conn: conn} do
+      put_bridge(ExitingBridge)
       {:ok, contact} = Contacts.create_contact(%{"name" => "Grace Hopper"})
 
       {:ok, view, html} = live(conn, "/en/admin/crm/contacts/#{contact.uuid}?tab=orders")

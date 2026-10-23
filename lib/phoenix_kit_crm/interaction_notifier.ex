@@ -20,7 +20,7 @@ defmodule PhoenixKitCRM.InteractionNotifier do
   import Ecto.Query
 
   alias PhoenixKit.RepoHelper
-  alias PhoenixKitCRM.Schemas.Interaction
+  alias PhoenixKitCRM.Schemas.{Contact, Interaction}
 
   @notifications PhoenixKit.Notifications
 
@@ -38,7 +38,7 @@ defmodule PhoenixKitCRM.InteractionNotifier do
 
     Enum.uniq(
       linked_users("phoenix_kit_staff_people", staff) ++
-        linked_users("phoenix_kit_crm_contacts", contacts)
+        linked_users(Contact, contacts)
     )
   end
 

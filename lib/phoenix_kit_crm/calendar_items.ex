@@ -132,12 +132,17 @@ defmodule PhoenixKitCRM.CalendarItems do
   # Overlap with `[from, until)`: it starts before the window ends, and it
   # ends (or, with no length, starts) at or after the window begins. A row
   # is at most a day long, so one day of slack on the start is enough for
-  # SQL; the exact test is made on the rows.
+  # SQL. The exact overlap must also be checked before capping the rows.
   defp in_window(query, from, until) do
     earliest = DateTime.add(from, -86_400, :second)
 
     query
     |> where([i], i.occurred_at >= ^earliest and i.occurred_at < ^until)
+    |> where(
+      [i],
+      fragment("? + COALESCE(?, 0) * INTERVAL '1 minute'", i.occurred_at, i.duration_minutes) >=
+        ^from
+    )
     |> join(:left, [i], c in Contact, on: c.uuid == i.contact_uuid)
     |> join(:left, [i, c], co in Company, on: co.uuid == i.company_uuid)
     |> where(
@@ -145,19 +150,15 @@ defmodule PhoenixKitCRM.CalendarItems do
       (not is_nil(i.contact_uuid) and c.status != "trashed") or
         (not is_nil(i.company_uuid) and co.status != "trashed")
     )
-    |> order_by([i], asc: i.occurred_at, asc: i.inserted_at)
+    |> order_by([i], asc: i.occurred_at, asc: i.inserted_at, asc: i.uuid)
     |> limit(^(@cap + 1))
-    |> then(&{&1, from})
   end
 
-  defp items({query, from}) do
+  defp items(query) do
     rows =
       query
       |> RepoHelper.repo().all()
       |> RepoHelper.repo().preload([:contact, :company])
-      |> Enum.filter(fn i ->
-        DateTime.compare(Interaction.ended_at(i) || i.occurred_at, from) != :lt
-      end)
 
     %{items: rows |> Enum.take(@cap) |> Enum.map(&item/1), truncated: length(rows) > @cap}
   end

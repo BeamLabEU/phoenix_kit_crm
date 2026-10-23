@@ -92,7 +92,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
     timestamps(type: :utc_datetime)
   end
 
-  @castable ~w(contact_uuid company_uuid interaction_type occurred_at time_zone subject body project_uuid duration_minutes status location owner_user_uuid metadata)a
+  @castable ~w(contact_uuid company_uuid interaction_type occurred_at time_zone subject body project_uuid duration_minutes location owner_user_uuid metadata)a
   @anchor_fields ~w(contact_uuid company_uuid)a
 
   @doc """
@@ -107,6 +107,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
   def changeset(interaction, attrs) do
     interaction
     |> cast(attrs, @castable)
+    |> cast(attrs, [:status], empty_values: [])
     |> maybe_default_occurred_at()
     |> validate_required([:interaction_type, :occurred_at])
     |> validate_anchor()
@@ -135,6 +136,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
   def update_changeset(interaction, attrs) do
     interaction
     |> cast(attrs, @castable -- @anchor_fields)
+    |> cast(attrs, [:status], empty_values: [])
     |> maybe_default_occurred_at()
     |> validate_required([:interaction_type, :occurred_at])
     |> validate_inclusion(:interaction_type, @types,
@@ -176,6 +178,7 @@ defmodule PhoenixKitCRM.Schemas.Interaction do
     changeset =
       changeset
       |> update_change(:location, &blank_to_nil/1)
+      |> validate_required([:status])
       |> validate_length(:location, max: 200)
       |> validate_inclusion(:status, @statuses,
         message: "must be one of: #{Enum.join(@statuses, ", ")}"

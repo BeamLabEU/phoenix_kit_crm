@@ -106,6 +106,10 @@ defmodule PhoenixKitCRM.Interactions do
 
   ## Options
     * `:limit` — cap the rows read (the tab passes one).
+    * `:statuses` — only these statuses, filtered before the limit.
+    * `:since` — only starts after this datetime.
+    * `:updated_since` — only rows changed at or after this datetime.
+    * `:order` — `:asc` for soonest first; defaults to `:desc`.
     * `:client` — the project's client company: the list then also holds
       what OTHER projects logged with that company (`project_condition/2`).
       A meeting is about the client; the project is only where it was
@@ -120,7 +124,9 @@ defmodule PhoenixKitCRM.Interactions do
         Interaction
         |> where(^project_condition(project_uuid, client_uuid(opts[:client])))
         |> visible_anchors()
-        |> order_by([i], desc: i.occurred_at, desc: i.inserted_at)
+        |> filter_project_rows(opts)
+        |> order_by([i], [{^Keyword.get(opts, :order, :desc), i.occurred_at}])
+        |> order_by([i], [{^Keyword.get(opts, :order, :desc), i.inserted_at}, asc: i.uuid])
         |> maybe_limit(opts[:limit])
         |> repo().all()
         |> repo().preload([
@@ -132,6 +138,22 @@ defmodule PhoenixKitCRM.Interactions do
       :error ->
         []
     end
+  end
+
+  defp filter_project_rows(query, opts) do
+    Enum.reduce(opts, query, fn
+      {:statuses, statuses}, query when is_list(statuses) ->
+        where(query, [i], i.status in ^statuses)
+
+      {:since, %DateTime{} = since}, query ->
+        where(query, [i], i.occurred_at > ^since)
+
+      {:updated_since, %DateTime{} = since}, query ->
+        where(query, [i], i.updated_at >= ^since)
+
+      _, query ->
+        query
+    end)
   end
 
   @doc """
@@ -619,6 +641,11 @@ defmodule PhoenixKitCRM.Interactions do
     meta = %{"status_from" => before.status}
 
     case change_kind(before, now) do
+      :planned ->
+        "crm.interaction_planned"
+        |> log_interaction(now, opts ++ [metadata: meta, notification: planned_text(now)])
+        |> InteractionNotifier.fan_out(InteractionNotifier.party_user_uuids(now))
+
       :logged ->
         log_interaction("crm.interaction_logged", now, opts ++ [metadata: meta])
 
@@ -641,6 +668,9 @@ defmodule PhoenixKitCRM.Interactions do
   end
 
   defp change_kind(%{status: "planned"}, %{status: "happened"}), do: :logged
+
+  defp change_kind(%{status: from}, %{status: "planned"}) when from != "planned",
+    do: :planned
 
   defp change_kind(%{status: from}, %{status: "cancelled"}) when from != "cancelled",
     do: :cancelled
