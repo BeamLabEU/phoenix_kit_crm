@@ -4,19 +4,6 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
-
-### Changed
-
-- **The contact Orders tab now reads its bridge from config.** A host that
-  shows the tab must add `config :phoenix_kit_crm, orders_bridge: MyApp.CRMBridge`,
-  a module exporting `orders_for_contact/1` (a list of maps with `:number`,
-  `:path`, `:inserted_at`). Without the key the tab stays hidden.
-  **Upgrading:** a host that shows the Orders tab today must add this config
-  line before taking this version, or the tab disappears. The rescue covers
-  the bridge call only: a bridge that returns something other than such a
-  list breaks the tab's render.
-
 ## 0.16.0 - 2026-10-05
 
 ### Added
@@ -708,7 +695,7 @@ The task is idempotent and a no-op on databases that never granted the role.
   per-role users table linking to the matching contact, and a real link from a
   contact's Overview to its login account.
 - **Orders tab on the contact profile**, populated by the host application's
-  optional `CRMBridge` module and hidden entirely when that bridge is absent
+  optional `Andi.CRMBridge` and hidden entirely when that bridge is absent
   (PR #17).
 - **CRM landing page** — company / contact / interaction / list counts, each
   linking to the page that manages it, plus a clearer "Portal access" section
