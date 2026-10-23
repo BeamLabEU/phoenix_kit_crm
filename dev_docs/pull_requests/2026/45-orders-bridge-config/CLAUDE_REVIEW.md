@@ -21,3 +21,7 @@ Not re-read: the test-data renames (`company_api_test`, `project_columns_test`,
 - **Row link.** `path` comes from host config, never from user input, and goes through `row_link navigate=` — no open-redirect surface.
 - **Tests restore the env** with `on_exit` (and the LiveCase default is non-async, so the global `put_env` cannot leak into a concurrent module).
 - **Wording-only files** (`companies.ex`, `company_show_live.ex`, `mirror_panel.ex`, design doc, #17 review) change comments/docs only.
+
+## Follow-up (2026-10-23, after the Codex recheck)
+
+- **My fix above was incomplete: it caught raises but not exits.** A bridge calling an unavailable service (`GenServer.call` timeout) exits rather than raises, and `rescue` does not see exits, so the contact LiveView still died. Codex found it and `e035a34` added a `catch kind, reason` clause that logs and returns `[]`, with a regression test. See `CODEX_REVIEW.md` in this folder.
