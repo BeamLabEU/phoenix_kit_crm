@@ -4,6 +4,80 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.17.0 - 2026-10-24
+
+**Upgrading:** run `mix phoenix_kit.update` (migrations V09 and V10). A host
+that shows the contact **Orders** tab must add `config :phoenix_kit_crm,
+orders_bridge: MyApp.CRMBridge` before upgrading, or the tab disappears (see
+Changed).
+
+### Added
+
+- **Interactions can be plans** (migration V09: `status`, `planned_at` and
+  `location` on interactions). `status` is `planned`, `happened` or
+  `cancelled`; every existing row becomes `happened`. A plan is the
+  interaction itself: "Log what happened" and "It was cancelled" change that
+  row, `planned_at` keeps the agreed start once the real one is known, and a
+  plan past its time waits as "needs an outcome". A plan logs no time on the
+  project; its time reaches the ledger when it is saved as happened or
+  cancelled, and a row with logged time cannot be made a plan again. One
+  composer writes all three, and the contact and company pages now use the
+  same feed, Planned card and drawer (`Web.InteractionsDrawer`), so planning
+  works without a project. The small "Plan ahead" form and the project event
+  behind it are gone. `list_recent/1` and `count_interactions/0` leave plans
+  out; `list_planned/1` is the overview's new Planned list.
+- **Notifications and history for plans.** The activity trail records planned,
+  moved, cancelled and logged, and the users behind a plan's parties are told
+  when they are added, when it moves, when it is cancelled and when it is
+  reinstated (`InteractionNotifier`).
+- **An end time on interactions** (`Interaction.ended_at/1`, read from start
+  plus minutes, no new column). The composer has an **Ended** field and a "Set
+  to now" button, and offers the people this page's interactions involved
+  lately as one-click chips.
+- **Interactions on calendars.** The projects hub's Calendar tab shows a
+  project's interactions, and a person's own calendar shows the ones they
+  wrote or are a party to (`CalendarItems`). Each calendar reads them on load,
+  and both hooks are ignored when the projects or calendar module is absent.
+- **The client as a column on the projects list** (`project_columns`).
+- **A project sees the interactions other projects logged with its client.**
+  The Client tab lists them read-only, with a badge naming the project; the #
+  search offers them.
+- **Admin-defined party roles** (migration V10: the
+  `phoenix_kit_crm_party_role_types` table, seeded with supplier,
+  manufacturer, customer and partner). The `party_roles.role` CHECK becomes a
+  `RESTRICT` foreign key, so a role in use can only be archived, never deleted
+  or re-keyed. A new **Settings → CRM → Party roles** tab lists, reorders,
+  archives, restores and deletes roles, and edits translated names and
+  descriptions, the badge and the icon. Built-ins can be renamed but not
+  archived or deleted. `PartyRoleTypes` manages types from code (including
+  `ensure/3` for hosts); `grant_role/4` accepts any active key.
+- **Projects API:** `status`, `location`, `planned_at`, `overdue` and
+  `ended_at` (accepted in place of `duration_minutes`; sent together they must
+  agree) on interactions; `status` and `updated_since` filters on the list;
+  `GET /ext/interactions/{id}`; `?of=client` for the client's interactions
+  from other projects, where `PATCH` answers 403 `other_project`; and each row
+  carries `project_uuid`. A row with logged time cannot be re-planned (422).
+
+### Changed
+
+- **The contact Orders tab reads its bridge from config**: `config
+  :phoenix_kit_crm, orders_bridge: MyApp.CRMBridge`, a module exporting
+  `orders_for_contact/1` that returns a list of maps with `:number`, `:path`
+  and `:inserted_at`. Without the key the tab is hidden. Malformed rows are
+  skipped with a warning. A bridge that raises, exits (a `GenServer.call`
+  timeout, say) or returns something other than a list shows the empty state
+  and no longer crashes the contact page.
+- The Gettext backend is split by locale and domain (`split_module_by`).
+- Locked dependencies refreshed (`phoenix_kit` 2.64.1, `bandit` 1.13.1 and
+  `thousand_island` 1.6.0 for the `hex.audit` advisories).
+
+### Fixed
+
+- `GET /ext/interactions` applies its filters and ordering before the
+  200-row limit, so many future plans no longer hide completed history, and
+  the `now` polling cursor is taken before the read, so a write racing the
+  request is no longer missed by the next `updated_since` poll.
+
 ## 0.16.0 - 2026-10-05
 
 ### Added
