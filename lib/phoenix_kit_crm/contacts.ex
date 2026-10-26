@@ -17,6 +17,7 @@ defmodule PhoenixKitCRM.Contacts do
   alias PhoenixKit.RepoHelper
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
+  alias PhoenixKitCRM.AccountGuard
   alias PhoenixKitCRM.Lists
   alias PhoenixKitCRM.Mirror
   alias PhoenixKitCRM.PartyRoles
@@ -512,8 +513,14 @@ defmodule PhoenixKitCRM.Contacts do
 
   defp find_or_register_placeholder(email) do
     case Auth.get_user_by_email(email) do
-      %User{} = user -> {:ok, user, :existing}
-      nil -> register_placeholder(email)
+      %User{} = user ->
+        # An Owner's or Admin's login is never bound to a CRM record.
+        if AccountGuard.privileged?(user.uuid),
+          do: {:error, :privileged_account},
+          else: {:ok, user, :existing}
+
+      nil ->
+        register_placeholder(email)
     end
   end
 
@@ -554,7 +561,9 @@ defmodule PhoenixKitCRM.Contacts do
         {:error, :user_not_found}
 
       %User{account_type: "person"} ->
-        link_and_log(contact, user_uuid)
+        if AccountGuard.privileged?(user_uuid),
+          do: {:error, :privileged_account},
+          else: link_and_log(contact, user_uuid)
 
       %User{} ->
         {:error, :not_a_person}

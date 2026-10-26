@@ -10,6 +10,14 @@ defmodule PhoenixKitCRM.CompaniesMirrorTest do
 
   use PhoenixKitCRM.DataCase, async: true
 
+  alias PhoenixKitCRM.Test.SiteOwner
+
+  # The site's Owner exists before the test's own users (see SiteOwner).
+  setup do
+    _owner = SiteOwner.ensure!()
+    :ok
+  end
+
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCRM.Companies

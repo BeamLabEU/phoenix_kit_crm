@@ -22,76 +22,89 @@ defmodule PhoenixKitCRM.Web.RoleView do
 
   @impl true
   def mount(%{"role_uuid" => role_uuid} = _params, _session, socket) do
-    cond do
-      not PhoenixKitCRM.enabled?() ->
+    case access(socket, role_uuid) do
+      {:error, message} ->
+        {:ok, refuse(socket, message)}
+
+      {:ok, role} ->
+        scope = {:role, role_uuid}
+
         {:ok,
          socket
-         |> put_flash(:error, gettext("CRM is not enabled."))
-         |> push_navigate(to: Paths.index(), replace: true)}
+         |> assign(:page_title, role.name)
+         |> assign(:page_section, gettext("CRM"))
+         |> assign(:page_section_path, Paths.index())
+         |> assign(:role, role)
+         |> assign(:scope, scope)
+         |> assign(:current_user_uuid, PhoenixKitWeb.Actor.uuid(socket))
+         |> assign(:users, [])
+         |> assign(:selected_columns, ColumnConfig.default_columns(scope))
+         # No DB query in mount/3 (it runs twice). handle_params/3 loads the
+         # real metadata, spec and choice on connect; these keep the static
+         # first paint safe (labels fall back to the column id until then).
+         |> assign(:column_meta, %{})
+         |> assign(:column_spec, %{key: ColumnConfig.view_key(scope), columns: []})
+         |> assign(:crm_contacts, %{})
+         |> assign(:show_column_modal, false)}
+    end
+  end
+
+  # Everything the page needs before it may list a role's holders, asked at
+  # mount AND on every param change — a live patch to another role's uuid
+  # must pass the same gate as a fresh mount.
+  defp access(socket, role_uuid) do
+    cond do
+      not PhoenixKitCRM.enabled?() ->
+        {:error, gettext("CRM is not enabled.")}
 
       # The page lists every holder of the role with their email — the
       # settings sub-key, not the everyday CRM key.
       not PhoenixKitCRM.can_change_settings?(socket.assigns[:phoenix_kit_current_scope]) ->
-        {:ok,
-         socket
-         |> put_flash(:error, gettext("You do not have permission to see the CRM role pages."))
-         |> push_navigate(to: Paths.index(), replace: true)}
+        {:error, gettext("You do not have permission to see the CRM role pages.")}
 
-      not PhoenixKitCRM.RoleSettings.enabled?(role_uuid) ->
-        {:ok,
-         socket
-         |> put_flash(:error, gettext("This role does not have CRM access."))
-         |> push_navigate(to: Paths.index(), replace: true)}
+      not (is_binary(role_uuid) and PhoenixKitCRM.RoleSettings.enabled?(role_uuid)) ->
+        {:error, gettext("This role does not have CRM access.")}
 
       true ->
         case Roles.get_role_by_uuid(role_uuid) do
-          nil ->
-            {:ok,
-             socket
-             |> put_flash(:error, gettext("Role not found."))
-             |> push_navigate(to: Paths.index(), replace: true)}
-
-          role ->
-            scope = {:role, role_uuid}
-
-            {:ok,
-             socket
-             |> assign(:page_title, role.name)
-             |> assign(:page_section, gettext("CRM"))
-             |> assign(:page_section_path, Paths.index())
-             |> assign(:role, role)
-             |> assign(:scope, scope)
-             |> assign(:current_user_uuid, PhoenixKitWeb.Actor.uuid(socket))
-             |> assign(:users, [])
-             |> assign(:selected_columns, ColumnConfig.default_columns(scope))
-             # No DB query in mount/3 (it runs twice). handle_params/3 loads the
-             # real metadata, spec and choice on connect; these keep the static
-             # first paint safe (labels fall back to the column id until then).
-             |> assign(:column_meta, %{})
-             |> assign(:column_spec, %{key: ColumnConfig.view_key(scope), columns: []})
-             |> assign(:crm_contacts, %{})
-             |> assign(:show_column_modal, false)}
+          nil -> {:error, gettext("Role not found.")}
+          role -> {:ok, role}
         end
     end
+  rescue
+    _ -> {:error, gettext("Role not found.")}
+  end
+
+  defp refuse(socket, message) do
+    socket
+    |> put_flash(:error, message)
+    |> push_navigate(to: Paths.index(), replace: true)
   end
 
   @impl true
   def handle_params(params, _url, socket) do
     if connected?(socket) do
-      socket = maybe_reload_role(socket, params["role_uuid"])
-      users = Roles.users_with_role(socket.assigns.role.name)
-
-      socket =
-        assign_column_state(socket, socket.assigns.scope, socket.assigns.current_user_uuid)
-
-      {:noreply,
-       socket
-       |> assign(:users, users)
-       |> assign(:column_meta, ColumnConfig.column_metadata_map(socket.assigns.scope))
-       |> assign(:crm_contacts, load_crm_contacts(socket.assigns.selected_columns, users))}
+      case access(socket, params["role_uuid"]) do
+        {:ok, _role} -> list_role(socket, params)
+        {:error, message} -> {:noreply, refuse(socket, message)}
+      end
     else
       {:noreply, socket}
     end
+  end
+
+  defp list_role(socket, params) do
+    socket = maybe_reload_role(socket, params["role_uuid"])
+    users = Roles.users_with_role(socket.assigns.role.name)
+
+    socket =
+      assign_column_state(socket, socket.assigns.scope, socket.assigns.current_user_uuid)
+
+    {:noreply,
+     socket
+     |> assign(:users, users)
+     |> assign(:column_meta, ColumnConfig.column_metadata_map(socket.assigns.scope))
+     |> assign(:crm_contacts, load_crm_contacts(socket.assigns.selected_columns, users))}
   end
 
   # Ticking the "CRM contact" column on must load the map that column reads,

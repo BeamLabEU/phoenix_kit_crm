@@ -8,6 +8,14 @@ defmodule PhoenixKitCRM.PlannedInteractionsTest do
 
   use PhoenixKitCRM.DataCase, async: true
 
+  alias PhoenixKitCRM.Test.SiteOwner
+
+  # The site's Owner exists before the test's own users (see SiteOwner).
+  setup do
+    _owner = SiteOwner.ensure!()
+    :ok
+  end
+
   import PhoenixKitCRM.ActivityLogAssertions
 
   alias PhoenixKit.Users.Auth

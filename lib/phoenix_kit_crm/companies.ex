@@ -10,6 +10,7 @@ defmodule PhoenixKitCRM.Companies do
   alias PhoenixKit.RepoHelper
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
+  alias PhoenixKitCRM.AccountGuard
   alias PhoenixKitCRM.Interactions
   alias PhoenixKitCRM.Mirror
   alias PhoenixKitCRM.PartyRoles
@@ -312,7 +313,9 @@ defmodule PhoenixKitCRM.Companies do
         {:error, :user_not_found}
 
       %User{account_type: "organization"} ->
-        link_and_log(company, user_uuid)
+        if AccountGuard.privileged?(user_uuid),
+          do: {:error, :privileged_account},
+          else: link_and_log(company, user_uuid)
 
       %User{} ->
         {:error, :not_an_organization}

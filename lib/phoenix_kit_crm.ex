@@ -10,12 +10,15 @@ defmodule PhoenixKitCRM do
   use PhoenixKit.Module
   use Gettext, backend: PhoenixKitCRM.Gettext
 
+  import Ecto.Query, only: [from: 2]
+
   require Logger
 
   alias PhoenixKit.Dashboard.Tab
+  alias PhoenixKit.RepoHelper
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth.Scope
-  alias PhoenixKit.Users.{Permissions, Roles}
+  alias PhoenixKit.Users.{Permissions, RolePermission}
   alias PhoenixKitCRM.{Companies, Contacts, Paths}
   alias PhoenixKitCRM.Schemas.{Company, Contact}
 
@@ -81,12 +84,19 @@ defmodule PhoenixKitCRM do
   def settings_permission, do: @settings_permission
 
   @doc """
-  Whether `scope` may change the CRM settings and open the role pages.
-  Checked with `Scope.can?/2`, so an Owner (`"*"`) passes and a sub-key
-  without the base key does not.
+  Whether `scope` may change the CRM settings and open the role pages: the
+  sub-key AND its base, read from the scope's permissions (which honour
+  `"*"`, so an Owner passes). Deliberately not `Scope.can?/2`, which also
+  requires the module to be ENABLED — the settings page holds the switch
+  that turns the CRM back on, so it must stay reachable while it is off.
   """
   @spec can_change_settings?(term()) :: boolean()
-  def can_change_settings?(scope), do: Scope.can?(scope, @settings_permission)
+  def can_change_settings?(scope) do
+    Scope.has_module_access?(scope, module_key()) and
+      Scope.has_module_access?(scope, @settings_permission)
+  rescue
+    _ -> false
+  end
 
   @doc """
   Whether `scope` may moderate comments on CRM records: the CRM is one
@@ -138,17 +148,41 @@ defmodule PhoenixKitCRM do
   end
 
   @doc false
-  # The grant function is a parameter only so a test can make a grant fail
-  # and prove the flag then stays unset; production always passes core's.
-  def backfill_settings_permission(grant \\ &Permissions.grant_permission/3) do
+  # `:grant` and `:holders` are parameters only so a test can make a grant or
+  # the lookup fail and prove the flag then stays unset; production always
+  # uses core's grant and `role_uuids_holding/1`.
+  def backfill_settings_permission(opts \\ []) do
+    grant = Keyword.get(opts, :grant, &Permissions.grant_permission/3)
+    holders = Keyword.get(opts, :holders, &role_uuids_holding/1)
+
+    # Read with a query that RAISES on failure: core's
+    # `get_permissions_for_role/1` rescues an error to `[]`, which would read
+    # as "nobody holds crm" and set the flag for good.
+    case read_holders(holders) do
+      {:ok, base, already} -> grant_settings_to(base, already, grant)
+      {:error, :lookup_failed} = error -> error
+    end
+  end
+
+  defp read_holders(holders) do
+    {:ok, holders.(module_key()), MapSet.new(holders.(@settings_permission))}
+  rescue
+    error ->
+      Logger.warning(
+        "[PhoenixKitCRM] crm.settings backfill could not read the grants, will retry next boot: " <>
+          Exception.message(error)
+      )
+
+      {:error, :lookup_failed}
+  end
+
+  defp grant_settings_to(base, already, grant) do
     failures =
-      for role <- Roles.list_roles(),
-          granted = Permissions.get_permissions_for_role(role.uuid),
-          module_key() in granted,
-          @settings_permission not in granted,
-          result = grant.(role.uuid, @settings_permission, nil),
+      for role_uuid <- base,
+          not MapSet.member?(already, role_uuid),
+          result = grant.(role_uuid, @settings_permission, nil),
           not match?({:ok, _}, result) do
-        {role.uuid, result}
+        {role_uuid, result}
       end
 
     case failures do
@@ -164,6 +198,17 @@ defmodule PhoenixKitCRM do
 
         {:error, {:settings_backfill_incomplete, failures}}
     end
+  end
+
+  # Every role holding `key`, straight from the role-permission table.
+  defp role_uuids_holding(key) do
+    RepoHelper.repo().all(
+      from(rp in RolePermission,
+        where: rp.module_key == ^key,
+        select: rp.role_uuid,
+        distinct: true
+      )
+    )
   end
 
   @impl PhoenixKit.Module

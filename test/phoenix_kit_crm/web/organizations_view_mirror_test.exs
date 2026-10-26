@@ -11,6 +11,14 @@ defmodule PhoenixKitCRM.Web.OrganizationsViewMirrorTest do
 
   use PhoenixKitCRM.LiveCase
 
+  alias PhoenixKitCRM.Test.SiteOwner
+
+  # The site's Owner exists before the test's own users (see SiteOwner).
+  setup do
+    _owner = SiteOwner.ensure!()
+    :ok
+  end
+
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.Companies

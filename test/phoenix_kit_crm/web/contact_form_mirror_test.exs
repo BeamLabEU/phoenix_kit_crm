@@ -11,6 +11,15 @@ defmodule PhoenixKitCRM.Web.ContactFormMirrorTest do
 
   use PhoenixKitCRM.LiveCase
 
+  alias PhoenixKit.Users.Roles
+  alias PhoenixKitCRM.Test.SiteOwner
+
+  # The site's Owner exists before the test's own users (see SiteOwner).
+  setup do
+    _owner = SiteOwner.ensure!()
+    :ok
+  end
+
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.Contacts
 
@@ -83,6 +92,39 @@ defmodule PhoenixKitCRM.Web.ContactFormMirrorTest do
       assert html =~ unlinked_email
       refute html =~ linked_user.email
       refute html =~ org_email
+    end
+  end
+
+  describe "the site's Owners and Admins" do
+    defp admin_fixture do
+      user = person_user_fixture(%{"email" => "admin-#{unique()}@example.test"})
+      {:ok, _} = Roles.assign_role(user, "Admin")
+      user
+    end
+
+    test "are never offered by the picker", %{conn: conn} do
+      admin = admin_fixture()
+      plain_email = "plain-#{unique()}@example.test"
+      _plain = person_user_fixture(%{"email" => plain_email})
+
+      {:ok, view, _html} = edit(conn, contact_fixture(%{"name" => "Target"}))
+      html = render_click(view, "mirror_open_picker")
+
+      assert html =~ plain_email
+      refute html =~ admin.email
+    end
+
+    test "a crafted link to one is refused, in the page and in the context", %{conn: conn} do
+      admin = admin_fixture()
+      contact = contact_fixture(%{"name" => "Target", "email" => admin.email})
+
+      {:ok, view, _html} = edit(conn, contact)
+      html = render_submit(view, "mirror_link", %{"user_uuid" => admin.uuid})
+
+      assert html =~ "cannot be linked"
+      refute Contacts.get_contact(contact.uuid).user_uuid
+      assert {:error, :privileged_account} = Contacts.link_user(contact, admin.uuid)
+      assert {:error, :privileged_account} = Contacts.connect_user(contact, admin.email)
     end
   end
 

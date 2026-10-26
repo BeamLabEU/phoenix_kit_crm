@@ -25,7 +25,7 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
-  alias PhoenixKitCRM.{ColumnConfig, Companies, Mirror, Paths, Web.CellFormat}
+  alias PhoenixKitCRM.{AccountGuard, ColumnConfig, Companies, Mirror, Paths, Web.CellFormat}
   alias PhoenixKitCRM.Schemas.Company
 
   alias PhoenixKitWeb.Components.Core.TableDefault
@@ -163,6 +163,11 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
       user.account_type != "organization" ->
         {:noreply,
          put_flash(socket, :error, gettext("Only organization accounts can mirror a company"))}
+
+      # An Owner's or Admin's account is never linked (AccountGuard).
+      AccountGuard.privileged?(user.uuid) ->
+        {:noreply,
+         put_flash(socket, :error, gettext("This account cannot be linked from the CRM."))}
 
       not is_nil(company.user_uuid) ->
         {:noreply,

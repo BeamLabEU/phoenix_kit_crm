@@ -17,7 +17,7 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
 
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
-  alias PhoenixKitCRM.{Activity, Companies, Contacts, Mirror, PartyRoleTypes, Paths}
+  alias PhoenixKitCRM.{AccountGuard, Activity, Companies, Contacts, Mirror, PartyRoleTypes, Paths}
   alias PhoenixKitCRM.Schemas.Contact
 
   # Whitelist for the conflict-resolution form's per-field radios — never
@@ -215,9 +215,11 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
   end
 
   def handle_event("mirror_open_picker", _params, socket) do
-    linked = Contacts.linked_user_uuids()
+    # Already-linked accounts and the site's Owners/Admins are never offered
+    # (AccountGuard); linking one is refused server-side too.
+    excluded = MapSet.union(Contacts.linked_user_uuids(), AccountGuard.privileged_user_uuids())
     %{users: persons} = Auth.list_users_paginated(account_type: "person", page_size: 500)
-    candidates = Enum.reject(persons, &MapSet.member?(linked, &1.uuid))
+    candidates = Enum.reject(persons, &MapSet.member?(excluded, &1.uuid))
 
     {:noreply,
      socket
@@ -240,7 +242,12 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
         # Re-check even though link_user/2 also guards — the diff/fill
         # path below writes to `user` directly and must not run against a
         # type link_user would reject anyway.
-        case Mirror.diff(contact, user) do
+        # An Owner's or Admin's account is never linked (AccountGuard).
+        case link_target(contact, user) do
+          :privileged ->
+            {:noreply,
+             put_flash(socket, :error, gettext("This account cannot be linked from the CRM."))}
+
           [] ->
             link_without_conflict(socket, contact, user)
 
@@ -358,6 +365,12 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
 
   # Ignore any unexpected/forged event rather than crashing.
   def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  # What linking `user` would mean: refused for an Owner's or Admin's account
+  # (AccountGuard), else the fields that differ (`[]` = link straight away).
+  defp link_target(record, user) do
+    if AccountGuard.privileged?(user.uuid), do: :privileged, else: Mirror.diff(record, user)
+  end
 
   defp link_without_conflict(socket, contact, user) do
     case Contacts.link_user(contact, user.uuid) do

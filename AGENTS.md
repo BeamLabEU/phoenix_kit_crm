@@ -454,16 +454,27 @@ visible, and core's `time_zone` for interaction timestamps.
 
 **Permission.** The base key `"crm"` (label "CRM", icon `hero-users`) reaches
 the records and is carried by every record tab. One sub-key, `"crm.settings"`
-(`PhoenixKitCRM.settings_permission/0`, checked with `Scope.can?/2` through
-`can_change_settings?/1`), gates the settings page (module switch, role
+(`PhoenixKitCRM.settings_permission/0`, checked by `can_change_settings?/1`
+as the sub-key AND the base held — not `Scope.can?/2`, which also needs the
+module enabled and would lock the switch that turns it back on), gates the settings page (module switch, role
 access, party roles), the party-role form and the role pages — a role page
 lists every holder of the role with their email. Each of those LiveViews
-refuses at `mount/3` and re-checks in every write event; the settings tab and
+refuses at `mount/3` and re-checks in every write event (the role page on every
+param change too, so a live patch to another role's uuid passes the same gate); the settings tab and
 the role subtabs carry the sub-key too. Only a non-system role can be given a
 role page (`RoleSettings.set_enabled/3` answers `{:error, :not_eligible}`, and
 the enabled lists ignore a stray system-role row). `migrate_legacy/0` grants
 `crm.settings` once to every role that held `crm`, behind the
-`crm_settings_backfilled` flag, which is set only when every grant succeeded.
+`crm_settings_backfilled` flag, which is set only when every grant succeeded;
+it reads the holders with its own query (a failed read answers `{:error, :lookup_failed}`, flag unset), because core's
+`get_permissions_for_role/1` rescues an error to `[]`, which would read as
+"nobody holds crm" and set the flag for good.
+**No Owner or Admin account is ever offered or linked** (`AccountGuard`): the
+"Link existing…" pickers leave them out and `Contacts.link_user/2`,
+`Contacts.connect_user/2` and `Companies.connect_user/2` answer
+`{:error, :privileged_account}`. Other person accounts' names and emails stay
+visible to a `crm` holder in the picker — the email is how a contact is
+matched to its account, and the CRM is itself a directory of people.
 Comment moderation: `moderatable_resources/2` (on `PhoenixKitCRM` for
 `crm_contact` / `crm_company`, on `InteractionLinks` for `crm_interaction`)
 answers `:all` for a CRM holder while the module is on, else `[]`. The
@@ -586,9 +597,11 @@ build if the `:phoenix_kit` requirement is re-narrowed to a single core minor
 reaches a commit; `schema_prefix_conformance_test.exs` scans `lib/` for a
 table-backed schema missing `use PhoenixKit.SchemaPrefix`.
 
-Every user a test registers is the sandbox's first user, whom core makes
-Owner and confirms — so a fixture standing in for a CRM placeholder must go
-through `as_unclaimed!/1`, or `Mirror.placeholder_user?/1` reads it as a real
+The first user a test registers is the site's first user, whom core makes
+Owner and confirms: a test that links a registered account calls
+`Test.SiteOwner.ensure!/0` in its setup first (the CRM refuses to link an
+Owner), and a fixture standing in for a CRM placeholder goes through
+`as_unclaimed!/1`, or `Mirror.placeholder_user?/1` reads it as a real
 account.
 
 Known noise: `Phoenix.LiveViewTest` emits `missing_form_id` warnings for forms

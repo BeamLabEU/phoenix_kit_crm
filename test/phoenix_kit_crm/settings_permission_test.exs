@@ -8,6 +8,14 @@ defmodule PhoenixKitCRM.SettingsPermissionTest do
   """
   use PhoenixKitCRM.LiveCase
 
+  alias PhoenixKitCRM.Test.SiteOwner
+
+  # The site's Owner exists before the test's own users (see SiteOwner).
+  setup do
+    _owner = SiteOwner.ensure!()
+    :ok
+  end
+
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.{Permissions, Role}
   alias PhoenixKitCRM.{PartyRoleTypes, RoleSettings, Test.Repo}
@@ -138,6 +146,21 @@ defmodule PhoenixKitCRM.SettingsPermissionTest do
                live(put_test_scope(conn, settings_scope()), "/en/admin/crm/roles/#{role.uuid}")
     end
 
+    test "a live patch to another role passes the same gate as a mount", %{conn: conn} do
+      role = custom_role!()
+      {:ok, _} = RoleSettings.set_enabled(role.uuid, true)
+      sys = Repo.insert!(%Role{name: "Sys #{unique()}", is_system_role: true})
+      off = custom_role!("Off")
+
+      for target <- [sys, off] do
+        {:ok, view, _html} =
+          live(put_test_scope(conn, settings_scope()), "/en/admin/crm/roles/#{role.uuid}")
+
+        assert {:error, {:live_redirect, _}} =
+                 render_patch(view, "/en/admin/crm/roles/#{target.uuid}")
+      end
+    end
+
     test "a system role can never be given a page, even by a crafted event" do
       admin = Repo.insert!(%Role{name: "Sys #{unique()}", is_system_role: true})
 
@@ -162,6 +185,19 @@ defmodule PhoenixKitCRM.SettingsPermissionTest do
     end
   end
 
+  describe "while the CRM is switched off" do
+    test "the settings page stays reachable, so the switch can turn it back on", %{conn: conn} do
+      {:ok, _} = PhoenixKitCRM.disable_system()
+      scope = settings_scope()
+      assert PhoenixKitCRM.can_change_settings?(scope)
+      assert PhoenixKitCRM.can_change_settings?(fake_scope(permissions: ["*"]))
+
+      {:ok, view, _html} = live(put_test_scope(conn, scope), "/en/admin/crm/settings")
+      render_click(view, "toggle", %{})
+      assert PhoenixKitCRM.enabled?()
+    end
+  end
+
   describe "migrate_legacy/0 — the crm.settings backfill" do
     setup do
       Settings.update_setting(@flag, "false")
@@ -183,6 +219,19 @@ defmodule PhoenixKitCRM.SettingsPermissionTest do
       refute "crm.settings" in Permissions.get_permissions_for_role(later.uuid)
     end
 
+    test "a failing lookup leaves the flag unset, never reading as nobody holding crm" do
+      role = custom_role!()
+      {:ok, _} = Permissions.grant_permission(role.uuid, "crm", nil)
+
+      assert {:error, :lookup_failed} =
+               PhoenixKitCRM.backfill_settings_permission(holders: fn _ -> raise "db down" end)
+
+      refute Settings.get_setting(@flag) == "true"
+      # The next boot retries.
+      assert :ok = PhoenixKitCRM.migrate_legacy()
+      assert "crm.settings" in Permissions.get_permissions_for_role(role.uuid)
+    end
+
     test "a role without crm is left alone" do
       role = custom_role!("Outsider")
       assert :ok = PhoenixKitCRM.migrate_legacy()
@@ -194,7 +243,9 @@ defmodule PhoenixKitCRM.SettingsPermissionTest do
       {:ok, _} = Permissions.grant_permission(role.uuid, "crm", nil)
 
       assert {:error, {:settings_backfill_incomplete, [_ | _]}} =
-               PhoenixKitCRM.backfill_settings_permission(fn _, _, _ -> {:error, :boom} end)
+               PhoenixKitCRM.backfill_settings_permission(
+                 grant: fn _, _, _ -> {:error, :boom} end
+               )
 
       refute Settings.get_setting(@flag) == "true"
 
