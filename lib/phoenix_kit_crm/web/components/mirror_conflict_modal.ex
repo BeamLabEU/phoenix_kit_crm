@@ -62,6 +62,11 @@ defmodule PhoenixKitCRM.Web.Components.MirrorConflictModal do
   attr(:show, :boolean, default: false)
   attr(:choices, :map, default: %{})
 
+  # The account belongs to a registered person (not a CRM placeholder): a
+  # "keep the CRM value" choice cannot reach it, so the modal says so up
+  # front instead of letting the choice look like it rewrites their login.
+  attr(:account_locked, :boolean, default: false)
+
   def mirror_conflict_modal(assigns) do
     ~H"""
     <.modal
@@ -83,6 +88,13 @@ defmodule PhoenixKitCRM.Web.Components.MirrorConflictModal do
         <p class="text-sm text-base-content/70">
           {gettext("These fields differ. Choose which side to keep for each.")}
         </p>
+
+        <div :if={@account_locked} class="alert alert-info text-sm" data-testid="mirror-account-locked">
+          <.icon name="hero-lock-closed" class="w-4 h-4" />
+          <span>
+            {gettext("This account belongs to a registered person, so the CRM never changes its name or email. Choosing the CRM value keeps it on this record only; the account stays as it is.")}
+          </span>
+        </div>
 
         <div
           :for={conflict <- @conflicts}

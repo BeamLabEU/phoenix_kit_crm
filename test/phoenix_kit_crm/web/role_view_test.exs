@@ -22,7 +22,7 @@ defmodule PhoenixKitCRM.Web.RoleViewTest do
         "password" => "Sup3rSecret!24"
       })
 
-    scope = fake_scope(user_uuid: admin.uuid, email: admin.email)
+    scope = settings_scope(user_uuid: admin.uuid, email: admin.email)
     {:ok, conn: put_test_scope(conn, scope), scope: scope, admin: admin}
   end
 

@@ -14,7 +14,7 @@ defmodule PhoenixKitCRM.Web.SettingsLiveTest do
 
   setup %{conn: conn} do
     {:ok, _} = PhoenixKitCRM.enable_system()
-    scope = fake_scope()
+    scope = settings_scope()
     {:ok, conn: put_test_scope(conn, scope), scope: scope}
   end
 

@@ -14,8 +14,18 @@ defmodule PhoenixKitCRM.CompaniesMirrorTest do
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCRM.Companies
   alias PhoenixKitCRM.Schemas.Company
+  alias PhoenixKitCRM.Test.Repo
 
   defp unique, do: System.unique_integer([:positive])
+
+  # Every sandbox registration is the site's first user, whom core confirms;
+  # a real CRM placeholder stays unconfirmed until its person claims it.
+  defp as_unclaimed!(user),
+    do:
+      user
+      |> Ecto.Changeset.change()
+      |> Ecto.Changeset.force_change(:confirmed_at, nil)
+      |> Repo.update!()
 
   defp org_user_fixture(attrs \\ %{}) do
     base = %{
@@ -316,9 +326,11 @@ defmodule PhoenixKitCRM.CompaniesMirrorTest do
 
       user =
         org_user_fixture(%{
+          "custom_fields" => %{"source" => "crm_company"},
           "organization_name" => "Acme GmbH",
           "email" => "user-amr-#{unique()}@example.test"
         })
+        |> as_unclaimed!()
 
       deltas = %{crm: %{name: "Acme GmbH"}, user: %{email: taken_email}}
 
@@ -338,9 +350,11 @@ defmodule PhoenixKitCRM.CompaniesMirrorTest do
 
       user =
         org_user_fixture(%{
+          "custom_fields" => %{"source" => "crm_company"},
           "organization_name" => "Acme GmbH",
           "email" => "user-amr2-#{unique()}@example.test"
         })
+        |> as_unclaimed!()
 
       deltas = %{crm: %{name: "Acme GmbH"}, user: %{email: "new-amr2-#{unique()}@example.test"}}
 
@@ -350,6 +364,56 @@ defmodule PhoenixKitCRM.CompaniesMirrorTest do
       assert linked_company.name == "Acme GmbH"
       assert linked_user.email == deltas.user.email
       assert linked_company.user_uuid == user.uuid
+    end
+
+    test "a real account's email and name are never written — the CRM keeps its value, the account is left alone" do
+      user = org_user_fixture(%{"organization_name" => "Acme GmbH"})
+      before = Auth.get_user(user.uuid)
+
+      company =
+        company_fixture(%{"name" => "Acme", "email" => "acme-real-#{unique()}@example.test"})
+
+      deltas = %{
+        crm: %{},
+        user: %{email: "rewritten-#{unique()}@example.test", organization_name: "Rewritten"}
+      }
+
+      assert {:ok, {linked, returned_user}} =
+               Companies.apply_mirror_resolution(company, user, deltas)
+
+      after_user = Auth.get_user(user.uuid)
+      assert after_user.email == before.email
+      assert Map.get(after_user, :organization_name) == Map.get(before, :organization_name)
+      assert returned_user.email == before.email
+      # Still linked: the CRM side keeps its own value.
+      assert linked.user_uuid == user.uuid
+    end
+
+    test "a confirmed (claimed) CRM placeholder counts as a real account" do
+      user = org_user_fixture(%{"custom_fields" => %{"source" => "crm_company"}})
+
+      user =
+        user |> Ecto.Changeset.change(confirmed_at: DateTime.utc_now(:second)) |> Repo.update!()
+
+      company =
+        company_fixture(%{"name" => "Acme", "email" => "acme-real-#{unique()}@example.test"})
+
+      deltas = %{crm: %{}, user: %{email: "claimed-#{unique()}@example.test"}}
+
+      assert {:ok, _} = Companies.apply_mirror_resolution(company, user, deltas)
+      assert Auth.get_user(user.uuid).email == user.email
+    end
+
+    test "another module's placeholder (staff) is not the CRM's to write" do
+      user = org_user_fixture(%{"custom_fields" => %{"source" => "staff_placeholder"}})
+
+      company =
+        company_fixture(%{"name" => "Acme", "email" => "acme-real-#{unique()}@example.test"})
+
+      deltas = %{crm: %{}, user: %{email: "staff-#{unique()}@example.test"}}
+
+      assert {:ok, _} = Companies.apply_mirror_resolution(company, user, deltas)
+      assert Auth.get_user(user.uuid).email == user.email
     end
   end
 end

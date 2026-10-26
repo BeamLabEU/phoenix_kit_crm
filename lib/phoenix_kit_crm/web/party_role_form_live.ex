@@ -22,7 +22,14 @@ defmodule PhoenixKitCRM.Web.PartyRoleFormLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, mount_multilang(socket, open_on: :primary)}
+    if PhoenixKitCRM.can_change_settings?(socket.assigns[:phoenix_kit_current_scope]) do
+      {:ok, mount_multilang(socket, open_on: :primary)}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, gettext("You do not have permission to change the CRM settings."))
+       |> push_navigate(to: Paths.index(), replace: true)}
+    end
   end
 
   @impl true
@@ -82,8 +89,18 @@ defmodule PhoenixKitCRM.Web.PartyRoleFormLive do
   end
 
   def handle_event("save", %{"party_role" => params}, socket) do
-    {params, _derived} = prepare(params, socket)
-    save(socket, socket.assigns.live_action, params)
+    # Re-checked here, not only at mount: the vocabulary is a setting.
+    if PhoenixKitCRM.can_change_settings?(socket.assigns[:phoenix_kit_current_scope]) do
+      {params, _derived} = prepare(params, socket)
+      save(socket, socket.assigns.live_action, params)
+    else
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         gettext("You do not have permission to change the CRM settings.")
+       )}
+    end
   end
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}

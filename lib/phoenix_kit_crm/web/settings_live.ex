@@ -14,6 +14,17 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    if PhoenixKitCRM.can_change_settings?(socket.assigns[:phoenix_kit_current_scope]) do
+      mount_settings(socket)
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, gettext("You do not have permission to change the CRM settings."))
+       |> push_navigate(to: Paths.index(), replace: true)}
+    end
+  end
+
+  defp mount_settings(socket) do
     eligible_roles = RoleSettings.list_eligible_roles()
     enabled_role_uuids = enabled_role_uuids()
 
@@ -43,16 +54,34 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
     {:noreply, load_party_roles(socket)}
   end
 
+  # Every write re-checks the sub-key against the live scope: the page being
+  # open is not the permission (a revoke reaches a mounted page, and a
+  # crafted event needs no button).
   @impl true
-  def handle_event("switch_settings_tab", %{"tab" => tab}, socket) do
+  def handle_event("switch_settings_tab" = event, params, socket),
+    do: dispatch(event, params, socket)
+
+  def handle_event(event, params, socket) do
+    if PhoenixKitCRM.can_change_settings?(socket.assigns[:phoenix_kit_current_scope]) do
+      dispatch(event, params, socket)
+    else
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         gettext("You do not have permission to change the CRM settings.")
+       )}
+    end
+  end
+
+  defp dispatch("switch_settings_tab", %{"tab" => tab}, socket) when tab in @tabs do
     {:noreply, assign(socket, :active_tab, tab)}
   end
 
   # ── Party roles ─────────────────────────────────────────────────────
 
-  @impl true
-  def handle_event("reorder_party_roles", %{"ordered_ids" => ids} = params, socket)
-      when is_list(ids) do
+  defp dispatch("reorder_party_roles", %{"ordered_ids" => ids} = params, socket)
+       when is_list(ids) do
     :ok = PartyRoleTypes.reorder(ids, Activity.actor_opts(socket))
 
     {:noreply,
@@ -61,7 +90,7 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
      |> load_party_roles()}
   end
 
-  def handle_event("archive_party_role", %{"uuid" => uuid}, socket) do
+  defp dispatch("archive_party_role", %{"uuid" => uuid}, socket) do
     change_party_role(
       socket,
       uuid,
@@ -70,7 +99,7 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
     )
   end
 
-  def handle_event("restore_party_role", %{"uuid" => uuid}, socket) do
+  defp dispatch("restore_party_role", %{"uuid" => uuid}, socket) do
     change_party_role(
       socket,
       uuid,
@@ -79,7 +108,7 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
     )
   end
 
-  def handle_event("delete_party_role", %{"uuid" => uuid}, socket) do
+  defp dispatch("delete_party_role", %{"uuid" => uuid}, socket) do
     with %{} = type <- PartyRoleTypes.get_type(uuid),
          {:ok, _} <- PartyRoleTypes.delete_type(type, Activity.actor_opts(socket)) do
       {:noreply, socket |> put_flash(:info, gettext("Party role deleted")) |> load_party_roles()}
@@ -101,7 +130,7 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
     end
   end
 
-  def handle_event("toggle", _params, socket) do
+  defp dispatch("toggle", _params, socket) do
     result =
       if socket.assigns.enabled,
         do: PhoenixKitCRM.disable_system(),
@@ -119,8 +148,7 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
     end
   end
 
-  @impl true
-  def handle_event("toggle_role", %{"role_uuid" => uuid, "value" => v}, socket) do
+  defp dispatch("toggle_role", %{"role_uuid" => uuid, "value" => v}, socket) do
     enabled? = v == "on" or v == "true"
 
     case RoleSettings.set_enabled(uuid, enabled?, Activity.actor_opts(socket)) do
@@ -141,6 +169,8 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
         {:noreply, put_flash(socket, :error, gettext("Failed to update role access"))}
     end
   end
+
+  defp dispatch(_event, _params, socket), do: {:noreply, socket}
 
   @impl true
   def render(assigns) do

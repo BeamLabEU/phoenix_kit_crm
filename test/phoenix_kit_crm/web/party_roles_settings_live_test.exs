@@ -12,7 +12,7 @@ defmodule PhoenixKitCRM.Web.PartyRolesSettingsLiveTest do
 
   setup %{conn: conn} do
     {:ok, _} = PhoenixKitCRM.enable_system()
-    {:ok, conn: put_test_scope(conn, fake_scope())}
+    {:ok, conn: put_test_scope(conn, settings_scope())}
   end
 
   defp carrier! do

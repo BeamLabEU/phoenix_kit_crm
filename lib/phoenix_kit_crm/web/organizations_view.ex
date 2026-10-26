@@ -90,6 +90,7 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
     |> assign(:mirror_conflicts, [])
     |> assign(:mirror_choices, %{})
     |> assign(:mirror_pending, nil)
+    |> assign(:mirror_account_locked, false)
     |> assign(:show_conflict, false)
     |> assign(:show_picker, false)
     |> assign(:picker_user_uuid, nil)
@@ -178,6 +179,7 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
              |> assign(:mirror_conflicts, conflicts)
              |> assign(:mirror_choices, %{})
              |> assign(:mirror_pending, %{user_uuid: user_uuid, company_uuid: company_uuid})
+             |> assign(:mirror_account_locked, not Mirror.placeholder_user?(user))
              |> assign(:show_conflict, true)
              |> assign(:show_picker, false)
              |> assign(:picker_user_uuid, nil)
@@ -252,7 +254,7 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
          |> update(:companies_by_user, &Map.put(&1, user_uuid, linked_company))
          |> update(:users, &replace_user(&1, linked_user))
          |> close_conflict()
-         |> put_flash(:info, gettext("Mirror account linked"))}
+         |> put_flash(:info, resolution_flash(user, deltas))}
 
       {:error, other} ->
         Logger.warning(
@@ -264,6 +266,17 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
          |> close_conflict()
          |> put_flash(:error, gettext("Could not apply the resolution — please try again"))}
     end
+  end
+
+  # "Keep CRM" on a real account wrote nothing to it (Companies only writes
+  # a CRM placeholder) — say so instead of reporting a rewrite.
+  defp resolution_flash(user, %{user: user_deltas}) do
+    if map_size(user_deltas) > 0 and not Mirror.placeholder_user?(user),
+      do:
+        gettext(
+          "Mirror account linked. The account's name and email were left unchanged: it belongs to a registered person, so the CRM keeps its own values."
+        ),
+      else: gettext("Mirror account linked")
   end
 
   defp link_without_conflict(socket, company, user) do
@@ -321,6 +334,7 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
     |> assign(:mirror_choices, %{})
     |> assign(:show_conflict, false)
     |> assign(:mirror_pending, nil)
+    |> assign(:mirror_account_locked, false)
   end
 
   defp allowed_conflict_fields(conflicts), do: conflicts |> Enum.map(& &1.field) |> MapSet.new()
@@ -455,6 +469,7 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
         conflicts={@mirror_conflicts}
         master={:user}
         choices={@mirror_choices}
+        account_locked={@mirror_account_locked}
         show={@show_conflict}
       />
     </div>

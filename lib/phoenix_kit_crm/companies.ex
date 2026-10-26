@@ -488,7 +488,10 @@ defmodule PhoenixKitCRM.Companies do
   Applies a per-field conflict resolution — `PhoenixKitCRM.Mirror.resolve/4`'s
   `%{crm: crm_deltas, user: user_deltas}` — atomically: writes `crm_deltas`
   onto `company`, `user_deltas` onto `user` (via `Auth.update_user_profile/2`,
-  the same changeset core's own profile edits use), then links them. All
+  the same changeset core's own profile edits use), then links them.
+  `user_deltas` are written only when `user` is a CRM placeholder
+  (`Mirror.placeholder_user?/1`); for any other account they are dropped
+  and the account is left untouched. All
   three in one `repo().transaction/1` so a failure at any step leaves
   neither side partially rewritten.
   """
@@ -513,7 +516,15 @@ defmodule PhoenixKitCRM.Companies do
   defp maybe_update_company(company, deltas), do: update_company(company, deltas)
 
   defp maybe_update_user_profile(user, deltas) when map_size(deltas) == 0, do: {:ok, user}
-  defp maybe_update_user_profile(user, deltas), do: Auth.update_user_profile(user, deltas)
+
+  # Only a CRM-made, unclaimed placeholder is ever written. A real account's
+  # name and email are its owner's (the email is their login): the CRM keeps
+  # its own value and the account is left exactly as it was.
+  defp maybe_update_user_profile(user, deltas) do
+    if Mirror.placeholder_user?(user),
+      do: Auth.update_user_profile(user, deltas),
+      else: {:ok, user}
+  end
 
   defp maybe_search_companies(query, opts) do
     case Keyword.get(opts, :search) do

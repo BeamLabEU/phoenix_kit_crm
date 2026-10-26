@@ -56,6 +56,8 @@ defmodule PhoenixKitCRM.Web.CRMLive do
        # supplier/manufacturer vocabulary; the subtitle doesn't have to.
        page_subtitle: gettext("Companies, people and the interactions between them"),
        enabled: PhoenixKitCRM.enabled?(),
+       can_settings:
+         PhoenixKitCRM.can_change_settings?(socket.assigns[:phoenix_kit_current_scope]),
        # Resolved in handle_params with the rest of the reads — the site
        # `time_zone` fallback is a settings query, and mount runs twice.
        tz: "0",
@@ -115,7 +117,7 @@ defmodule PhoenixKitCRM.Web.CRMLive do
             {gettext("Enable it in CRM settings to start recording companies and contacts.")}
           </div>
         </div>
-        <.link navigate={Paths.settings()} class="btn btn-sm">
+        <.link :if={@can_settings} navigate={Paths.settings()} class="btn btn-sm">
           {gettext("CRM settings")}
         </.link>
       </div>

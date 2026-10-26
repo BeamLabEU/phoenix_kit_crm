@@ -29,6 +29,14 @@ defmodule PhoenixKitCRM.Web.RoleView do
          |> put_flash(:error, gettext("CRM is not enabled."))
          |> push_navigate(to: Paths.index(), replace: true)}
 
+      # The page lists every holder of the role with their email — the
+      # settings sub-key, not the everyday CRM key.
+      not PhoenixKitCRM.can_change_settings?(socket.assigns[:phoenix_kit_current_scope]) ->
+        {:ok,
+         socket
+         |> put_flash(:error, gettext("You do not have permission to see the CRM role pages."))
+         |> push_navigate(to: Paths.index(), replace: true)}
+
       not PhoenixKitCRM.RoleSettings.enabled?(role_uuid) ->
         {:ok,
          socket

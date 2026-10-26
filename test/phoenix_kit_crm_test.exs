@@ -93,7 +93,9 @@ defmodule PhoenixKitCRMTest do
     test "exposes a CRM settings tab pointing to SettingsLive" do
       [tab] = PhoenixKitCRM.settings_tabs()
       assert tab.id == :admin_settings_crm
-      assert tab.permission == PhoenixKitCRM.module_key()
+      # The settings page is the sub-key's, not the everyday CRM key's.
+      assert tab.permission == "crm.settings"
+      assert tab.permission == PhoenixKitCRM.settings_permission()
       assert {PhoenixKitCRM.Web.SettingsLive, :index} = tab.live_view
     end
   end
