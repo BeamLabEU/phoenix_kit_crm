@@ -456,7 +456,8 @@ visible, and core's `time_zone` for interaction timestamps.
 the records and is carried by every record tab. One sub-key, `"crm.settings"`
 (`PhoenixKitCRM.settings_permission/0`, checked by `can_change_settings?/1`
 as the sub-key AND the base held — not `Scope.can?/2`, which also needs the
-module enabled and would lock the switch that turns it back on), gates the settings page (module switch, role
+module enabled; in a host, core's admin mount gate still refuses a disabled
+module's pages, so re-enabling is core's Modules page), gates the settings page (module switch, role
 access, party roles), the party-role form and the role pages — a role page
 lists every holder of the role with their email. Each of those LiveViews
 refuses at `mount/3` and re-checks in every write event (the role page on every

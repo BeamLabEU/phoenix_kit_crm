@@ -87,8 +87,9 @@ defmodule PhoenixKitCRM do
   Whether `scope` may change the CRM settings and open the role pages: the
   sub-key AND its base, read from the scope's permissions (which honour
   `"*"`, so an Owner passes). Deliberately not `Scope.can?/2`, which also
-  requires the module to be ENABLED — the settings page holds the switch
-  that turns the CRM back on, so it must stay reachable while it is off.
+  requires the module to be ENABLED: this check adds no such condition of
+  its own. In a host, core's admin mount gate still refuses a disabled
+  module's pages, so re-enabling the CRM is core's Modules page.
   """
   @spec can_change_settings?(term()) :: boolean()
   def can_change_settings?(scope) do

@@ -186,7 +186,9 @@ defmodule PhoenixKitCRM.SettingsPermissionTest do
   end
 
   describe "while the CRM is switched off" do
-    test "the settings page stays reachable, so the switch can turn it back on", %{conn: conn} do
+    # Only the module's own check: in a host, core's admin mount gate still
+    # refuses a disabled module's pages (re-enabling is core's Modules page).
+    test "the settings check does not itself depend on the module being on", %{conn: conn} do
       {:ok, _} = PhoenixKitCRM.disable_system()
       scope = settings_scope()
       assert PhoenixKitCRM.can_change_settings?(scope)
