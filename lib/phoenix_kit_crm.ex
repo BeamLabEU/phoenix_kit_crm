@@ -232,6 +232,13 @@ defmodule PhoenixKitCRM do
   @impl PhoenixKit.Module
   def migration_module, do: PhoenixKitCRM.Migrations
 
+  @doc """
+  The manifest of this module's tables, for `mix phoenix_kit.repair` and
+  `mix phoenix_kit.doctor`; see `PhoenixKitCRM.ExpectedSchema`.
+  """
+  # No `@impl`, so this compiles against a core that lacks the callback.
+  def expected_schema, do: PhoenixKitCRM.ExpectedSchema
+
   @impl PhoenixKit.Module
   def css_sources, do: [:phoenix_kit_crm]
 
