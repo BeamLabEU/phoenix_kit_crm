@@ -506,7 +506,7 @@ defmodule PhoenixKitCRM.Companies do
       }) do
     repo().transaction(fn ->
       with {:ok, updated_company} <- maybe_update_company(company, crm_deltas),
-           {:ok, updated_user} <- maybe_update_user_profile(user, user_deltas),
+           {:ok, updated_user} <- AccountGuard.update_placeholder_profile(user, user_deltas),
            {:ok, linked} <- connect_user(updated_company, updated_user.uuid) do
         {linked, updated_user}
       else
@@ -517,17 +517,6 @@ defmodule PhoenixKitCRM.Companies do
 
   defp maybe_update_company(company, deltas) when map_size(deltas) == 0, do: {:ok, company}
   defp maybe_update_company(company, deltas), do: update_company(company, deltas)
-
-  defp maybe_update_user_profile(user, deltas) when map_size(deltas) == 0, do: {:ok, user}
-
-  # Only a CRM-made, unclaimed placeholder is ever written. A real account's
-  # name and email are its owner's (the email is their login): the CRM keeps
-  # its own value and the account is left exactly as it was.
-  defp maybe_update_user_profile(user, deltas) do
-    if Mirror.placeholder_user?(user),
-      do: Auth.update_user_profile(user, deltas),
-      else: {:ok, user}
-  end
 
   defp maybe_search_companies(query, opts) do
     case Keyword.get(opts, :search) do

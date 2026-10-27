@@ -70,7 +70,8 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
   @impl true
   def handle_params(_params, _url, socket) do
     if connected?(socket) do
-      users = Auth.list_organizations()
+      excluded = AccountGuard.privileged_user_uuids()
+      users = Enum.reject(Auth.list_organizations(), &MapSet.member?(excluded, &1.uuid))
       companies_by_user = Companies.map_by_user_uuids(Enum.map(users, & &1.uuid))
 
       {:noreply,
@@ -133,11 +134,23 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
   end
 
   def handle_event("mirror_open_company_picker", %{"user_uuid" => user_uuid}, socket) do
-    {:noreply,
-     socket
-     |> assign(:show_picker, true)
-     |> assign(:picker_user_uuid, user_uuid)
-     |> assign(:picker_candidates, Companies.list_unlinked_companies())}
+    with {:ok, uuid} <- Ecto.UUID.cast(user_uuid),
+         %User{account_type: "organization"} = user <- Auth.get_user(uuid),
+         false <- AccountGuard.privileged?(user.uuid) do
+      {:noreply,
+       socket
+       |> assign(:show_picker, true)
+       |> assign(:picker_user_uuid, uuid)
+       |> assign(:picker_candidates, Companies.list_unlinked_companies())}
+    else
+      _ ->
+        {:noreply,
+         socket
+         |> assign(:show_picker, false)
+         |> assign(:picker_user_uuid, nil)
+         |> assign(:picker_candidates, [])
+         |> put_flash(:error, gettext("This account cannot be linked from the CRM."))}
+    end
   end
 
   def handle_event("mirror_close_company_picker", _params, socket) do
@@ -259,7 +272,7 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
          |> update(:companies_by_user, &Map.put(&1, user_uuid, linked_company))
          |> update(:users, &replace_user(&1, linked_user))
          |> close_conflict()
-         |> put_flash(:info, resolution_flash(user, deltas))}
+         |> put_flash(:info, resolution_flash(linked_user, deltas))}
 
       {:error, other} ->
         Logger.warning(

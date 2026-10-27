@@ -15,13 +15,14 @@ defmodule PhoenixKitCRM.Web.OrganizationsViewMirrorTest do
 
   # The site's Owner exists before the test's own users (see SiteOwner).
   setup do
-    _owner = SiteOwner.ensure!()
-    :ok
+    %{site_owner: SiteOwner.ensure!()}
   end
 
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
+  alias PhoenixKit.Users.Roles
   alias PhoenixKitCRM.Companies
+  alias PhoenixKitCRM.Test.Repo
 
   setup %{conn: conn} do
     scope = fake_scope()
@@ -54,6 +55,39 @@ defmodule PhoenixKitCRM.Web.OrganizationsViewMirrorTest do
   defp view(conn), do: live(conn, "/en/admin/crm/organizations")
 
   describe "row rendering" do
+    test "an invalid or missing picker account is refused", %{conn: conn} do
+      {:ok, page, _html} = view(conn)
+
+      for uuid <- ["invalid", Ecto.UUID.generate()] do
+        html = render_click(page, "mirror_open_company_picker", %{"user_uuid" => uuid})
+        assert html =~ "cannot be linked"
+        refute has_element?(page, "#mirror-company-picker-modal")
+      end
+    end
+
+    test "Owner and Admin organization accounts are not listed or offered for linking", %{
+      conn: conn,
+      site_owner: owner
+    } do
+      owner =
+        owner
+        |> Ecto.Changeset.change(account_type: "organization", organization_name: "Site Owner")
+        |> Repo.update!()
+
+      admin = org_user_fixture(%{"organization_name" => "Privileged Admin #{unique()}"})
+      {:ok, _} = Roles.assign_role(admin, "Admin")
+
+      for user <- [owner, admin] do
+        {:ok, page, html} = view(conn)
+        refute html =~ user.email
+        refute html =~ user.organization_name
+
+        html = render_click(page, "mirror_open_company_picker", %{"user_uuid" => user.uuid})
+        assert html =~ "cannot be linked"
+        refute has_element?(page, "#mirror-company-picker-modal")
+      end
+    end
+
     test "an unlinked org-user offers Create + Link, a linked one shows the badge and no actions",
          %{conn: conn} do
       unlinked_user = org_user_fixture(%{"organization_name" => "Unlinked Co #{unique()}"})

@@ -473,7 +473,12 @@ it reads the holders with its own query (a failed read answers `{:error, :lookup
 **No Owner or Admin account is ever offered or linked** (`AccountGuard`): the
 "Link existing…" pickers leave them out and `Contacts.link_user/2`,
 `Contacts.connect_user/2` and `Companies.connect_user/2` answer
-`{:error, :privileged_account}`. Other person accounts' names and emails stay
+`{:error, :privileged_account}`. The Organizations list leaves them out too.
+Mirror profile writes use `AccountGuard.update_placeholder_profile/3`, which
+re-reads the user under a row lock and checks its current ownership before
+writing; blank fills also re-check that each field is still blank. Never
+authorize a profile write from a caller's stale placeholder snapshot.
+Other person accounts' names and emails stay
 visible to a `crm` holder in the picker — the email is how a contact is
 matched to its account, and the CRM is itself a directory of people.
 Comment moderation: `moderatable_resources/2` (on `PhoenixKitCRM` for

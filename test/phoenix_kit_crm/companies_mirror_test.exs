@@ -317,6 +317,30 @@ defmodule PhoenixKitCRM.CompaniesMirrorTest do
   end
 
   describe "apply_mirror_resolution/3" do
+    test "a stale placeholder snapshot cannot rewrite an account claimed since it was read" do
+      user =
+        org_user_fixture(%{"custom_fields" => %{"source" => "crm_company"}})
+        |> as_unclaimed!()
+
+      claimed =
+        user |> Ecto.Changeset.change(confirmed_at: DateTime.utc_now(:second)) |> Repo.update!()
+
+      company = company_fixture()
+
+      deltas = %{
+        crm: %{},
+        user: %{email: "stale-#{unique()}@example.test", organization_name: "Changed"}
+      }
+
+      assert {:ok, {linked, returned_user}} =
+               Companies.apply_mirror_resolution(company, user, deltas)
+
+      assert linked.user_uuid == user.uuid
+      assert returned_user.confirmed_at == claimed.confirmed_at
+      assert Auth.get_user(user.uuid).email == claimed.email
+      assert Auth.get_user(user.uuid).organization_name == claimed.organization_name
+    end
+
     test "rolls back the company write when the subsequent user update fails" do
       # Mixed choice: BOTH deltas are non-empty (deltas.crm from choosing
       # :user on :name, deltas.user from choosing :crm on :email) — the

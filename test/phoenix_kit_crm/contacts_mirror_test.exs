@@ -255,6 +255,30 @@ defmodule PhoenixKitCRM.ContactsMirrorTest do
   end
 
   describe "apply_mirror_resolution/3" do
+    test "a stale placeholder snapshot cannot rewrite an account claimed since it was read" do
+      user =
+        person_user_fixture(%{"custom_fields" => %{"source" => "crm_contact"}})
+        |> as_unclaimed!()
+
+      claimed =
+        user |> Ecto.Changeset.change(confirmed_at: DateTime.utc_now(:second)) |> Repo.update!()
+
+      contact = contact_fixture()
+
+      deltas = %{
+        crm: %{},
+        user: %{email: "stale-#{unique()}@example.test", first_name: "Changed"}
+      }
+
+      assert {:ok, {linked, returned_user}} =
+               Contacts.apply_mirror_resolution(contact, user, deltas)
+
+      assert linked.user_uuid == user.uuid
+      assert returned_user.confirmed_at == claimed.confirmed_at
+      assert Auth.get_user(user.uuid).email == claimed.email
+      assert Auth.get_user(user.uuid).first_name == claimed.first_name
+    end
+
     test "rolls back the contact write when the subsequent user update fails" do
       # Mixed choice: BOTH deltas non-empty — the contact update runs
       # FIRST and succeeds; the user update runs SECOND and fails on a

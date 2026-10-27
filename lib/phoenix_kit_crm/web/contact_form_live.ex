@@ -310,7 +310,7 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
              |> assign(:linked_user, linked_user)
              |> assign(:linked_account_path, Paths.user_view(linked_user.uuid))
              |> close_conflict()
-             |> put_flash(:info, resolution_flash(user, deltas))}
+             |> put_flash(:info, resolution_flash(linked_user, deltas))}
 
           {:error, other} ->
             Logger.warning(
@@ -404,24 +404,13 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
       |> Enum.filter(fn {field, value} -> not is_nil(value) and blank?(Map.get(user, field)) end)
       |> Map.new()
 
-    cond do
-      attrs == %{} ->
+    case AccountGuard.update_placeholder_profile(user, attrs, only_blank: true) do
+      {:ok, updated} ->
+        {updated, map_size(attrs) > 0 and not Mirror.placeholder_user?(updated)}
+
+      {:error, reason} ->
+        Logger.warning("[CRM] fill_blank_user_fields failed: #{inspect(reason)}")
         {user, false}
-
-      # Never on a real account, not even into a blank field — the CRM
-      # writes only its own unclaimed placeholders (Mirror.placeholder_user?/1).
-      not Mirror.placeholder_user?(user) ->
-        {user, true}
-
-      true ->
-        case Auth.update_user_profile(user, attrs) do
-          {:ok, updated} ->
-            {updated, false}
-
-          {:error, changeset} ->
-            Logger.warning("[CRM] fill_blank_user_fields failed: #{inspect(changeset.errors)}")
-            {user, false}
-        end
     end
   end
 

@@ -654,7 +654,7 @@ defmodule PhoenixKitCRM.Contacts do
     result =
       repo().transaction(fn ->
         with {:ok, updated_contact} <- maybe_update_contact(contact, crm_deltas),
-             {:ok, updated_user} <- maybe_update_user_profile(user, user_deltas),
+             {:ok, updated_user} <- AccountGuard.update_placeholder_profile(user, user_deltas),
              {:ok, linked} <- link_user(updated_contact, updated_user.uuid) do
           {linked, updated_user}
         else
@@ -675,17 +675,6 @@ defmodule PhoenixKitCRM.Contacts do
 
   defp maybe_update_contact(contact, deltas) when map_size(deltas) == 0, do: {:ok, contact}
   defp maybe_update_contact(contact, deltas), do: do_update_contact(contact, deltas)
-
-  defp maybe_update_user_profile(user, deltas) when map_size(deltas) == 0, do: {:ok, user}
-
-  # Only a CRM-made, unclaimed placeholder is ever written. A real account's
-  # name and email are its owner's (the email is their login): the CRM keeps
-  # its own value and the account is left exactly as it was.
-  defp maybe_update_user_profile(user, deltas) do
-    if Mirror.placeholder_user?(user),
-      do: Auth.update_user_profile(user, deltas),
-      else: {:ok, user}
-  end
 
   # ── Helpers ─────────────────────────────────────────────────────────
 
