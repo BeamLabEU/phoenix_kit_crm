@@ -113,20 +113,37 @@ defmodule PhoenixKitCRM.CalendarItems do
 
   # The interactions that name the user as a party: by their contact, or by
   # their staff record (another module's table, read schemaless — it exists
-  # in every install, and is simply empty without the staff module).
+  # only where the staff module's chain has run, so without it that half is
+  # left out rather than failing the query).
   defp party_of(user_uuid) do
     contacts = from(c in Contact, where: c.user_uuid == ^user_uuid, select: c.uuid)
+    parties = from(p in InteractionParty, select: p.interaction_uuid)
 
-    staff =
-      from(s in "phoenix_kit_staff_people",
-        where: s.user_uuid == type(^user_uuid, UUIDv7),
-        select: type(s.uuid, UUIDv7)
+    if staff_table?() do
+      staff =
+        from(s in "phoenix_kit_staff_people",
+          where: s.user_uuid == type(^user_uuid, UUIDv7),
+          select: type(s.uuid, UUIDv7)
+        )
+
+      where(
+        parties,
+        [p],
+        p.contact_uuid in subquery(contacts) or p.staff_person_uuid in subquery(staff)
+      )
+    else
+      where(parties, [p], p.contact_uuid in subquery(contacts))
+    end
+  end
+
+  defp staff_table? do
+    %{rows: [[present?]]} =
+      RepoHelper.repo().query!(
+        "SELECT to_regclass('phoenix_kit_staff_people') IS NOT NULL",
+        []
       )
 
-    from(p in InteractionParty,
-      where: p.contact_uuid in subquery(contacts) or p.staff_person_uuid in subquery(staff),
-      select: p.interaction_uuid
-    )
+    present?
   end
 
   # Overlap with `[from, until)`: it starts before the window ends, and it

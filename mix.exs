@@ -83,7 +83,9 @@ defmodule PhoenixKitCRM.MixProject do
       # form, so the ceiling stays open through every later 2.x minor (a
       # three-segment `~> 2.38.0` would pin one minor; see
       # CorePinConformanceTest).
-      pk_dep(:phoenix_kit, ">= 2.38.0 and < 3.0.0"),
+      # Floor 2.65.0: the first core with the `file_references/0` and `expected_schema/0`
+      # callbacks this module implements (`@impl`). The ceiling is open through core 3.x.
+      pk_dep(:phoenix_kit, ">= 2.65.0 and < 4.0.0"),
 
       # mdex_native (pulled in transitively through phoenix_kit's mdex dep)
       # builds from source when MDEX_NATIVE_BUILD=1 is set in the
