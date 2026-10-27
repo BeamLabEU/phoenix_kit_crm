@@ -1,7 +1,7 @@
 defmodule PhoenixKitCRM.MixProject do
   use Mix.Project
 
-  @version "0.17.0"
+  @version "0.18.0"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_crm"
 
   def project do
@@ -99,7 +99,7 @@ defmodule PhoenixKitCRM.MixProject do
       # 0.2.6 is the floor: that is the release that first published
       # `PhoenixKitComments.Embed`. The `use` is unguarded, so a resolution
       # anywhere in 0.2.0–0.2.5 fails to compile in the consumer's build.
-      pk_dep(:phoenix_kit_comments, "~> 0.3"),
+      pk_dep(:phoenix_kit_comments, "~> 0.5"),
 
       # Per-module i18n — own Gettext backend for sidebar tab labels.
       {:gettext, "~> 1.0"},
