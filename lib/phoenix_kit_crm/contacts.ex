@@ -17,6 +17,7 @@ defmodule PhoenixKitCRM.Contacts do
   alias PhoenixKit.RepoHelper
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
+  alias PhoenixKitCRM.AccountGuard
   alias PhoenixKitCRM.Lists
   alias PhoenixKitCRM.Mirror
   alias PhoenixKitCRM.PartyRoles
@@ -512,8 +513,14 @@ defmodule PhoenixKitCRM.Contacts do
 
   defp find_or_register_placeholder(email) do
     case Auth.get_user_by_email(email) do
-      %User{} = user -> {:ok, user, :existing}
-      nil -> register_placeholder(email)
+      %User{} = user ->
+        # An Owner's or Admin's login is never bound to a CRM record.
+        if AccountGuard.privileged?(user.uuid),
+          do: {:error, :privileged_account},
+          else: {:ok, user, :existing}
+
+      nil ->
+        register_placeholder(email)
     end
   end
 
@@ -554,7 +561,9 @@ defmodule PhoenixKitCRM.Contacts do
         {:error, :user_not_found}
 
       %User{account_type: "person"} ->
-        link_and_log(contact, user_uuid)
+        if AccountGuard.privileged?(user_uuid),
+          do: {:error, :privileged_account},
+          else: link_and_log(contact, user_uuid)
 
       %User{} ->
         {:error, :not_a_person}
@@ -629,7 +638,10 @@ defmodule PhoenixKitCRM.Contacts do
   Applies a per-field conflict resolution — `PhoenixKitCRM.Mirror.resolve/4`'s
   `%{crm: crm_deltas, user: user_deltas}` — atomically: writes `crm_deltas`
   onto `contact`, `user_deltas` onto `user` (via `Auth.update_user_profile/2`,
-  the same changeset core's own profile edits use), then links them. All
+  the same changeset core's own profile edits use), then links them.
+  `user_deltas` are written only when `user` is a CRM placeholder
+  (`Mirror.placeholder_user?/1`); for any other account they are dropped
+  and the account is left untouched. All
   three in one `repo().transaction/1` so a failure at any step leaves
   neither side partially rewritten.
   """
@@ -665,7 +677,15 @@ defmodule PhoenixKitCRM.Contacts do
   defp maybe_update_contact(contact, deltas), do: do_update_contact(contact, deltas)
 
   defp maybe_update_user_profile(user, deltas) when map_size(deltas) == 0, do: {:ok, user}
-  defp maybe_update_user_profile(user, deltas), do: Auth.update_user_profile(user, deltas)
+
+  # Only a CRM-made, unclaimed placeholder is ever written. A real account's
+  # name and email are its owner's (the email is their login): the CRM keeps
+  # its own value and the account is left exactly as it was.
+  defp maybe_update_user_profile(user, deltas) do
+    if Mirror.placeholder_user?(user),
+      do: Auth.update_user_profile(user, deltas),
+      else: {:ok, user}
+  end
 
   # ── Helpers ─────────────────────────────────────────────────────────
 

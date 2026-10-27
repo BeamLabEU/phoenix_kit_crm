@@ -92,6 +92,17 @@ defmodule PhoenixKitCRM.InteractionLinks do
     _ -> []
   end
 
+  @doc """
+  `phoenix_kit_comments`' moderation scope for interactions: `:all` for a
+  CRM-permission holder (the CRM has no per-record model), else none.
+  """
+  @spec moderatable_resources(String.t(), term()) :: :all | [String.t()]
+  def moderatable_resources(@type_key, scope) do
+    if PhoenixKitCRM.comment_moderator?(scope), do: :all, else: []
+  end
+
+  def moderatable_resources(_type, _scope), do: []
+
   defp do_search(query, context) do
     pattern = "%#{escape_like(query)}%"
 

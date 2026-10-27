@@ -1,6 +1,14 @@
 defmodule PhoenixKitCRM.ContactsTest do
   use PhoenixKitCRM.DataCase, async: true
 
+  alias PhoenixKitCRM.Test.SiteOwner
+
+  # The site's Owner exists before the test's own users (see SiteOwner).
+  setup do
+    _owner = SiteOwner.ensure!()
+    :ok
+  end
+
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.Contacts
   alias PhoenixKitCRM.Schemas.Contact

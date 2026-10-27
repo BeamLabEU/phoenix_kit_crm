@@ -27,7 +27,7 @@ defmodule PhoenixKitCRM.RoleSettings do
       from(role in Role,
         join: setting in RoleSetting,
         on: setting.role_uuid == role.uuid,
-        where: setting.enabled == true,
+        where: setting.enabled == true and role.is_system_role == false,
         order_by: role.name
       )
 
@@ -56,7 +56,7 @@ defmodule PhoenixKitCRM.RoleSettings do
         on: setting.role_uuid == role.uuid,
         left_join: assignment in RoleAssignment,
         on: assignment.role_uuid == role.uuid,
-        where: setting.enabled == true,
+        where: setting.enabled == true and role.is_system_role == false,
         group_by: [role.uuid, role.name],
         order_by: role.name,
         select: %{uuid: role.uuid, name: role.name, count: count(assignment.uuid)}
@@ -95,7 +95,11 @@ defmodule PhoenixKitCRM.RoleSettings do
 
     query =
       from(setting in RoleSetting,
-        where: setting.role_uuid == ^role_uuid and setting.enabled == true
+        join: role in Role,
+        on: role.uuid == setting.role_uuid,
+        where:
+          setting.role_uuid == ^role_uuid and setting.enabled == true and
+            role.is_system_role == false
       )
 
     repo.exists?(query)
@@ -118,9 +122,34 @@ defmodule PhoenixKitCRM.RoleSettings do
       {:ok, %RoleSetting{}}
   """
   @spec set_enabled(binary(), boolean(), keyword()) ::
-          {:ok, RoleSetting.t()} | {:error, Ecto.Changeset.t()}
+          {:ok, RoleSetting.t()} | {:error, :not_eligible | Ecto.Changeset.t()}
   def set_enabled(role_uuid, enabled?, opts \\ [])
-      when is_binary(role_uuid) and is_boolean(enabled?) do
+
+  # Only an eligible (non-system) role can be given a CRM page: the page lists
+  # the role's holders with their emails, and the settings page never offers
+  # Owner or Admin. Disabling stays open so a stray row can always be cleared.
+  def set_enabled(role_uuid, true, opts) when is_binary(role_uuid) do
+    if eligible?(role_uuid),
+      do: do_set_enabled(role_uuid, true, opts),
+      else: {:error, :not_eligible}
+  end
+
+  def set_enabled(role_uuid, false, opts) when is_binary(role_uuid) do
+    do_set_enabled(role_uuid, false, opts)
+  end
+
+  @doc "Whether `role_uuid` names an existing non-system role (one that may get a CRM page)."
+  @spec eligible?(binary()) :: boolean()
+  def eligible?(role_uuid) when is_binary(role_uuid) do
+    case Roles.get_role_by_uuid(role_uuid) do
+      %{is_system_role: false} -> true
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp do_set_enabled(role_uuid, enabled?, opts) do
     repo = RepoHelper.repo()
 
     result =

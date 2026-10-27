@@ -10,10 +10,15 @@ defmodule PhoenixKitCRM do
   use PhoenixKit.Module
   use Gettext, backend: PhoenixKitCRM.Gettext
 
+  import Ecto.Query, only: [from: 2]
+
   require Logger
 
   alias PhoenixKit.Dashboard.Tab
+  alias PhoenixKit.RepoHelper
   alias PhoenixKit.Settings
+  alias PhoenixKit.Users.Auth.Scope
+  alias PhoenixKit.Users.{Permissions, RolePermission}
   alias PhoenixKitCRM.{Companies, Contacts, Paths}
   alias PhoenixKitCRM.Schemas.{Company, Contact}
 
@@ -56,8 +61,155 @@ defmodule PhoenixKitCRM do
       key: module_key(),
       label: "CRM",
       icon: "hero-users",
-      description: "Customer relationship management module"
+      description: "Customer relationship management module",
+      sub_permissions: [
+        # The base key reaches the CRM's records. The settings page (the
+        # module's on/off switch, which roles get a CRM page, the party-role
+        # vocabulary) and the role pages — which list every holder of a role
+        # with their email — are administration, not record keeping.
+        %{
+          key: "settings",
+          label: "Change the CRM settings",
+          description:
+            "Turn the CRM on or off, choose which roles get a CRM page and see those pages, and edit the party roles"
+        }
+      ]
     }
+  end
+
+  @settings_permission "crm.settings"
+
+  @doc "The composed sub-key for the settings page and the role pages, for `Scope.can?/2`."
+  @spec settings_permission() :: String.t()
+  def settings_permission, do: @settings_permission
+
+  @doc """
+  Whether `scope` may change the CRM settings and open the role pages: the
+  sub-key AND its base, read from the scope's permissions (which honour
+  `"*"`, so an Owner passes). Deliberately not `Scope.can?/2`, which also
+  requires the module to be ENABLED: this check adds no such condition of
+  its own. In a host, core's admin mount gate still refuses a disabled
+  module's pages, so re-enabling the CRM is core's Modules page.
+  """
+  @spec can_change_settings?(term()) :: boolean()
+  def can_change_settings?(scope) do
+    Scope.has_module_access?(scope, module_key()) and
+      Scope.has_module_access?(scope, @settings_permission)
+  rescue
+    _ -> false
+  end
+
+  @doc """
+  Whether `scope` may moderate comments on CRM records: the CRM is one
+  permission with no per-record model, so CRM access means every record.
+  Same rule `InteractionLinks.visible_resource_uuids/2` applies.
+  """
+  @spec comment_moderator?(term()) :: boolean()
+  def comment_moderator?(scope) do
+    enabled?() and Scope.has_module_access?(scope, module_key())
+  rescue
+    _ -> false
+  end
+
+  @doc """
+  `phoenix_kit_comments`' moderation scope for the contact and company
+  comment types: `:all` for a CRM-permission holder, else none.
+  """
+  @spec moderatable_resources(String.t(), term()) :: :all | [String.t()]
+  def moderatable_resources(type, scope) when type in ["crm_contact", "crm_company"] do
+    if comment_moderator?(scope), do: :all, else: []
+  end
+
+  def moderatable_resources(_type, _scope), do: []
+
+  # Set once the settings split's backfill has run, so it never runs again
+  # and an Owner's later revoke sticks.
+  @settings_backfill_key "crm_settings_backfilled"
+
+  @doc """
+  One-time data repairs core calls on every boot. Each carries its own
+  "already done" flag and runs once.
+
+    * `crm.settings` is granted to every role that already holds the base
+      `crm` key, so nobody loses the settings page or the role pages when
+      they move behind the sub-key. A role granted `crm` afterwards gets the
+      narrow meaning. The flag is set only once every grant succeeded.
+  """
+  @impl PhoenixKit.Module
+  def migrate_legacy do
+    if Settings.get_setting(@settings_backfill_key) == "true" do
+      :ok
+    else
+      backfill_settings_permission()
+    end
+  rescue
+    error ->
+      Logger.warning("[PhoenixKitCRM] migrate_legacy failed: #{Exception.message(error)}")
+      {:error, Exception.message(error)}
+  end
+
+  @doc false
+  # `:grant` and `:holders` are parameters only so a test can make a grant or
+  # the lookup fail and prove the flag then stays unset; production always
+  # uses core's grant and `role_uuids_holding/1`.
+  def backfill_settings_permission(opts \\ []) do
+    grant = Keyword.get(opts, :grant, &Permissions.grant_permission/3)
+    holders = Keyword.get(opts, :holders, &role_uuids_holding/1)
+
+    # Read with a query that RAISES on failure: core's
+    # `get_permissions_for_role/1` rescues an error to `[]`, which would read
+    # as "nobody holds crm" and set the flag for good.
+    case read_holders(holders) do
+      {:ok, base, already} -> grant_settings_to(base, already, grant)
+      {:error, :lookup_failed} = error -> error
+    end
+  end
+
+  defp read_holders(holders) do
+    {:ok, holders.(module_key()), MapSet.new(holders.(@settings_permission))}
+  rescue
+    error ->
+      Logger.warning(
+        "[PhoenixKitCRM] crm.settings backfill could not read the grants, will retry next boot: " <>
+          Exception.message(error)
+      )
+
+      {:error, :lookup_failed}
+  end
+
+  defp grant_settings_to(base, already, grant) do
+    failures =
+      for role_uuid <- base,
+          not MapSet.member?(already, role_uuid),
+          result = grant.(role_uuid, @settings_permission, nil),
+          not match?({:ok, _}, result) do
+        {role_uuid, result}
+      end
+
+    case failures do
+      [] ->
+        Settings.update_setting_with_module(@settings_backfill_key, "true", module_key())
+        :ok
+
+      _ ->
+        Logger.warning(
+          "[PhoenixKitCRM] crm.settings backfill incomplete, will retry next boot: " <>
+            inspect(failures)
+        )
+
+        {:error, {:settings_backfill_incomplete, failures}}
+    end
+  end
+
+  # Every role holding `key`, straight from the role-permission table.
+  defp role_uuids_holding(key) do
+    RepoHelper.repo().all(
+      from(rp in RolePermission,
+        where: rp.module_key == ^key,
+        select: rp.role_uuid,
+        distinct: true
+      )
+    )
   end
 
   @impl PhoenixKit.Module
@@ -218,7 +370,7 @@ defmodule PhoenixKitCRM do
         priority: 924,
         level: :admin,
         parent: :admin_settings,
-        permission: module_key(),
+        permission: @settings_permission,
         match: :exact,
         live_view: {PhoenixKitCRM.Web.SettingsLive, :index},
         gettext_backend: PhoenixKitCRM.Gettext

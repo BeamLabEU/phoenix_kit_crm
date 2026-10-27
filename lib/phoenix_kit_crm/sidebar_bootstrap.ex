@@ -56,14 +56,19 @@ defmodule PhoenixKitCRM.SidebarBootstrap do
     end
   end
 
-  defp role_tab(role) do
+  @doc false
+  # Public for the test that pins the tab's permission (the registry is not
+  # running in the suite).
+  def role_tab(role) do
     %Tab{
       id: :"crm_role_#{role.uuid}",
       label: role.name,
       path: "/admin/crm/role/#{role.uuid}",
       priority: 660,
       level: :admin,
-      permission: PhoenixKitCRM.module_key(),
+      # A role page lists every holder of the role with their email — the
+      # settings sub-key, the same one that chooses which roles get a page.
+      permission: PhoenixKitCRM.settings_permission(),
       parent: :admin_crm,
       live_view: {PhoenixKitCRM.Web.RoleView, :index}
     }

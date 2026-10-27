@@ -11,6 +11,15 @@ defmodule PhoenixKitCRM.Web.ContactFormMirrorTest do
 
   use PhoenixKitCRM.LiveCase
 
+  alias PhoenixKit.Users.Roles
+  alias PhoenixKitCRM.Test.SiteOwner
+
+  # The site's Owner exists before the test's own users (see SiteOwner).
+  setup do
+    _owner = SiteOwner.ensure!()
+    :ok
+  end
+
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.Contacts
 
@@ -86,17 +95,56 @@ defmodule PhoenixKitCRM.Web.ContactFormMirrorTest do
     end
   end
 
+  describe "the site's Owners and Admins" do
+    defp admin_fixture do
+      user = person_user_fixture(%{"email" => "admin-#{unique()}@example.test"})
+      {:ok, _} = Roles.assign_role(user, "Admin")
+      user
+    end
+
+    test "are never offered by the picker", %{conn: conn} do
+      admin = admin_fixture()
+      plain_email = "plain-#{unique()}@example.test"
+      _plain = person_user_fixture(%{"email" => plain_email})
+
+      {:ok, view, _html} = edit(conn, contact_fixture(%{"name" => "Target"}))
+      html = render_click(view, "mirror_open_picker")
+
+      assert html =~ plain_email
+      refute html =~ admin.email
+    end
+
+    test "a crafted link to one is refused, in the page and in the context", %{conn: conn} do
+      admin = admin_fixture()
+      contact = contact_fixture(%{"name" => "Target", "email" => admin.email})
+
+      {:ok, view, _html} = edit(conn, contact)
+      html = render_submit(view, "mirror_link", %{"user_uuid" => admin.uuid})
+
+      assert html =~ "cannot be linked"
+      refute Contacts.get_contact(contact.uuid).user_uuid
+      assert {:error, :privileged_account} = Contacts.link_user(contact, admin.uuid)
+      assert {:error, :privileged_account} = Contacts.connect_user(contact, admin.email)
+    end
+  end
+
   describe "mirror_link — no conflict" do
-    test "links directly and fills the user's BLANK first_name from the contact", %{conn: conn} do
+    test "links directly and fills a CRM placeholder's BLANK first_name from the contact", %{
+      conn: conn
+    } do
       # Unlike organization accounts, first_name/last_name are NOT required
       # at registration (registration_changeset only length-validates
       # them), so a genuinely blank first_name on a real registered user
       # is realistic here — no post-hoc blanking needed (contrast with the
       # Company equivalent, which had to simulate it).
       email = "shared-#{unique()}@example.test"
-      user = person_user_fixture(%{"email" => email})
+
+      user =
+        person_user_fixture(%{"email" => email, "custom_fields" => %{"source" => "crm_contact"}})
+
       contact = contact_fixture(%{"name" => "Anna Kask", "email" => email})
 
+      user = as_unclaimed!(user)
       {:ok, view, _html} = edit(conn, contact)
 
       render_submit(view, "mirror_link", %{"user_uuid" => user.uuid})
@@ -149,7 +197,7 @@ defmodule PhoenixKitCRM.Web.ContactFormMirrorTest do
       refute Contacts.get_contact(contact.uuid).user_uuid
     end
 
-    test "resolving keep_crm writes the contact's name onto the user", %{conn: conn} do
+    test "resolving keep_crm writes the contact's name onto a CRM placeholder", %{conn: conn} do
       shared_email = "shared-#{unique()}@example.test"
       contact = contact_fixture(%{"name" => "Anna Kask", "email" => shared_email})
 
@@ -157,9 +205,11 @@ defmodule PhoenixKitCRM.Web.ContactFormMirrorTest do
         person_user_fixture(%{
           "email" => shared_email,
           "first_name" => "Annie",
-          "last_name" => "K."
+          "last_name" => "K.",
+          "custom_fields" => %{"source" => "crm_contact"}
         })
 
+      user = as_unclaimed!(user)
       {:ok, view, _html} = edit(conn, contact)
       render_submit(view, "mirror_link", %{"user_uuid" => user.uuid})
 
@@ -330,6 +380,64 @@ defmodule PhoenixKitCRM.Web.ContactFormMirrorTest do
       updated_user = Auth.get_user(user.uuid)
       assert updated_user.first_name == "Annie"
       assert updated_user.last_name == "K."
+    end
+  end
+
+  describe "a registered person's account is never rewritten" do
+    test "the conflict modal says so, and keep_crm leaves the account exactly as it was",
+         %{conn: conn} do
+      shared_email = "real-#{unique()}@example.test"
+      contact = contact_fixture(%{"name" => "Anna Kask", "email" => shared_email})
+
+      user =
+        person_user_fixture(%{
+          "email" => shared_email,
+          "first_name" => "Annie",
+          "last_name" => "K."
+        })
+
+      {:ok, view, _html} = edit(conn, contact)
+      html = render_submit(view, "mirror_link", %{"user_uuid" => user.uuid})
+      assert html =~ ~s(data-testid="mirror-account-locked")
+
+      html = render_submit(view, "mirror_resolve", %{"choices" => %{"name" => "keep_crm"}})
+
+      after_user = Auth.get_user(user.uuid)
+      assert after_user.first_name == "Annie"
+      assert after_user.last_name == "K."
+      assert after_user.email == shared_email
+      # The CRM keeps its own value; the link is made; the person is told.
+      assert Contacts.get_contact(contact.uuid).name == "Anna Kask"
+      assert Contacts.get_contact(contact.uuid).user_uuid == user.uuid
+      assert html =~ "left unchanged"
+    end
+
+    test "a crafted keep_crm on an email conflict never changes the account's login email",
+         %{conn: conn} do
+      contact =
+        contact_fixture(%{"name" => "Anna Kask", "email" => "crm-#{unique()}@example.test"})
+
+      user = person_user_fixture(%{"first_name" => "Anna", "last_name" => "Kask"})
+
+      {:ok, view, _html} = edit(conn, contact)
+      render_submit(view, "mirror_link", %{"user_uuid" => user.uuid})
+      render_submit(view, "mirror_resolve", %{"choices" => %{"email" => "keep_crm"}})
+
+      assert Auth.get_user(user.uuid).email == user.email
+      assert Contacts.get_contact(contact.uuid).user_uuid == user.uuid
+    end
+
+    test "a no-conflict link leaves the account's blank name blank", %{conn: conn} do
+      email = "blank-#{unique()}@example.test"
+      user = person_user_fixture(%{"email" => email})
+      contact = contact_fixture(%{"name" => "Anna Kask", "email" => email})
+
+      {:ok, view, _html} = edit(conn, contact)
+      html = render_submit(view, "mirror_link", %{"user_uuid" => user.uuid})
+
+      assert Contacts.get_contact(contact.uuid).user_uuid == user.uuid
+      assert Auth.get_user(user.uuid).first_name in [nil, ""]
+      assert html =~ "left unchanged"
     end
   end
 

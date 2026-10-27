@@ -1,6 +1,14 @@
 defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
   use PhoenixKitCRM.LiveCase
 
+  alias PhoenixKitCRM.Test.SiteOwner
+
+  # The site's Owner exists before the test's own users (see SiteOwner).
+  setup do
+    _owner = SiteOwner.ensure!()
+    :ok
+  end
+
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.{Companies, Contacts, Interactions}
   alias PhoenixKitCRM.Web.InteractionHelpers

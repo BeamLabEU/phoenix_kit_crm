@@ -8,6 +8,14 @@ defmodule PhoenixKitCRM.Web.CompanyFormMirrorTest do
 
   use PhoenixKitCRM.LiveCase
 
+  alias PhoenixKitCRM.Test.SiteOwner
+
+  # The site's Owner exists before the test's own users (see SiteOwner).
+  setup do
+    _owner = SiteOwner.ensure!()
+    :ok
+  end
+
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.Companies
@@ -89,9 +97,14 @@ defmodule PhoenixKitCRM.Web.CompanyFormMirrorTest do
   end
 
   describe "mirror_link — no conflict" do
-    test "links directly and fills the user's BLANK organization_name from the company",
+    test "links directly and fills a CRM placeholder's BLANK organization_name from the company",
          %{conn: conn} do
-      user = org_user_fixture(%{"organization_name" => "Placeholder"})
+      user =
+        org_user_fixture(%{
+          "organization_name" => "Placeholder",
+          "custom_fields" => %{"source" => "crm_company"}
+        })
+
       {:ok, user} = Auth.update_user_profile(user, %{organization_name: nil})
 
       # Same email on both sides so only organization_name is in play —
@@ -101,6 +114,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormMirrorTest do
       company =
         company_fixture(%{"name" => "Acme Corp #{unique()}", "email" => user.email})
 
+      user = as_unclaimed!(user)
       {:ok, view, _html} = edit(conn, company)
 
       render_submit(view, "mirror_link", %{"user_uuid" => user.uuid})
@@ -141,11 +155,18 @@ defmodule PhoenixKitCRM.Web.CompanyFormMirrorTest do
       refute Auth.get_user(user.uuid).organization_name == "Acme"
     end
 
-    test "resolving keep_crm writes the company's name onto the user", %{conn: conn} do
+    test "resolving keep_crm writes the company's name onto a CRM placeholder", %{conn: conn} do
       shared_email = "shared-#{unique()}@example.test"
       company = company_fixture(%{"name" => "Acme", "email" => shared_email})
-      user = org_user_fixture(%{"organization_name" => "Acme GmbH", "email" => shared_email})
 
+      user =
+        org_user_fixture(%{
+          "organization_name" => "Acme GmbH",
+          "email" => shared_email,
+          "custom_fields" => %{"source" => "crm_company"}
+        })
+
+      user = as_unclaimed!(user)
       {:ok, view, _html} = edit(conn, company)
       render_submit(view, "mirror_link", %{"user_uuid" => user.uuid})
 
@@ -295,6 +316,42 @@ defmodule PhoenixKitCRM.Web.CompanyFormMirrorTest do
       refute html =~ "mirror_unlink"
       assert Companies.get_company(company.uuid).user_uuid == nil
       assert Auth.get_user(user.uuid) != nil
+    end
+  end
+
+  describe "a registered organization's account is never rewritten" do
+    test "the modal says so, and keep_crm on name and email leaves the account as it was",
+         %{conn: conn} do
+      company = company_fixture(%{"name" => "Acme", "email" => "crm-#{unique()}@example.test"})
+      user = org_user_fixture(%{"organization_name" => "Acme GmbH"})
+
+      {:ok, view, _html} = edit(conn, company)
+      html = render_submit(view, "mirror_link", %{"user_uuid" => user.uuid})
+      assert html =~ ~s(data-testid="mirror-account-locked")
+
+      html =
+        render_submit(view, "mirror_resolve", %{
+          "choices" => %{"name" => "keep_crm", "email" => "keep_crm"}
+        })
+
+      after_user = Auth.get_user(user.uuid)
+      assert after_user.organization_name == "Acme GmbH"
+      assert after_user.email == user.email
+      assert Companies.get_company(company.uuid).name == "Acme"
+      assert Companies.get_company(company.uuid).user_uuid == user.uuid
+      assert html =~ "left unchanged"
+    end
+
+    test "a no-conflict link leaves the account's blank organization name blank", %{conn: conn} do
+      user = org_user_fixture(%{"organization_name" => "Placeholder"})
+      {:ok, user} = Auth.update_user_profile(user, %{organization_name: nil})
+      company = company_fixture(%{"name" => "Acme Corp #{unique()}", "email" => user.email})
+
+      {:ok, view, _html} = edit(conn, company)
+      render_submit(view, "mirror_link", %{"user_uuid" => user.uuid})
+
+      assert Companies.get_company(company.uuid).user_uuid == user.uuid
+      assert Auth.get_user(user.uuid).organization_name in [nil, ""]
     end
   end
 end

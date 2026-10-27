@@ -14,7 +14,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
-  alias PhoenixKitCRM.{Activity, Companies, Mirror, PartyRoleTypes, Paths}
+  alias PhoenixKitCRM.{AccountGuard, Activity, Companies, Mirror, PartyRoleTypes, Paths}
   alias PhoenixKitCRM.Schemas.Company
 
   # Whitelist for the conflict-resolution form's per-field radios — never
@@ -67,6 +67,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
     |> assign(:mirror_choices, %{})
     |> assign(:show_conflict, false)
     |> assign(:mirror_pending_user_uuid, nil)
+    |> assign(:mirror_account_locked, false)
     |> assign(:show_picker, false)
     |> assign(:picker_candidates, [])
   end
@@ -171,8 +172,10 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   end
 
   def handle_event("mirror_open_picker", _params, socket) do
-    linked = Companies.linked_user_uuids()
-    candidates = Enum.reject(Auth.list_organizations(), &MapSet.member?(linked, &1.uuid))
+    # Already-linked accounts and the site's Owners/Admins are never offered
+    # (AccountGuard); linking one is refused server-side too.
+    excluded = MapSet.union(Companies.linked_user_uuids(), AccountGuard.privileged_user_uuids())
+    candidates = Enum.reject(Auth.list_organizations(), &MapSet.member?(excluded, &1.uuid))
 
     {:noreply,
      socket
@@ -195,7 +198,12 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
         # Re-check even though connect_user/2 also guards — the diff/fill
         # path below writes to `user` directly and must not run against a
         # type connect_user would reject anyway.
-        case Mirror.diff(company, user) do
+        # An Owner's or Admin's account is never linked (AccountGuard).
+        case link_target(company, user) do
+          :privileged ->
+            {:noreply,
+             put_flash(socket, :error, gettext("This account cannot be linked from the CRM."))}
+
           [] ->
             link_without_conflict(socket, company, user)
 
@@ -205,6 +213,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
              |> assign(:mirror_conflicts, conflicts)
              |> assign(:mirror_choices, %{})
              |> assign(:mirror_pending_user_uuid, user_uuid)
+             |> assign(:mirror_account_locked, not Mirror.placeholder_user?(user))
              |> assign(:show_conflict, true)
              |> assign(:show_picker, false)
              |> assign(:picker_candidates, [])}
@@ -261,7 +270,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
              |> assign(:linked_user, linked_user)
              |> assign(:linked_account_path, Paths.user_view(linked_user.uuid))
              |> close_conflict()
-             |> put_flash(:info, gettext("Mirror account linked"))}
+             |> put_flash(:info, resolution_flash(user, deltas))}
 
           {:error, other} ->
             Logger.warning(
@@ -314,10 +323,16 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   # Ignore unexpected/forged events (and malformed validate/save payloads).
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
+  # What linking `user` would mean: refused for an Owner's or Admin's account
+  # (AccountGuard), else the fields that differ (`[]` = link straight away).
+  defp link_target(record, user) do
+    if AccountGuard.privileged?(user.uuid), do: :privileged, else: Mirror.diff(record, user)
+  end
+
   defp link_without_conflict(socket, company, user) do
     case Companies.connect_user(company, user.uuid) do
       {:ok, linked_company} ->
-        linked_user = fill_blank_user_fields(user, company)
+        {linked_user, left_alone?} = fill_blank_user_fields(user, company)
 
         {:noreply,
          socket
@@ -326,7 +341,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
          |> assign(:linked_account_path, Paths.user_view(linked_user.uuid))
          |> assign(:show_picker, false)
          |> assign(:picker_candidates, [])
-         |> put_flash(:info, gettext("Linked to mirror account"))}
+         |> put_flash(:info, link_flash(left_alone?))}
 
       {:error, other} ->
         Logger.warning("[CRM] connect_user failed: #{inspect(other)}")
@@ -346,18 +361,44 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
       |> Enum.filter(fn {field, value} -> not is_nil(value) and blank?(Map.get(user, field)) end)
       |> Map.new()
 
-    if attrs == %{} do
-      user
-    else
-      case Auth.update_user_profile(user, attrs) do
-        {:ok, updated} ->
-          updated
+    cond do
+      attrs == %{} ->
+        {user, false}
 
-        {:error, changeset} ->
-          Logger.warning("[CRM] fill_blank_user_fields failed: #{inspect(changeset.errors)}")
-          user
-      end
+      # Never on a real account, not even into a blank field — the CRM
+      # writes only its own unclaimed placeholders (Mirror.placeholder_user?/1).
+      not Mirror.placeholder_user?(user) ->
+        {user, true}
+
+      true ->
+        case Auth.update_user_profile(user, attrs) do
+          {:ok, updated} ->
+            {updated, false}
+
+          {:error, changeset} ->
+            Logger.warning("[CRM] fill_blank_user_fields failed: #{inspect(changeset.errors)}")
+            {user, false}
+        end
     end
+  end
+
+  defp link_flash(true),
+    do:
+      gettext(
+        "Linked to mirror account. The account's own details were left unchanged: it belongs to a registered person."
+      )
+
+  defp link_flash(false), do: gettext("Linked to mirror account")
+
+  # A "keep the CRM value" choice on a real account wrote nothing to it —
+  # say so, rather than reporting a rewrite that did not happen.
+  defp resolution_flash(user, %{user: user_deltas}) do
+    if map_size(user_deltas) > 0 and not Mirror.placeholder_user?(user),
+      do:
+        gettext(
+          "Mirror account linked. The account's name and email were left unchanged: it belongs to a registered person, so the CRM keeps its own values."
+        ),
+      else: gettext("Mirror account linked")
   end
 
   defp assign_form_after_resolution(socket, company, crm_deltas) do
@@ -377,6 +418,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
     |> assign(:mirror_choices, %{})
     |> assign(:show_conflict, false)
     |> assign(:mirror_pending_user_uuid, nil)
+    |> assign(:mirror_account_locked, false)
   end
 
   defp allowed_conflict_fields(conflicts), do: conflicts |> Enum.map(& &1.field) |> MapSet.new()
@@ -600,6 +642,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
       conflicts={@mirror_conflicts}
       master={:crm}
       choices={@mirror_choices}
+      account_locked={@mirror_account_locked}
       show={@show_conflict}
     />
     """

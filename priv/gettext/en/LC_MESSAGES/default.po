@@ -12,13 +12,13 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 #: lib/phoenix_kit_crm/web/companies_live.ex:18
-#: lib/phoenix_kit_crm/web/company_form_live.ex:80
-#: lib/phoenix_kit_crm/web/company_form_live.ex:88
+#: lib/phoenix_kit_crm/web/company_form_live.ex:81
+#: lib/phoenix_kit_crm/web/company_form_live.ex:89
 #: lib/phoenix_kit_crm/web/company_show_live.ex:116
 #: lib/phoenix_kit_crm/web/comparison_live.ex:29
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:87
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:95
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:92
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:87
 #: lib/phoenix_kit_crm/web/contacts_live.ex:18
 #: lib/phoenix_kit_crm/web/crm_live.ex:53
 #: lib/phoenix_kit_crm/web/list_form_live.ex:48
@@ -27,15 +27,15 @@ msgstr ""
 #: lib/phoenix_kit_crm/web/list_members_live.ex:70
 #: lib/phoenix_kit_crm/web/lists_live.ex:23
 #: lib/phoenix_kit_crm/web/organizations_view.ex:57
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:45
-#: lib/phoenix_kit_crm/web/role_view.ex:52
-#: lib/phoenix_kit_crm/web/settings_live.ex:22
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:52
+#: lib/phoenix_kit_crm/web/role_view.ex:35
+#: lib/phoenix_kit_crm/web/settings_live.ex:33
 #, elixir-autogen
 msgid "CRM"
 msgstr "CRM"
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:448
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:274
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:269
 #, elixir-autogen
 msgid "Overview"
 msgstr "Overview"
@@ -51,12 +51,12 @@ msgstr "Organizations"
 msgid "Contact"
 msgstr "Contact"
 
-#: lib/phoenix_kit_crm/schemas/interaction.ex:252
-#: lib/phoenix_kit_crm/web/company_form_live.ex:495
+#: lib/phoenix_kit_crm/schemas/interaction.ex:255
+#: lib/phoenix_kit_crm/web/company_form_live.ex:546
 #: lib/phoenix_kit_crm/web/company_show_live.ex:653
 #: lib/phoenix_kit_crm/web/comparison_live.ex:208
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:632
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:381
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:678
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:424
 #: lib/phoenix_kit_crm/web/contacts_live.ex:175
 #: lib/phoenix_kit_crm/web/contacts_live.ex:429
 #: lib/phoenix_kit_crm/web/list_import_live.ex:364
@@ -88,8 +88,8 @@ msgstr "Registered"
 
 #: lib/phoenix_kit_crm/web/companies_live.ex:182
 #: lib/phoenix_kit_crm/web/companies_live.ex:443
-#: lib/phoenix_kit_crm/web/company_form_live.ex:493
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:634
+#: lib/phoenix_kit_crm/web/company_form_live.ex:544
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:680
 #: lib/phoenix_kit_crm/web/contacts_live.ex:177
 #: lib/phoenix_kit_crm/web/contacts_live.ex:430
 #: lib/phoenix_kit_crm/web/interactions_component.ex:1804
@@ -98,7 +98,7 @@ msgstr "Registered"
 #: lib/phoenix_kit_crm/web/list_members_live.ex:597
 #: lib/phoenix_kit_crm/web/lists_live.ex:133
 #: lib/phoenix_kit_crm/web/lists_live.ex:185
-#: lib/phoenix_kit_crm/web/settings_live.ex:281
+#: lib/phoenix_kit_crm/web/settings_live.ex:311
 #, elixir-autogen
 msgid "Status"
 msgstr "Status"
@@ -107,22 +107,22 @@ msgstr "Status"
 msgid "Username"
 msgstr "Username"
 
-#: lib/phoenix_kit_crm/web/components/mirror_conflict_modal.ex:122
+#: lib/phoenix_kit_crm/web/components/mirror_conflict_modal.ex:134
 #: lib/phoenix_kit_crm/web/list_members_live.ex:579
 #, elixir-autogen, elixir-format
 msgid "Apply"
 msgstr "Apply"
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:532
-#: lib/phoenix_kit_crm/web/company_form_live.ex:575
-#: lib/phoenix_kit_crm/web/components/mirror_conflict_modal.ex:119
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:711
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:755
+#: lib/phoenix_kit_crm/web/company_form_live.ex:583
+#: lib/phoenix_kit_crm/web/company_form_live.ex:626
+#: lib/phoenix_kit_crm/web/components/mirror_conflict_modal.ex:131
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:757
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:801
 #: lib/phoenix_kit_crm/web/interactions_component.ex:2021
 #: lib/phoenix_kit_crm/web/interactions_component.ex:2163
 #: lib/phoenix_kit_crm/web/list_form_live.ex:170
 #: lib/phoenix_kit_crm/web/list_members_live.ex:570
-#: lib/phoenix_kit_crm/web/organizations_view.ex:447
+#: lib/phoenix_kit_crm/web/organizations_view.ex:466
 #, elixir-autogen, elixir-format
 msgid "Cancel"
 msgstr "Cancel"
@@ -151,15 +151,15 @@ msgstr "Remove"
 msgid "Yes"
 msgstr "Yes"
 
-#: lib/phoenix_kit_crm/web/organizations_view.ex:367
+#: lib/phoenix_kit_crm/web/organizations_view.ex:386
 #, elixir-autogen, elixir-format
 msgid "%{count} organization"
 msgid_plural "%{count} organizations"
 msgstr[0] "%{count} organization"
 msgstr[1] "%{count} organizations"
 
-#: lib/phoenix_kit_crm/web/role_view.ex:155
-#: lib/phoenix_kit_crm/web/settings_live.ex:223
+#: lib/phoenix_kit_crm/web/role_view.ex:176
+#: lib/phoenix_kit_crm/web/settings_live.ex:253
 #, elixir-autogen, elixir-format
 msgid "%{count} user"
 msgid_plural "%{count} users"
@@ -167,64 +167,64 @@ msgstr[0] "%{count} user"
 msgstr[1] "%{count} users"
 
 #: lib/phoenix_kit_crm/web/organizations_view.ex:44
-#: lib/phoenix_kit_crm/web/role_view.ex:29
+#: lib/phoenix_kit_crm/web/role_view.ex:58
 #, elixir-autogen, elixir-format
 msgid "CRM is not enabled."
 msgstr "CRM is not enabled."
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:119
+#: lib/phoenix_kit_crm/web/crm_live.ex:121
 #, elixir-autogen, elixir-format
 msgid "CRM settings"
 msgstr "CRM settings"
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:115
+#: lib/phoenix_kit_crm/web/settings_live.ex:144
 #, elixir-autogen, elixir-format
 msgid "CRM settings updated"
 msgstr "CRM settings updated"
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:193
+#: lib/phoenix_kit_crm/web/settings_live.ex:223
 #, elixir-autogen, elixir-format
 msgid "Choose which roles can access the CRM module. Owner and Admin always have access."
 msgstr "Choose which roles can access the CRM module. Owner and Admin always have access."
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:776
-#: lib/phoenix_kit_crm/web/organizations_view.ex:374
-#: lib/phoenix_kit_crm/web/role_view.ex:160
+#: lib/phoenix_kit_crm/web/organizations_view.ex:393
+#: lib/phoenix_kit_crm/web/role_view.ex:181
 #, elixir-autogen, elixir-format
 msgid "Columns"
 msgstr "Columns"
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:176
+#: lib/phoenix_kit_crm/web/settings_live.ex:206
 #, elixir-autogen, elixir-format
 msgid "Enable CRM"
 msgstr "Enable CRM"
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:118
+#: lib/phoenix_kit_crm/web/settings_live.ex:147
 #, elixir-autogen, elixir-format
 msgid "Failed to update CRM settings"
 msgstr "Failed to update CRM settings"
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:141
+#: lib/phoenix_kit_crm/web/settings_live.ex:169
 #, elixir-autogen, elixir-format
 msgid "Failed to update role access"
 msgstr "Failed to update role access"
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:168
+#: lib/phoenix_kit_crm/web/settings_live.ex:198
 #, elixir-autogen, elixir-format
 msgid "Module-specific configuration will appear here as the CRM grows."
 msgstr "Module-specific configuration will appear here as the CRM grows."
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:200
+#: lib/phoenix_kit_crm/web/settings_live.ex:230
 #, elixir-autogen, elixir-format
 msgid "No eligible roles found."
 msgstr "No eligible roles found."
 
-#: lib/phoenix_kit_crm/web/organizations_view.ex:410
+#: lib/phoenix_kit_crm/web/organizations_view.ex:429
 #, elixir-autogen, elixir-format
 msgid "No organization accounts yet."
 msgstr "No organization accounts yet."
 
-#: lib/phoenix_kit_crm/web/role_view.ex:193
+#: lib/phoenix_kit_crm/web/role_view.ex:214
 #, elixir-autogen, elixir-format
 msgid "No users with this role."
 msgstr "No users with this role."
@@ -234,28 +234,29 @@ msgstr "No users with this role."
 msgid "Organization accounts are not enabled."
 msgstr "Organization accounts are not enabled."
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:155
-#: lib/phoenix_kit_crm/web/settings_live.ex:190
+#: lib/phoenix_kit_crm/web/settings_live.ex:185
+#: lib/phoenix_kit_crm/web/settings_live.ex:220
 #, elixir-autogen, elixir-format
 msgid "Role Access"
 msgstr "Role Access"
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:137
+#: lib/phoenix_kit_crm/web/settings_live.ex:165
 #, elixir-autogen, elixir-format
 msgid "Role access updated"
 msgstr "Role access updated"
 
-#: lib/phoenix_kit_crm/web/role_view.ex:43
+#: lib/phoenix_kit_crm/web/role_view.ex:70
+#: lib/phoenix_kit_crm/web/role_view.ex:75
 #, elixir-autogen, elixir-format
 msgid "Role not found."
 msgstr "Role not found."
 
-#: lib/phoenix_kit_crm/web/role_view.ex:35
+#: lib/phoenix_kit_crm/web/role_view.ex:66
 #, elixir-autogen, elixir-format
 msgid "This role does not have CRM access."
 msgstr "This role does not have CRM access."
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:179
+#: lib/phoenix_kit_crm/web/settings_live.ex:209
 #, elixir-autogen, elixir-format
 msgid "Toggles this module on or off. Same setting as the admin Modules page."
 msgstr "Toggles this module on or off. Same setting as the admin Modules page."
@@ -274,7 +275,7 @@ msgstr[1] ""
 
 #: lib/phoenix_kit_crm/web/comparison_live.ex:134
 #: lib/phoenix_kit_crm/web/contacts_live.ex:327
-#: lib/phoenix_kit_crm/web/crm_live.ex:483
+#: lib/phoenix_kit_crm/web/crm_live.ex:485
 #, elixir-autogen, elixir-format
 msgid "%{count} contact"
 msgid_plural "%{count} contacts"
@@ -370,16 +371,16 @@ msgstr ""
 #: lib/phoenix_kit_crm/web/contacts_live.ex:179
 #: lib/phoenix_kit_crm/web/list_members_live.ex:600
 #: lib/phoenix_kit_crm/web/lists_live.ex:140
-#: lib/phoenix_kit_crm/web/settings_live.ex:283
+#: lib/phoenix_kit_crm/web/settings_live.ex:313
 #, elixir-autogen, elixir-format
 msgid "Actions"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:598
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:778
+#: lib/phoenix_kit_crm/web/company_form_live.ex:650
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:825
 #: lib/phoenix_kit_crm/web/list_form_live.ex:184
 #: lib/phoenix_kit_crm/web/lists_live.ex:88
-#: lib/phoenix_kit_crm/web/settings_live.ex:308
+#: lib/phoenix_kit_crm/web/settings_live.ex:338
 #, elixir-autogen, elixir-format
 msgid "Active"
 msgstr ""
@@ -425,7 +426,7 @@ msgstr ""
 msgid "Adding…"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:500
+#: lib/phoenix_kit_crm/web/company_form_live.ex:551
 #: lib/phoenix_kit_crm/web/company_show_live.ex:671
 #, elixir-autogen, elixir-format
 msgid "Address"
@@ -444,7 +445,7 @@ msgstr ""
 msgid "All (overwrite existing locale)"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:704
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:750
 #, elixir-autogen, elixir-format
 msgid "Allow this person to log in"
 msgstr ""
@@ -472,7 +473,7 @@ msgid "Applying…"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/lists_live.ex:232
-#: lib/phoenix_kit_crm/web/settings_live.ex:325
+#: lib/phoenix_kit_crm/web/settings_live.ex:355
 #, elixir-autogen, elixir-format
 msgid "Archive"
 msgstr ""
@@ -484,7 +485,7 @@ msgstr ""
 
 #: lib/phoenix_kit_crm/web/list_form_live.ex:185
 #: lib/phoenix_kit_crm/web/lists_live.ex:89
-#: lib/phoenix_kit_crm/web/settings_live.ex:311
+#: lib/phoenix_kit_crm/web/settings_live.ex:341
 #, elixir-autogen, elixir-format
 msgid "Archived"
 msgstr ""
@@ -514,7 +515,7 @@ msgstr ""
 msgid "CSV (with an email column) or a plain text file, one email per line. Max %{size}."
 msgstr ""
 
-#: lib/phoenix_kit_crm/schemas/interaction.ex:251
+#: lib/phoenix_kit_crm/schemas/interaction.ex:254
 #, elixir-autogen, elixir-format
 msgid "Call"
 msgstr ""
@@ -524,7 +525,7 @@ msgstr ""
 msgid "Change logo"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:560
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:603
 #, elixir-autogen, elixir-format
 msgid "Change photo"
 msgstr ""
@@ -536,29 +537,29 @@ msgid "Choose a file first"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:461
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:286
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:281
 #, elixir-autogen, elixir-format
 msgid "Comments"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:504
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:670
+#: lib/phoenix_kit_crm/web/company_form_live.ex:555
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:716
 #, elixir-autogen, elixir-format
 msgid "Commercial roles"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/companies_live.ex:17
-#: lib/phoenix_kit_crm/web/company_form_live.ex:82
-#: lib/phoenix_kit_crm/web/company_form_live.ex:91
+#: lib/phoenix_kit_crm/web/company_form_live.ex:83
+#: lib/phoenix_kit_crm/web/company_form_live.ex:92
 #: lib/phoenix_kit_crm/web/company_show_live.ex:118
-#: lib/phoenix_kit_crm/web/crm_live.ex:162
+#: lib/phoenix_kit_crm/web/crm_live.ex:164
 #, elixir-autogen, elixir-format
 msgid "Companies"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:648
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:656
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:384
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:694
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:702
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:427
 #: lib/phoenix_kit_crm/web/contacts_live.ex:174
 #: lib/phoenix_kit_crm/web/contacts_live.ex:428
 #: lib/phoenix_kit_crm/web/interactions_component.ex:1665
@@ -568,7 +569,7 @@ msgid "Company"
 msgstr ""
 
 #: lib/phoenix_kit_crm/activity_labels.ex:32
-#: lib/phoenix_kit_crm/web/company_form_live.ex:429
+#: lib/phoenix_kit_crm/web/company_form_live.ex:474
 #, elixir-autogen, elixir-format
 msgid "Company created"
 msgstr ""
@@ -594,13 +595,13 @@ msgstr ""
 msgid "Company restored"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:471
+#: lib/phoenix_kit_crm/web/company_form_live.ex:522
 #, elixir-autogen, elixir-format
 msgid "Company saved, but some commercial roles couldn't be applied — please re-check and save."
 msgstr ""
 
 #: lib/phoenix_kit_crm/activity_labels.ex:34
-#: lib/phoenix_kit_crm/web/company_form_live.ex:447
+#: lib/phoenix_kit_crm/web/company_form_live.ex:498
 #, elixir-autogen, elixir-format
 msgid "Company updated"
 msgstr ""
@@ -610,7 +611,7 @@ msgstr ""
 msgid "Compare"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:706
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:752
 #, elixir-autogen, elixir-format
 msgid "Connects the contact to a user account (creates one if none exists for the email). Requires an email. They set a password via the normal sign-in flow."
 msgstr ""
@@ -631,7 +632,7 @@ msgid "Contact moved to trash"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:46
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:64
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:55
 #, elixir-autogen, elixir-format
 msgid "Contact not found"
 msgstr ""
@@ -651,12 +652,12 @@ msgstr ""
 msgid "Contact resubscribed"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:482
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:528
 #, elixir-autogen, elixir-format
 msgid "Contact saved"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:494
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:540
 #, elixir-autogen, elixir-format
 msgid "Contact saved, but the company link, login, or roles couldn't all be applied — please re-check and save."
 msgstr ""
@@ -668,9 +669,9 @@ msgstr ""
 
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:89
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:98
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:94
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:89
 #: lib/phoenix_kit_crm/web/contacts_live.ex:17
-#: lib/phoenix_kit_crm/web/crm_live.ex:169
+#: lib/phoenix_kit_crm/web/crm_live.ex:171
 #, elixir-autogen, elixir-format
 msgid "Contacts"
 msgstr ""
@@ -711,7 +712,7 @@ msgid "Could not delete contact"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:352
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:232
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:227
 #, elixir-autogen, elixir-format
 msgid "Could not open the image picker."
 msgstr ""
@@ -731,7 +732,7 @@ msgstr ""
 msgid "Could not remove the logo."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:246
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:241
 #, elixir-autogen, elixir-format
 msgid "Could not remove the photo."
 msgstr ""
@@ -828,15 +829,15 @@ msgstr ""
 msgid "Deleting…"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:667
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:397
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:713
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:440
 #, elixir-autogen, elixir-format
 msgid "Department / team"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:498
+#: lib/phoenix_kit_crm/web/company_form_live.ex:549
 #: lib/phoenix_kit_crm/web/list_form_live.ex:136
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:198
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:215
 #, elixir-autogen, elixir-format
 msgid "Description"
 msgstr ""
@@ -858,14 +859,14 @@ msgid "Duplicate in file"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/companies_live.ex:476
-#: lib/phoenix_kit_crm/web/company_form_live.ex:87
+#: lib/phoenix_kit_crm/web/company_form_live.ex:88
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:94
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:367
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:410
 #: lib/phoenix_kit_crm/web/contacts_live.ex:475
 #: lib/phoenix_kit_crm/web/interactions_component.ex:2257
 #: lib/phoenix_kit_crm/web/list_form_live.ex:55
 #: lib/phoenix_kit_crm/web/lists_live.ex:213
-#: lib/phoenix_kit_crm/web/settings_live.ex:316
+#: lib/phoenix_kit_crm/web/settings_live.ex:346
 #, elixir-autogen, elixir-format
 msgid "Edit"
 msgstr ""
@@ -886,7 +887,7 @@ msgid "Emails"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:451
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:284
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:279
 #: lib/phoenix_kit_crm/web/events_component.ex:132
 #, elixir-autogen, elixir-format
 msgid "Events"
@@ -910,7 +911,7 @@ msgid "File removed"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:457
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:281
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:276
 #: lib/phoenix_kit_crm/web/media_component.ex:295
 #, elixir-autogen, elixir-format
 msgid "Files"
@@ -921,8 +922,8 @@ msgstr ""
 msgid "Files or images"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:154
-#: lib/phoenix_kit_crm/web/settings_live.ex:165
+#: lib/phoenix_kit_crm/web/settings_live.ex:184
+#: lib/phoenix_kit_crm/web/settings_live.ex:195
 #, elixir-autogen, elixir-format
 msgid "General"
 msgstr ""
@@ -940,7 +941,7 @@ msgid "Image removed"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:458
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:282
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:277
 #: lib/phoenix_kit_crm/web/media_component.ex:295
 #, elixir-autogen, elixir-format
 msgid "Images"
@@ -988,15 +989,15 @@ msgstr ""
 msgid "In search results:"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:599
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:779
+#: lib/phoenix_kit_crm/web/company_form_live.ex:651
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:826
 #, elixir-autogen, elixir-format
 msgid "Inactive"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/companies_live.ex:181
 #: lib/phoenix_kit_crm/web/companies_live.ex:442
-#: lib/phoenix_kit_crm/web/company_form_live.ex:497
+#: lib/phoenix_kit_crm/web/company_form_live.ex:548
 #: lib/phoenix_kit_crm/web/company_show_live.ex:655
 #, elixir-autogen, elixir-format
 msgid "Industry"
@@ -1023,7 +1024,7 @@ msgid "Interaction updated"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:450
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:275
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:270
 #, elixir-autogen, elixir-format
 msgid "Interactions"
 msgstr ""
@@ -1044,7 +1045,7 @@ msgstr ""
 msgid "Involved:"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:639
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:685
 #, elixir-autogen, elixir-format
 msgid "Language/region code used to pick this contact's language when sending (e.g. \"en\", \"de-DE\")."
 msgstr ""
@@ -1091,7 +1092,7 @@ msgstr ""
 msgid "List updated"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:342
+#: lib/phoenix_kit_crm/web/crm_live.ex:344
 #: lib/phoenix_kit_crm/web/list_form_live.ex:50
 #: lib/phoenix_kit_crm/web/list_form_live.ex:59
 #: lib/phoenix_kit_crm/web/list_import_live.ex:63
@@ -1111,7 +1112,7 @@ msgstr ""
 msgid "Loading…"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:637
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:683
 #: lib/phoenix_kit_crm/web/list_form_live.ex:147
 #: lib/phoenix_kit_crm/web/list_members_live.ex:596
 #: lib/phoenix_kit_crm/web/lists_live.ex:135
@@ -1132,7 +1133,7 @@ msgid_plural "Locale applied to %{count} contacts"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:431
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:474
 #: lib/phoenix_kit_crm/web/interactions_component.ex:1645
 #: lib/phoenix_kit_crm/web/interactions_component.ex:1720
 #: lib/phoenix_kit_crm/web/interactions_drawer.ex:109
@@ -1143,14 +1144,14 @@ msgstr ""
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:723
 #: lib/phoenix_kit_crm/web/components/mirror_panel.ex:77
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:698
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:356
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:744
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:399
 #: lib/phoenix_kit_crm/web/contacts_live.ex:176
 #, elixir-autogen, elixir-format
 msgid "Login"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:399
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:442
 #, elixir-autogen, elixir-format
 msgid "Login account"
 msgstr ""
@@ -1175,7 +1176,7 @@ msgstr ""
 msgid "Logo updated"
 msgstr ""
 
-#: lib/phoenix_kit_crm/schemas/interaction.ex:253
+#: lib/phoenix_kit_crm/schemas/interaction.ex:256
 #, elixir-autogen, elixir-format
 msgid "Meeting"
 msgstr ""
@@ -1216,12 +1217,12 @@ msgid "Moving…"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/companies_live.ex:180
-#: lib/phoenix_kit_crm/web/company_form_live.ex:492
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:631
+#: lib/phoenix_kit_crm/web/company_form_live.ex:543
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:677
 #: lib/phoenix_kit_crm/web/contacts_live.ex:173
 #: lib/phoenix_kit_crm/web/list_form_live.ex:130
 #: lib/phoenix_kit_crm/web/lists_live.ex:132
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:183
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:200
 #, elixir-autogen, elixir-format
 msgid "Name"
 msgstr ""
@@ -1232,15 +1233,15 @@ msgid "Name (optional)"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/companies_live.ex:170
-#: lib/phoenix_kit_crm/web/company_form_live.ex:79
-#: lib/phoenix_kit_crm/web/crm_live.ex:146
+#: lib/phoenix_kit_crm/web/company_form_live.ex:80
+#: lib/phoenix_kit_crm/web/crm_live.ex:148
 #, elixir-autogen, elixir-format
 msgid "New company"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:86
 #: lib/phoenix_kit_crm/web/contacts_live.ex:163
-#: lib/phoenix_kit_crm/web/crm_live.ex:149
+#: lib/phoenix_kit_crm/web/crm_live.ex:151
 #, elixir-autogen, elixir-format
 msgid "New contact"
 msgstr ""
@@ -1349,7 +1350,7 @@ msgid "No rows found in that input"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:668
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:408
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:451
 #, elixir-autogen, elixir-format
 msgid "None"
 msgstr ""
@@ -1359,15 +1360,15 @@ msgstr ""
 msgid "Not set"
 msgstr ""
 
-#: lib/phoenix_kit_crm/schemas/interaction.ex:255
+#: lib/phoenix_kit_crm/schemas/interaction.ex:258
 #, elixir-autogen, elixir-format
 msgid "Note"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:501
+#: lib/phoenix_kit_crm/web/company_form_live.ex:552
 #: lib/phoenix_kit_crm/web/company_show_live.ex:672
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:645
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:411
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:691
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:454
 #, elixir-autogen, elixir-format
 msgid "Notes"
 msgstr ""
@@ -1409,7 +1410,7 @@ msgstr ""
 msgid "Optional"
 msgstr ""
 
-#: lib/phoenix_kit_crm/schemas/interaction.ex:256
+#: lib/phoenix_kit_crm/schemas/interaction.ex:259
 #, elixir-autogen, elixir-format
 msgid "Other"
 msgstr ""
@@ -1430,7 +1431,7 @@ msgstr ""
 msgid "Parsing…"
 msgstr ""
 
-#: lib/phoenix_kit_crm/party_role_types.ex:518
+#: lib/phoenix_kit_crm/party_role_types.ex:524
 #, elixir-autogen, elixir-format
 msgid "Partner"
 msgstr ""
@@ -1461,10 +1462,10 @@ msgstr ""
 msgid "Permanently deleted"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:496
+#: lib/phoenix_kit_crm/web/company_form_live.ex:547
 #: lib/phoenix_kit_crm/web/company_show_live.ex:654
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:633
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:382
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:679
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:425
 #, elixir-autogen, elixir-format
 msgid "Phone"
 msgstr ""
@@ -1474,7 +1475,7 @@ msgstr ""
 msgid "Pick 2 or more lists to see contacts subscribed to all of them."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:661
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:707
 #, elixir-autogen, elixir-format
 msgid "Pick an existing company, or"
 msgstr ""
@@ -1521,7 +1522,7 @@ msgstr ""
 msgid "Remove logo"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:583
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:626
 #, elixir-autogen, elixir-format
 msgid "Remove photo"
 msgstr ""
@@ -1546,7 +1547,7 @@ msgstr ""
 msgid "Remove this member from the list?"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:581
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:624
 #, elixir-autogen, elixir-format
 msgid "Remove this photo?"
 msgstr ""
@@ -1558,7 +1559,7 @@ msgstr ""
 
 #: lib/phoenix_kit_crm/web/companies_live.ex:459
 #: lib/phoenix_kit_crm/web/contacts_live.ex:458
-#: lib/phoenix_kit_crm/web/settings_live.ex:334
+#: lib/phoenix_kit_crm/web/settings_live.ex:364
 #, elixir-autogen, elixir-format
 msgid "Restore"
 msgstr ""
@@ -1568,7 +1569,7 @@ msgstr ""
 msgid "Restore this company before changing its logo."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:222
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:217
 #, elixir-autogen, elixir-format
 msgid "Restore this contact before changing its photo."
 msgstr ""
@@ -1601,14 +1602,14 @@ msgstr ""
 msgid "Result"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:666
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:396
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:712
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:439
 #, elixir-autogen, elixir-format
 msgid "Role in company"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:534
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:713
+#: lib/phoenix_kit_crm/web/company_form_live.ex:585
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:759
 #: lib/phoenix_kit_crm/web/list_form_live.ex:172
 #, elixir-autogen, elixir-format
 msgid "Save"
@@ -1624,8 +1625,8 @@ msgstr ""
 msgid "Saved."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:533
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:712
+#: lib/phoenix_kit_crm/web/company_form_live.ex:584
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:758
 #: lib/phoenix_kit_crm/web/interactions_component.ex:2170
 #: lib/phoenix_kit_crm/web/list_form_live.ex:171
 #, elixir-autogen, elixir-format
@@ -1686,12 +1687,12 @@ msgstr ""
 msgid "Slug"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:133
+#: lib/phoenix_kit_crm/web/company_form_live.ex:134
 #, elixir-autogen, elixir-format
 msgid "Something went wrong saving this company. Your input was kept — please try again."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:533
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:579
 #, elixir-autogen, elixir-format
 msgid "Something went wrong saving this contact. Your input was kept — please try again."
 msgstr ""
@@ -1745,12 +1746,12 @@ msgstr ""
 msgid "Subscribers"
 msgstr ""
 
-#: lib/phoenix_kit_crm/party_role_types.ex:516
+#: lib/phoenix_kit_crm/party_role_types.ex:522
 #, elixir-autogen, elixir-format
 msgid "Supplier"
 msgstr ""
 
-#: lib/phoenix_kit_crm/party_role_types.ex:522
+#: lib/phoenix_kit_crm/party_role_types.ex:528
 #, elixir-autogen, elixir-format
 msgid "Suppliers"
 msgstr ""
@@ -1839,7 +1840,7 @@ msgstr ""
 msgid "View members"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:494
+#: lib/phoenix_kit_crm/web/company_form_live.ex:545
 #: lib/phoenix_kit_crm/web/company_show_live.ex:652
 #, elixir-autogen, elixir-format
 msgid "Website"
@@ -1876,12 +1877,12 @@ msgstr ""
 msgid "auto-generated from the name if left blank"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:662
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:708
 #, elixir-autogen, elixir-format
 msgid "create one"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:171
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:172
 #, elixir-autogen, elixir-format
 msgid "is required to enable login"
 msgstr ""
@@ -1906,7 +1907,7 @@ msgstr ""
 msgid "profile photo"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:657
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:703
 #, elixir-autogen, elixir-format
 msgid "— Company not set —"
 msgstr ""
@@ -1916,7 +1917,7 @@ msgstr ""
 msgid "…and %{n} more"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:113
+#: lib/phoenix_kit_crm/web/crm_live.ex:115
 #, elixir-autogen, elixir-format
 msgid "CRM is disabled"
 msgstr ""
@@ -1926,62 +1927,62 @@ msgstr ""
 msgid "Captured %{ts}"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:451
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:494
 #, elixir-autogen, elixir-format
 msgid "Created"
 msgstr ""
 
-#: lib/phoenix_kit_crm/party_role_types.ex:517
+#: lib/phoenix_kit_crm/party_role_types.ex:523
 #, elixir-autogen, elixir-format
 msgid "Customer"
 msgstr "Customer"
 
-#: lib/phoenix_kit_crm/party_role_types.ex:523
+#: lib/phoenix_kit_crm/party_role_types.ex:529
 #, elixir-autogen, elixir-format
 msgid "Customers"
 msgstr "Customers"
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:115
+#: lib/phoenix_kit_crm/web/crm_live.ex:117
 #, elixir-autogen, elixir-format
 msgid "Enable it in CRM settings to start recording companies and contacts."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:444
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:487
 #, elixir-autogen, elixir-format
 msgid "No orders yet"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:467
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:510
 #, elixir-autogen, elixir-format
 msgid "Open order #%{number}"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:450
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:493
 #, elixir-autogen, elixir-format
 msgid "Order"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:278
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:273
 #, elixir-autogen, elixir-format
 msgid "Orders"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:445
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:488
 #, elixir-autogen, elixir-format
 msgid "Orders placed by this contact's linked login account will appear here."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/role_view.ex:265
+#: lib/phoenix_kit_crm/web/role_view.ex:286
 #, elixir-autogen, elixir-format
 msgid "View"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:406
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:449
 #, elixir-autogen, elixir-format
 msgid "View login account"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:152
+#: lib/phoenix_kit_crm/web/crm_live.ex:154
 #, elixir-autogen, elixir-format
 msgid "Import into a list"
 msgstr ""
@@ -2019,13 +2020,13 @@ msgstr ""
 msgid "Pick the client company in the project's Modules & features panel."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:268
+#: lib/phoenix_kit_crm/web/crm_live.ex:270
 #: lib/phoenix_kit_crm/web/project_client_live.ex:291
 #, elixir-autogen, elixir-format
 msgid "Recent interactions"
 msgstr ""
 
-#: lib/phoenix_kit_crm/party_role_types.ex:519
+#: lib/phoenix_kit_crm/party_role_types.ex:525
 #, elixir-autogen
 msgid "Manufacturer"
 msgstr ""
@@ -2035,17 +2036,17 @@ msgstr ""
 msgid "Catalogues"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:499
+#: lib/phoenix_kit_crm/web/company_form_live.ex:550
 #, elixir-autogen
 msgid "Logo URL"
 msgstr ""
 
-#: lib/phoenix_kit_crm/party_role_types.ex:525
+#: lib/phoenix_kit_crm/party_role_types.ex:531
 #, elixir-autogen
 msgid "Manufacturers"
 msgstr ""
 
-#: lib/phoenix_kit_crm/party_role_types.ex:524
+#: lib/phoenix_kit_crm/party_role_types.ex:530
 #, elixir-autogen
 msgid "Partners"
 msgstr ""
@@ -2090,55 +2091,55 @@ msgstr ""
 msgid "This company no longer has the manufacturer role, but items still name it as their manufacturer."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/organizations_view.ex:384
+#: lib/phoenix_kit_crm/web/organizations_view.ex:403
 #, elixir-autogen
 msgid "CRM company"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/organizations_view.ex:117
+#: lib/phoenix_kit_crm/web/organizations_view.ex:118
 #, elixir-autogen
 msgid "CRM company created and linked"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:274
 #: lib/phoenix_kit_crm/web/company_form_live.ex:286
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:314
+#: lib/phoenix_kit_crm/web/company_form_live.ex:298
 #: lib/phoenix_kit_crm/web/contact_form_live.ex:326
-#: lib/phoenix_kit_crm/web/organizations_view.ex:240
-#: lib/phoenix_kit_crm/web/organizations_view.ex:265
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:338
+#: lib/phoenix_kit_crm/web/organizations_view.ex:247
+#: lib/phoenix_kit_crm/web/organizations_view.ex:272
 #, elixir-autogen
 msgid "Could not apply the resolution — please try again"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/organizations_view.ex:125
+#: lib/phoenix_kit_crm/web/organizations_view.ex:126
 #, elixir-autogen
 msgid "Could not create a company"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:163
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:212
+#: lib/phoenix_kit_crm/web/company_form_live.ex:164
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:213
 #, elixir-autogen
 msgid "Could not create a mirror account"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:333
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:376
+#: lib/phoenix_kit_crm/web/company_form_live.ex:345
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:388
 #, elixir-autogen
 msgid "Could not link this account"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/organizations_view.ex:284
+#: lib/phoenix_kit_crm/web/organizations_view.ex:302
 #, elixir-autogen
 msgid "Could not link this company"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:310
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:353
+#: lib/phoenix_kit_crm/web/company_form_live.ex:322
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:365
 #, elixir-autogen
 msgid "Could not unlink the mirror account"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/organizations_view.ex:484
+#: lib/phoenix_kit_crm/web/organizations_view.ex:504
 #, elixir-autogen
 msgid "Create CRM company"
 msgstr ""
@@ -2153,36 +2154,36 @@ msgstr ""
 msgid "Enable organization accounts in Settings to mirror a company."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:573
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:753
-#: lib/phoenix_kit_crm/web/organizations_view.ex:449
+#: lib/phoenix_kit_crm/web/company_form_live.ex:624
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:799
+#: lib/phoenix_kit_crm/web/organizations_view.ex:468
 #, elixir-autogen
 msgid "Link"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/organizations_view.ex:430
+#: lib/phoenix_kit_crm/web/organizations_view.ex:449
 #, elixir-autogen
 msgid "Link existing company"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/components/mirror_panel.ex:66
-#: lib/phoenix_kit_crm/web/organizations_view.ex:492
+#: lib/phoenix_kit_crm/web/organizations_view.ex:512
 #, elixir-autogen
 msgid "Link existing…"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/organizations_view.ex:472
+#: lib/phoenix_kit_crm/web/organizations_view.ex:492
 #, elixir-autogen
 msgid "Linked"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/organizations_view.ex:280
+#: lib/phoenix_kit_crm/web/organizations_view.ex:298
 #, elixir-autogen
 msgid "Linked to CRM company"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:329
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:372
+#: lib/phoenix_kit_crm/web/company_form_live.ex:388
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:431
 #, elixir-autogen
 msgid "Linked to mirror account"
 msgstr ""
@@ -2192,97 +2193,97 @@ msgstr ""
 msgid "Mirror"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:549
+#: lib/phoenix_kit_crm/web/company_form_live.ex:600
 #: lib/phoenix_kit_crm/web/company_show_live.ex:658
 #: lib/phoenix_kit_crm/web/components/mirror_panel.ex:40
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:729
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:775
 #, elixir-autogen
 msgid "Mirror account"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:155
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:204
+#: lib/phoenix_kit_crm/web/company_form_live.ex:156
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:205
 #, elixir-autogen
 msgid "Mirror account created and linked"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:264
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:304
-#: lib/phoenix_kit_crm/web/organizations_view.ex:255
+#: lib/phoenix_kit_crm/web/company_form_live.ex:398
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:441
+#: lib/phoenix_kit_crm/web/organizations_view.ex:284
 #, elixir-autogen
 msgid "Mirror account linked"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:306
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:349
+#: lib/phoenix_kit_crm/web/company_form_live.ex:318
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:361
 #, elixir-autogen
 msgid "Mirror account unlinked"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:215
-#: lib/phoenix_kit_crm/web/organizations_view.ex:130
-#: lib/phoenix_kit_crm/web/organizations_view.ex:164
+#: lib/phoenix_kit_crm/web/company_form_live.ex:227
+#: lib/phoenix_kit_crm/web/organizations_view.ex:131
+#: lib/phoenix_kit_crm/web/organizations_view.ex:165
 #, elixir-autogen
 msgid "Only organization accounts can mirror a company"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:259
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:271
 #, elixir-autogen
 msgid "Only person accounts can mirror a contact"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:169
+#: lib/phoenix_kit_crm/web/company_form_live.ex:170
 #, elixir-autogen
 msgid "Organization accounts are disabled in Settings"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/components/mirror_conflict_modal.ex:74
+#: lib/phoenix_kit_crm/web/components/mirror_conflict_modal.ex:79
 #, elixir-autogen
 msgid "Resolve differences"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:583
+#: lib/phoenix_kit_crm/web/company_form_live.ex:634
 #, elixir-autogen
 msgid "Save the company first to link or create a mirror account."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:763
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:809
 #, elixir-autogen
 msgid "Save the contact first to link or create a mirror account."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:218
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:262
+#: lib/phoenix_kit_crm/web/company_form_live.ex:230
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:274
 #, elixir-autogen
 msgid "That account no longer exists"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/organizations_view.ex:160
+#: lib/phoenix_kit_crm/web/organizations_view.ex:161
 #, elixir-autogen
 msgid "That account or company no longer exists"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/organizations_view.ex:168
+#: lib/phoenix_kit_crm/web/organizations_view.ex:174
 #, elixir-autogen
 msgid "That company is already linked to another account"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/components/mirror_conflict_modal.ex:84
+#: lib/phoenix_kit_crm/web/components/mirror_conflict_modal.ex:89
 #, elixir-autogen
 msgid "These fields differ. Choose which side to keep for each."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/organizations_view.ex:121
+#: lib/phoenix_kit_crm/web/organizations_view.ex:122
 #, elixir-autogen
 msgid "This account already has a linked company"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:159
+#: lib/phoenix_kit_crm/web/company_form_live.ex:160
 #, elixir-autogen
 msgid "This company already has a mirror account"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:208
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:209
 #, elixir-autogen
 msgid "This contact already has a mirror account"
 msgstr ""
@@ -2297,13 +2298,13 @@ msgstr ""
 msgid "View account"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/organizations_view.ex:442
+#: lib/phoenix_kit_crm/web/organizations_view.ex:461
 #, elixir-autogen
 msgid "— choose a company —"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:569
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:749
+#: lib/phoenix_kit_crm/web/company_form_live.ex:620
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:795
 #, elixir-autogen
 msgid "— choose an account —"
 msgstr ""
@@ -2323,7 +2324,7 @@ msgstr ""
 msgid "Documents kept on this company. Add them here with the Add files button."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:494
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:537
 #, elixir-autogen, elixir-format
 msgid "Documents kept on this contact, added here — plus, below them, the files attached to this contact's interactions."
 msgstr ""
@@ -2348,7 +2349,7 @@ msgstr ""
 msgid "Notes about the company as a whole, written here. A note about one product it supplies (a promised discount, say) belongs on that item's Suppliers tab in the catalogue, not here."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:518
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:561
 #, elixir-autogen, elixir-format
 msgid "Notes about this person, written here."
 msgstr ""
@@ -2364,60 +2365,60 @@ msgid "The contacts whose Company is set to this one. A contact joins from its o
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/company_show_live.ex:860
-#: lib/phoenix_kit_crm/web/contact_show_live.ex:481
+#: lib/phoenix_kit_crm/web/contact_show_live.ex:524
 #, elixir-autogen, elixir-format
 msgid "What happened to this record — edits, links, role changes — as recorded automatically. Nothing is added here by hand."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:214
+#: lib/phoenix_kit_crm/web/crm_live.ex:216
 #, elixir-autogen, elixir-format
 msgid "%{count} company has no contacts"
 msgid_plural "%{count} companies have no contacts"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:183
+#: lib/phoenix_kit_crm/web/crm_live.ex:185
 #, elixir-autogen, elixir-format
 msgid "A company or person can hold more than one role"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:140
+#: lib/phoenix_kit_crm/web/crm_live.ex:142
 #, elixir-autogen, elixir-format
 msgid "Add a company or a contact, assign the role it plays in your business, then log calls, emails, meetings and notes from contact pages."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:275
+#: lib/phoenix_kit_crm/web/crm_live.ex:277
 #, elixir-autogen, elixir-format
 msgid "Browse contacts"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:179
+#: lib/phoenix_kit_crm/web/crm_live.ex:181
 #, elixir-autogen, elixir-format
 msgid "By role"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:353
+#: lib/phoenix_kit_crm/web/crm_live.ex:355
 #, elixir-autogen, elixir-format
 msgid "Group contacts for imports and batch work."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:164
+#: lib/phoenix_kit_crm/web/crm_live.ex:166
 #, elixir-autogen, elixir-format
 msgid "Legal entities and the roles they play in your business"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:350
+#: lib/phoenix_kit_crm/web/crm_live.ex:352
 #, elixir-autogen, elixir-format
 msgid "Lists are optional — create one when you need to group or import contacts."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:337
-#: lib/phoenix_kit_crm/web/crm_live.ex:358
+#: lib/phoenix_kit_crm/web/crm_live.ex:339
+#: lib/phoenix_kit_crm/web/crm_live.ex:360
 #, elixir-autogen, elixir-format
 msgid "Manage lists"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:204
+#: lib/phoenix_kit_crm/web/crm_live.ex:206
 #, elixir-autogen, elixir-format
 msgid "Needs attention"
 msgstr ""
@@ -2427,29 +2428,29 @@ msgstr ""
 msgid "No contacts"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:229
+#: lib/phoenix_kit_crm/web/settings_live.ex:259
 #, elixir-autogen, elixir-format
 msgid "Open portal view"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:171
+#: lib/phoenix_kit_crm/web/crm_live.ex:173
 #, elixir-autogen, elixir-format
 msgid "People, their company memberships and interaction history"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:209
-#: lib/phoenix_kit_crm/web/crm_live.ex:226
+#: lib/phoenix_kit_crm/web/crm_live.ex:211
+#: lib/phoenix_kit_crm/web/crm_live.ex:228
 #, elixir-autogen, elixir-format
 msgid "Review"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:137
+#: lib/phoenix_kit_crm/web/crm_live.ex:139
 #, elixir-autogen, elixir-format
 msgid "Start your CRM"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:471
-#: lib/phoenix_kit_crm/web/crm_live.ex:476
+#: lib/phoenix_kit_crm/web/crm_live.ex:473
+#: lib/phoenix_kit_crm/web/crm_live.ex:478
 #, elixir-autogen, elixir-format
 msgid "company"
 msgid_plural "companies"
@@ -2487,7 +2488,7 @@ msgid_plural "%{count} companies without contacts"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/phoenix_kit_crm/party_role_types.ex:532
+#: lib/phoenix_kit_crm/party_role_types.ex:538
 #, elixir-autogen, elixir-format
 msgid "%{count} customer"
 msgid_plural "%{count} customers"
@@ -2508,21 +2509,21 @@ msgid_plural "%{count} inactive contacts"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/phoenix_kit_crm/party_role_types.ex:535
+#: lib/phoenix_kit_crm/party_role_types.ex:541
 #, elixir-autogen, elixir-format
 msgid "%{count} manufacturer"
 msgid_plural "%{count} manufacturers"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/phoenix_kit_crm/party_role_types.ex:538
+#: lib/phoenix_kit_crm/party_role_types.ex:544
 #, elixir-autogen, elixir-format
 msgid "%{count} partner"
 msgid_plural "%{count} partners"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/phoenix_kit_crm/party_role_types.ex:529
+#: lib/phoenix_kit_crm/party_role_types.ex:535
 #, elixir-autogen, elixir-format
 msgid "%{count} supplier"
 msgid_plural "%{count} suppliers"
@@ -2574,7 +2575,7 @@ msgstr ""
 msgid "Log an interaction with %{name}"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:286
+#: lib/phoenix_kit_crm/web/crm_live.ex:288
 #, elixir-autogen, elixir-format
 msgid "No interactions logged yet. Calls, emails, meetings and notes are logged from a contact's or company's page."
 msgstr ""
@@ -2625,7 +2626,7 @@ msgstr ""
 msgid "Upload failed"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:276
+#: lib/phoenix_kit_crm/web/crm_live.ex:278
 #, elixir-autogen, elixir-format
 msgid "Browse companies"
 msgstr ""
@@ -2635,8 +2636,8 @@ msgstr ""
 msgid "The time could not be read."
 msgstr "The time could not be read."
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:42
-#: lib/phoenix_kit_crm/web/settings_live.ex:23
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:49
+#: lib/phoenix_kit_crm/web/settings_live.ex:34
 #, elixir-autogen, elixir-format
 msgid "Settings"
 msgstr ""
@@ -2696,7 +2697,7 @@ msgstr ""
 msgid "Duration (minutes)"
 msgstr ""
 
-#: lib/phoenix_kit_crm/interaction_links.ex:145
+#: lib/phoenix_kit_crm/interaction_links.ex:156
 #, elixir-autogen, elixir-format
 msgid "Interaction"
 msgstr ""
@@ -2728,19 +2729,19 @@ msgid "Edit interaction"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/interactions_component.ex:1656
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:264
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:281
 #, elixir-autogen, elixir-format
 msgid "Save changes"
 msgstr ""
 
 #: lib/phoenix_kit_crm/web/interactions_component.ex:1779
 #: lib/phoenix_kit_crm/web/interactions_component.ex:2280
-#: lib/phoenix_kit_crm/web/settings_live.ex:344
+#: lib/phoenix_kit_crm/web/settings_live.ex:374
 #, elixir-autogen, elixir-format
 msgid "Delete"
 msgstr ""
 
-#: lib/phoenix_kit_crm/schemas/interaction.ex:254
+#: lib/phoenix_kit_crm/schemas/interaction.ex:257
 #, elixir-autogen, elixir-format
 msgid "Message"
 msgstr ""
@@ -2779,8 +2780,8 @@ msgstr ""
 msgid "Plan ahead"
 msgstr ""
 
-#: lib/phoenix_kit_crm/schemas/interaction.ex:220
-#: lib/phoenix_kit_crm/web/crm_live.ex:237
+#: lib/phoenix_kit_crm/schemas/interaction.ex:223
+#: lib/phoenix_kit_crm/web/crm_live.ex:239
 #: lib/phoenix_kit_crm/web/interactions_component.ex:1714
 #, elixir-autogen, elixir-format
 msgid "Planned"
@@ -2841,17 +2842,17 @@ msgstr ""
 msgid "Recent:"
 msgstr ""
 
-#: lib/phoenix_kit_crm/interactions.ex:685
+#: lib/phoenix_kit_crm/interactions.ex:715
 #, elixir-autogen, elixir-format
 msgid "A %{type} you are in was cancelled"
 msgstr ""
 
-#: lib/phoenix_kit_crm/interactions.ex:679
+#: lib/phoenix_kit_crm/interactions.ex:709
 #, elixir-autogen, elixir-format
 msgid "A planned %{type} you are in was moved"
 msgstr ""
 
-#: lib/phoenix_kit_crm/schemas/interaction.ex:222
+#: lib/phoenix_kit_crm/schemas/interaction.ex:225
 #: lib/phoenix_kit_crm/web/interactions_component.ex:2208
 #, elixir-autogen, elixir-format
 msgid "Cancelled"
@@ -2868,7 +2869,7 @@ msgstr ""
 msgid "Delete this plan?"
 msgstr ""
 
-#: lib/phoenix_kit_crm/schemas/interaction.ex:221
+#: lib/phoenix_kit_crm/schemas/interaction.ex:224
 #, elixir-autogen, elixir-format
 msgid "Happened"
 msgstr ""
@@ -2934,18 +2935,18 @@ msgstr ""
 msgid "When it was planned for"
 msgstr ""
 
-#: lib/phoenix_kit_crm/interactions.ex:673
+#: lib/phoenix_kit_crm/interactions.ex:703
 #, elixir-autogen, elixir-format
 msgid "You are in a planned %{type}"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/crm_live.ex:251
+#: lib/phoenix_kit_crm/web/crm_live.ex:253
 #: lib/phoenix_kit_crm/web/interactions_component.ex:1737
 #, elixir-autogen, elixir-format
 msgid "needs an outcome"
 msgstr ""
 
-#: lib/phoenix_kit_crm.ex:257
+#: lib/phoenix_kit_crm.ex:391
 #, elixir-autogen, elixir-format
 msgid "Client interactions"
 msgstr ""
@@ -2972,159 +2973,197 @@ msgstr ""
 msgid "%{role}: %{count}"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/company_form_live.ex:525
-#: lib/phoenix_kit_crm/web/contact_form_live.ex:692
+#: lib/phoenix_kit_crm/web/company_form_live.ex:576
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:738
 #, elixir-autogen, elixir-format
 msgid "archived"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:88
+#: lib/phoenix_kit_crm/web/settings_live.ex:117
 #, elixir-autogen, elixir-format
 msgid "A built-in role cannot be deleted."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:266
+#: lib/phoenix_kit_crm/web/settings_live.ex:296
 #, elixir-autogen, elixir-format
 msgid "Add role"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:228
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:245
 #, elixir-autogen, elixir-format
 msgid "Badge"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:373
+#: lib/phoenix_kit_crm/web/settings_live.ex:403
 #, elixir-autogen, elixir-format
 msgid "Could not update the party role"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:264
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:281
 #, elixir-autogen, elixir-format
 msgid "Create role"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:265
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:282
 #, elixir-autogen, elixir-format
 msgid "Creating..."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:342
+#: lib/phoenix_kit_crm/web/settings_live.ex:372
 #, elixir-autogen, elixir-format
 msgid "Delete this role? This cannot be undone."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:59
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:66
 #, elixir-autogen, elixir-format
 msgid "Edit party role"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:279
+#: lib/phoenix_kit_crm/web/settings_live.ex:309
 #, elixir-autogen, elixir-format
 msgid "Held by"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:244
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:261
 #, elixir-autogen, elixir-format
 msgid "Icon"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:210
-#: lib/phoenix_kit_crm/web/settings_live.ex:277
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:227
+#: lib/phoenix_kit_crm/web/settings_live.ex:307
 #, elixir-autogen, elixir-format
 msgid "Key"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:58
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:65
 #, elixir-autogen, elixir-format
 msgid "New party role"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:69
+#: lib/phoenix_kit_crm/web/settings_live.ex:98
 #, elixir-autogen, elixir-format
 msgid "Party role archived"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:117
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:134
 #, elixir-autogen, elixir-format
 msgid "Party role created"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:85
+#: lib/phoenix_kit_crm/web/settings_live.ex:114
 #, elixir-autogen, elixir-format
 msgid "Party role deleted"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:34
-#: lib/phoenix_kit_crm/web/settings_live.ex:100
-#: lib/phoenix_kit_crm/web/settings_live.ex:365
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:41
+#: lib/phoenix_kit_crm/web/settings_live.ex:129
+#: lib/phoenix_kit_crm/web/settings_live.ex:395
 #, elixir-autogen, elixir-format
 msgid "Party role not found"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:78
+#: lib/phoenix_kit_crm/web/settings_live.ex:107
 #, elixir-autogen, elixir-format
 msgid "Party role restored"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:130
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:147
 #, elixir-autogen, elixir-format
 msgid "Party role updated"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:46
-#: lib/phoenix_kit_crm/web/settings_live.ex:156
-#: lib/phoenix_kit_crm/web/settings_live.ex:257
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:53
+#: lib/phoenix_kit_crm/web/settings_live.ex:186
+#: lib/phoenix_kit_crm/web/settings_live.ex:287
 #, elixir-autogen, elixir-format
 msgid "Party roles"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:283
-#: lib/phoenix_kit_crm/web/settings_live.ex:276
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:300
+#: lib/phoenix_kit_crm/web/settings_live.ex:306
 #, elixir-autogen, elixir-format
 msgid "Role"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:265
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:282
 #, elixir-autogen, elixir-format
 msgid "Saving..."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:222
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:239
 #, elixir-autogen, elixir-format
 msgid "The key cannot be changed."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:218
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:235
 #, elixir-autogen, elixir-format
 msgid "The stable code stored on each company and person and used by other modules. Made from the name; it cannot be changed later."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:95
+#: lib/phoenix_kit_crm/web/settings_live.ex:124
 #, elixir-autogen, elixir-format
 msgid "This role is, or once was, held by a company or person — archive it instead."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:260
+#: lib/phoenix_kit_crm/web/settings_live.ex:290
 #, elixir-autogen, elixir-format
 msgid "What a company or person can be to you — supplier, carrier, installer… Drag to reorder. An archived role stays on whoever holds it but is no longer offered."
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:200
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:217
 #, elixir-autogen, elixir-format
 msgid "What this role means for a company or person"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:297
+#: lib/phoenix_kit_crm/web/settings_live.ex:327
 #, elixir-autogen, elixir-format
 msgid "built-in"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/party_role_form_live.ex:277
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:294
 #, elixir-autogen, elixir-format
 msgid "e.g., Carrier, Forwarder, Installer"
 msgstr ""
 
-#: lib/phoenix_kit_crm/web/settings_live.ex:372
+#: lib/phoenix_kit_crm/web/settings_live.ex:402
 #, elixir-autogen, elixir-format
 msgid "A built-in role cannot be archived."
+msgstr ""
+
+#: lib/phoenix_kit_crm/web/company_form_live.ex:384
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:427
+#, elixir-autogen, elixir-format
+msgid "Linked to mirror account. The account's own details were left unchanged: it belongs to a registered person."
+msgstr ""
+
+#: lib/phoenix_kit_crm/web/company_form_live.ex:395
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:438
+#: lib/phoenix_kit_crm/web/organizations_view.ex:281
+#, elixir-autogen, elixir-format
+msgid "Mirror account linked. The account's name and email were left unchanged: it belongs to a registered person, so the CRM keeps its own values."
+msgstr ""
+
+#: lib/phoenix_kit_crm/web/components/mirror_conflict_modal.ex:95
+#, elixir-autogen, elixir-format
+msgid "This account belongs to a registered person, so the CRM never changes its name or email. Choosing the CRM value keeps it on this record only; the account stays as it is."
+msgstr ""
+
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:30
+#: lib/phoenix_kit_crm/web/party_role_form_live.ex:101
+#: lib/phoenix_kit_crm/web/settings_live.ex:22
+#: lib/phoenix_kit_crm/web/settings_live.ex:72
+#, elixir-autogen, elixir-format
+msgid "You do not have permission to change the CRM settings."
+msgstr ""
+
+#: lib/phoenix_kit_crm/web/role_view.ex:63
+#, elixir-autogen, elixir-format
+msgid "You do not have permission to see the CRM role pages."
+msgstr ""
+
+#: lib/phoenix_kit_crm/web/company_form_live.ex:208
+#: lib/phoenix_kit_crm/web/contact_form_live.ex:252
+#: lib/phoenix_kit_crm/web/organizations_view.ex:170
+#, elixir-autogen, elixir-format
+msgid "This account cannot be linked from the CRM."
 msgstr ""

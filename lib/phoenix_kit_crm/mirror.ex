@@ -200,6 +200,24 @@ defmodule PhoenixKitCRM.Mirror do
     %{user_field => value}
   end
 
+  @placeholder_sources ~w(crm_contact crm_company)
+
+  @doc """
+  Whether CRM may write `user`'s name and email: only an unclaimed
+  placeholder the CRM itself registered (`custom_fields.source` is
+  `"crm_contact"` or `"crm_company"`) that nobody has confirmed yet — the
+  rule `phoenix_kit_staff` applies to its own placeholders. Any other
+  account belongs to a person: its email is their login, so a CRM link or a
+  "keep the CRM value" choice must never rewrite it. The CRM keeps its own
+  value and the account is left alone.
+  """
+  @spec placeholder_user?(User.t() | term()) :: boolean()
+  def placeholder_user?(%User{confirmed_at: nil, custom_fields: %{} = custom_fields}) do
+    Map.get(custom_fields, "source") in @placeholder_sources
+  end
+
+  def placeholder_user?(_), do: false
+
   @doc """
   The `User` attrs to write when the CRM record is master (a "create
   mirror user" or "CRM wins this conflict" write). Values are normalized

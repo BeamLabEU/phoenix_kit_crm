@@ -13,12 +13,30 @@ defmodule PhoenixKitCRM.ContactsMirrorTest do
 
   use PhoenixKitCRM.DataCase, async: true
 
+  alias PhoenixKitCRM.Test.SiteOwner
+
+  # The site's Owner exists before the test's own users (see SiteOwner).
+  setup do
+    _owner = SiteOwner.ensure!()
+    :ok
+  end
+
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.Companies
   alias PhoenixKitCRM.Contacts
   alias PhoenixKitCRM.Schemas.Contact
+  alias PhoenixKitCRM.Test.Repo
 
   defp unique, do: System.unique_integer([:positive])
+
+  # Every sandbox registration is the site's first user, whom core confirms;
+  # a real CRM placeholder stays unconfirmed until its person claims it.
+  defp as_unclaimed!(user),
+    do:
+      user
+      |> Ecto.Changeset.change()
+      |> Ecto.Changeset.force_change(:confirmed_at, nil)
+      |> Repo.update!()
 
   defp person_user_fixture(attrs \\ %{}) do
     base = %{"email" => "person-#{unique()}@example.test", "password" => "Sup3rSecret!24"}
@@ -252,10 +270,12 @@ defmodule PhoenixKitCRM.ContactsMirrorTest do
 
       user =
         person_user_fixture(%{
+          "custom_fields" => %{"source" => "crm_contact"},
           "first_name" => "Annie",
           "last_name" => "K.",
           "email" => "user-amr-#{unique()}@example.test"
         })
+        |> as_unclaimed!()
 
       deltas = %{crm: %{name: "Annie K."}, user: %{email: taken_email}}
 
@@ -278,10 +298,12 @@ defmodule PhoenixKitCRM.ContactsMirrorTest do
 
       user =
         person_user_fixture(%{
+          "custom_fields" => %{"source" => "crm_contact"},
           "first_name" => "Annie",
           "last_name" => "K.",
           "email" => "user-amr2-#{unique()}@example.test"
         })
+        |> as_unclaimed!()
 
       deltas = %{crm: %{name: "Annie K."}, user: %{email: "new-amr2-#{unique()}@example.test"}}
 
@@ -291,6 +313,56 @@ defmodule PhoenixKitCRM.ContactsMirrorTest do
       assert linked_contact.name == "Annie K."
       assert linked_user.email == deltas.user.email
       assert linked_contact.user_uuid == user.uuid
+    end
+
+    test "a real account's email and name are never written — the CRM keeps its value, the account is left alone" do
+      user = person_user_fixture(%{"first_name" => "Annie", "last_name" => "K."})
+      before = Auth.get_user(user.uuid)
+
+      contact =
+        contact_fixture(%{"name" => "Anna Kask", "email" => "anna-real-#{unique()}@example.test"})
+
+      deltas = %{
+        crm: %{},
+        user: %{email: "rewritten-#{unique()}@example.test", first_name: "Rewritten"}
+      }
+
+      assert {:ok, {linked, returned_user}} =
+               Contacts.apply_mirror_resolution(contact, user, deltas)
+
+      after_user = Auth.get_user(user.uuid)
+      assert after_user.email == before.email
+      assert Map.get(after_user, :first_name) == Map.get(before, :first_name)
+      assert returned_user.email == before.email
+      # Still linked: the CRM side keeps its own value.
+      assert linked.user_uuid == user.uuid
+    end
+
+    test "a confirmed (claimed) CRM placeholder counts as a real account" do
+      user = person_user_fixture(%{"custom_fields" => %{"source" => "crm_contact"}})
+
+      user =
+        user |> Ecto.Changeset.change(confirmed_at: DateTime.utc_now(:second)) |> Repo.update!()
+
+      contact =
+        contact_fixture(%{"name" => "Anna Kask", "email" => "anna-real-#{unique()}@example.test"})
+
+      deltas = %{crm: %{}, user: %{email: "claimed-#{unique()}@example.test"}}
+
+      assert {:ok, _} = Contacts.apply_mirror_resolution(contact, user, deltas)
+      assert Auth.get_user(user.uuid).email == user.email
+    end
+
+    test "another module's placeholder (staff) is not the CRM's to write" do
+      user = person_user_fixture(%{"custom_fields" => %{"source" => "staff_placeholder"}})
+
+      contact =
+        contact_fixture(%{"name" => "Anna Kask", "email" => "anna-real-#{unique()}@example.test"})
+
+      deltas = %{crm: %{}, user: %{email: "staff-#{unique()}@example.test"}}
+
+      assert {:ok, _} = Contacts.apply_mirror_resolution(contact, user, deltas)
+      assert Auth.get_user(user.uuid).email == user.email
     end
   end
 

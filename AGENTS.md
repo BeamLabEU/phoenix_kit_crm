@@ -33,8 +33,8 @@ Orders tab (a module exporting `orders_for_contact/1`, returning maps with
 - **Consumed by:** `phoenix_kit_projects` (its extension registry discovers
   `phoenix_kit_project_extensions/0` by name — duck-typed, one-way, no
   dependency in either direction) and `phoenix_kit_comments` (calls
-  `resolve_comment_resources/1`, wired through the host's
-  `:comment_resource_handlers` config). Keep those two callbacks and the
+  `resolve_comment_resources/1` and `moderatable_resources/2` on the handlers
+  `resource_links/0` names). Keep those callbacks and the
   `RoleSettings` / `ColumnConfig` surface stable; siblings may start
   consuming them.
 - **Admin surface:** one `CRM` tab at `/admin/crm` with subtabs Overview
@@ -400,7 +400,13 @@ conflict modal), never silently overwrite, while one blank side is just a fill;
 values compare trimmed. `diff/2` and `resolve/4` key on the **CRM-side symbolic
 atom** (`:name`, `:email`) for both kinds, never a raw `User` column — a
 contact's `name` splits across `first_name`/`last_name`, so a diff entry must
-never be fed straight into `put_change/3`.
+never be fed straight into `put_change/3`. **The CRM never writes a real
+account's name or email** — the email is that person's login. Only a CRM
+placeholder (`Mirror.placeholder_user?/1`: unconfirmed, `custom_fields.source`
+`crm_contact` / `crm_company`, the rule `phoenix_kit_staff` applies to its own)
+is written by a resolution or a blank-fill; for any other account the
+contexts drop the user-side deltas, the CRM keeps its own value, the link is
+still made, and the conflict modal (`account_locked`) and the flash say so.
 
 **Tab registration.** Static tabs come from `admin_tabs/0` and
 `settings_tabs/0`. Per-role tabs are registered at runtime by
@@ -441,12 +447,39 @@ The Client tab subscribes to calendar updates through `ProjectsLink.subscribe_ev
 which uses the projects module's own PubSub contract.
 
 **Settings.** `crm_enabled` (module on/off, via `enable_system/0` /
-`disable_system/0`) is the only key this module owns. It reads core's
+`disable_system/0`) and the one-time flag `crm_settings_backfilled` are the
+keys this module owns. It reads core's
 `enable_organization_accounts` to decide whether the Organizations subtab is
 visible, and core's `time_zone` for interaction timestamps.
 
-**Permission.** One key, `"crm"` (label "CRM", icon `hero-users`), carried by
-every tab; no sub-permissions. The contributed projects extension declares
+**Permission.** The base key `"crm"` (label "CRM", icon `hero-users`) reaches
+the records and is carried by every record tab. One sub-key, `"crm.settings"`
+(`PhoenixKitCRM.settings_permission/0`, checked by `can_change_settings?/1`
+as the sub-key AND the base held — not `Scope.can?/2`, which also needs the
+module enabled; in a host, core's admin mount gate still refuses a disabled
+module's pages, so re-enabling is core's Modules page), gates the settings page (module switch, role
+access, party roles), the party-role form and the role pages — a role page
+lists every holder of the role with their email. Each of those LiveViews
+refuses at `mount/3` and re-checks in every write event (the role page on every
+param change too, so a live patch to another role's uuid passes the same gate); the settings tab and
+the role subtabs carry the sub-key too. Only a non-system role can be given a
+role page (`RoleSettings.set_enabled/3` answers `{:error, :not_eligible}`, and
+the enabled lists ignore a stray system-role row). `migrate_legacy/0` grants
+`crm.settings` once to every role that held `crm`, behind the
+`crm_settings_backfilled` flag, which is set only when every grant succeeded;
+it reads the holders with its own query (a failed read answers `{:error, :lookup_failed}`, flag unset), because core's
+`get_permissions_for_role/1` rescues an error to `[]`, which would read as
+"nobody holds crm" and set the flag for good.
+**No Owner or Admin account is ever offered or linked** (`AccountGuard`): the
+"Link existing…" pickers leave them out and `Contacts.link_user/2`,
+`Contacts.connect_user/2` and `Companies.connect_user/2` answer
+`{:error, :privileged_account}`. Other person accounts' names and emails stay
+visible to a `crm` holder in the picker — the email is how a contact is
+matched to its account, and the CRM is itself a directory of people.
+Comment moderation: `moderatable_resources/2` (on `PhoenixKitCRM` for
+`crm_contact` / `crm_company`, on `InteractionLinks` for `crm_interaction`)
+answers `:all` for a CRM holder while the module is on, else `[]`. The
+contributed projects extension declares
 `module_key: "crm"` and `permission_actions: [:view]` so a tab re-exporting CRM
 data requires the CRM permission, not the viewer's projects permission — and so
 the hub derives no write surface from it.
@@ -541,8 +574,9 @@ Support modules:
 - `test/support/test_repo.ex` — `PhoenixKitCRM.Test.Repo`
 - `test/support/data_case.ex` — auto-tags `:integration`, sets up the SQL sandbox
 - `test/support/live_case.ex` — LiveView case: wires `Test.Endpoint` and the
-  sandbox, provides `fake_scope/1` and `put_test_scope/2`, imports
-  `ActivityLogAssertions`
+  sandbox, provides `fake_scope/1`, `settings_scope/1` (adds `crm.settings`
+  and registers the CRM, without which `Scope.can?/2` refuses every sub-key),
+  `as_unclaimed!/1` and `put_test_scope/2`, imports `ActivityLogAssertions`
 - `test/support/{test_endpoint,test_router,test_layouts,test_hooks}.ex` — a
   `server: false` endpoint plus a router mounting the CRM LiveViews under
   `/en/admin/crm`, minimal layouts, and an `on_mount` hook faking
@@ -563,6 +597,13 @@ build if the `:phoenix_kit` requirement is re-narrowed to a single core minor
 (the `~> 2.0.x` trap, which only breaks consumers) or if a local path override
 reaches a commit; `schema_prefix_conformance_test.exs` scans `lib/` for a
 table-backed schema missing `use PhoenixKit.SchemaPrefix`.
+
+The first user a test registers is the site's first user, whom core makes
+Owner and confirms: a test that links a registered account calls
+`Test.SiteOwner.ensure!/0` in its setup first (the CRM refuses to link an
+Owner), and a fixture standing in for a CRM placeholder goes through
+`as_unclaimed!/1`, or `Mirror.placeholder_user?/1` reads it as a real
+account.
 
 Known noise: `Phoenix.LiveViewTest` emits `missing_form_id` warnings for forms
 rendered without an `id`, and the logger filter above swallows the settings

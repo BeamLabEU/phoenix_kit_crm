@@ -113,6 +113,36 @@ defmodule PhoenixKitCRM.LiveCase do
   end
 
   @doc """
+  A `fake_scope/1` that also holds `crm.settings` — the settings page, the
+  party-role form and the role pages. `Scope.can?/2` honours a sub-key only
+  while its module is registered and enabled, so this registers the CRM with
+  core's `ModuleRegistry`; the caller enables it (`enable_system/0`).
+  """
+  def settings_scope(opts \\ []) do
+    :ok = ensure_crm_registered()
+    fake_scope(Keyword.put_new(opts, :permissions, ["crm", "crm.settings"]))
+  end
+
+  @doc """
+  Clears `confirmed_at` on a fixture user. In the sandbox every registration
+  is the site's first user, whom core makes Owner and confirms; a CRM
+  placeholder in a real install is registered after the Owner and stays
+  unconfirmed until its person claims it.
+  """
+  def as_unclaimed!(user) do
+    user
+    |> Ecto.Changeset.change()
+    |> Ecto.Changeset.force_change(:confirmed_at, nil)
+    |> TestRepo.update!()
+  end
+
+  @doc "Registers the CRM with core's `ModuleRegistry` (idempotent)."
+  def ensure_crm_registered do
+    PhoenixKit.ModuleRegistry.register(PhoenixKitCRM)
+    :ok
+  end
+
+  @doc """
   Plugs a fake scope into the test conn's session so the `:assign_scope`
   `on_mount` hook can mirror it onto socket assigns at mount. Pair with
   `fake_scope/1`.

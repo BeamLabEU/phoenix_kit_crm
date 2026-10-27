@@ -11,6 +11,14 @@ defmodule PhoenixKitCRM.Web.OrganizationsViewMirrorTest do
 
   use PhoenixKitCRM.LiveCase
 
+  alias PhoenixKitCRM.Test.SiteOwner
+
+  # The site's Owner exists before the test's own users (see SiteOwner).
+  setup do
+    _owner = SiteOwner.ensure!()
+    :ok
+  end
+
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.Companies
@@ -192,11 +200,19 @@ defmodule PhoenixKitCRM.Web.OrganizationsViewMirrorTest do
 
     # "Keep CRM" rewrites the USER's organization name; the row renders that
     # straight off @users, which used to keep the old struct until a reload.
-    test "resolving keep_crm updates the user's row on screen", %{conn: conn} do
+    test "resolving keep_crm on a CRM placeholder updates the user's row on screen", %{conn: conn} do
       shared_email = "shared-#{unique()}@example.test"
-      user = org_user_fixture(%{"organization_name" => "Acme GmbH", "email" => shared_email})
+
+      user =
+        org_user_fixture(%{
+          "organization_name" => "Acme GmbH",
+          "email" => shared_email,
+          "custom_fields" => %{"source" => "crm_company"}
+        })
+
       company = company_fixture(%{"name" => "Acme Ltd", "email" => shared_email})
 
+      user = as_unclaimed!(user)
       {:ok, view, _html} = view(conn)
 
       render_submit(view, "mirror_link_company", %{
@@ -209,6 +225,28 @@ defmodule PhoenixKitCRM.Web.OrganizationsViewMirrorTest do
       assert Auth.get_user(user.uuid).organization_name == "Acme Ltd"
       assert html =~ "Acme Ltd"
       refute html =~ "Acme GmbH"
+    end
+
+    test "keep_crm on a registered account changes nothing on it and says so", %{conn: conn} do
+      shared_email = "shared-#{unique()}@example.test"
+      user = org_user_fixture(%{"organization_name" => "Acme GmbH", "email" => shared_email})
+      company = company_fixture(%{"name" => "Acme Ltd", "email" => shared_email})
+
+      {:ok, view, _html} = view(conn)
+
+      html =
+        render_submit(view, "mirror_link_company", %{
+          "user_uuid" => user.uuid,
+          "company_uuid" => company.uuid
+        })
+
+      assert html =~ ~s(data-testid="mirror-account-locked")
+
+      html = render_submit(view, "mirror_resolve", %{"choices" => %{"name" => "keep_crm"}})
+
+      assert Auth.get_user(user.uuid).organization_name == "Acme GmbH"
+      assert Companies.get_company(company.uuid).user_uuid == user.uuid
+      assert html =~ "left unchanged"
     end
 
     test "resolving keep_crm keeps the company's name", %{conn: conn} do
