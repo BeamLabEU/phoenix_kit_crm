@@ -12,6 +12,7 @@ defmodule PhoenixKitCRM.Companies do
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCRM.AccountGuard
   alias PhoenixKitCRM.Interactions
+  alias PhoenixKitCRM.ManagedMirror
   alias PhoenixKitCRM.Mirror
   alias PhoenixKitCRM.PartyRoles
   alias PhoenixKitCRM.Schemas.{Company, CompanyMembership, Contact}
@@ -369,9 +370,11 @@ defmodule PhoenixKitCRM.Companies do
   nothing). `disconnect_user/1` first, then `create_mirror_user/2` again,
   if that's genuinely what's wanted.
 
-  `opts` is currently unused — reserved for a future extension point
-  (e.g. actor attribution for the log line), kept in the signature so
-  adding one later isn't a breaking change.
+  `managed: true` explicitly creates through core's managed lifecycle, with
+  `manager_actor:` from a trusted signed session and `first_manager_uuid:`.
+  This requires an own-account administrator and a supporting core. It uses
+  the company email as contact_email and never falls back to an independent
+  login (or grants management by matching an existing email).
   """
   @spec create_mirror_user(Company.t(), keyword()) ::
           {:ok, {Company.t(), User.t()}} | {:error, :already_linked | term()}
@@ -381,7 +384,13 @@ defmodule PhoenixKitCRM.Companies do
     {:error, :already_linked}
   end
 
-  def create_mirror_user(%Company{} = company, _opts) do
+  def create_mirror_user(%Company{} = company, opts) do
+    if Keyword.get(opts, :managed, false) == true,
+      do: ManagedMirror.create(company, opts),
+      else: create_independent_mirror_user(company)
+  end
+
+  defp create_independent_mirror_user(company) do
     repo().transaction(fn ->
       attrs =
         :company
@@ -450,7 +459,7 @@ defmodule PhoenixKitCRM.Companies do
 
   defp adoptable_company_for(user) do
     adoptable_company_by_name(user.organization_name) ||
-      adoptable_company_by_email(user.email)
+      adoptable_company_by_email(Mirror.user_email(user))
   end
 
   defp adoptable_company_by_name(name) when is_binary(name) and name != "" do

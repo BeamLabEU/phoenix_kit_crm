@@ -3199,3 +3199,39 @@ msgstr "У вас нет прав на просмотр страниц роле�
 #, elixir-autogen, elixir-format
 msgid "This account cannot be linked from the CRM."
 msgstr "Эту учётную запись нельзя связать из CRM."
+
+msgid "Create as a managed organization: managers use their own accounts, and the company email is a contact address."
+msgstr "Создать управляемую организацию: управляющие используют свои учётные записи, а почта компании служит контактным адресом."
+
+msgid "Find the first manager"
+msgstr "Найти первого управляющего"
+
+msgid "First manager"
+msgstr "Первый управляющий"
+
+msgid "Choose an active person"
+msgstr "Выберите активного пользователя"
+
+msgid "Create managed organization"
+msgstr "Создать управляемую организацию"
+
+msgid "Use your own administrator account to create a managed organization."
+msgstr "Для создания управляемой организации войдите в свою учётную запись администратора."
+
+msgid "Managed organization created and linked"
+msgstr "Управляемая организация создана и связана"
+
+msgid "Could not create a managed organization. Check your access and the first manager."
+msgstr "Не удалось создать управляемую организацию. Проверьте доступ и первого управляющего."
+
+msgid "Managed organization"
+msgstr "Управляемая организация"
+
+msgid "This account's details are managed in its account settings. Choosing a CRM value changes this record only; the account stays as it is."
+msgstr "Данные этой учётной записи управляются в её настройках. Выбор значения CRM меняет только эту карточку; учётная запись остаётся без изменений."
+
+msgid "Mirror account linked. Its account details were left unchanged; the CRM keeps its own values."
+msgstr "Зеркальная учётная запись связана. Её данные не изменены; CRM сохраняет свои значения."
+
+msgid "Linked to mirror account. The account's own details were left unchanged; edit them in its account settings."
+msgstr "Связано с зеркальной учётной записью. Её данные не изменены; редактируйте их в настройках учётной записи."

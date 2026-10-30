@@ -408,6 +408,17 @@ is written by a resolution or a blank-fill; for any other account the
 contexts drop the user-side deltas, the CRM keeps its own value, the link is
 still made, and the conflict modal (`account_locked`) and the flash say so.
 
+**Managed mirrors (optional core API).** `ManagedMirror` capability-checks core's
+complete managed-organization API before offering the explicit creation option.
+The signed-session actor and required first manager go to core's authorized
+lifecycle; a bare Scope/User or an email match grants no access. The company row
+is locked and re-read before creation to avoid orphaning a concurrent mirror.
+`Mirror.field_map/2` maps managed company email to `contact_email`; comparisons,
+resolution and reverse adoption must never copy its `.invalid` login placeholder.
+Claimed managed profiles stay read-only under `AccountGuard`, just like other
+claimed accounts. Keep this bridge dynamically dispatched: the published core
+floor predates the API, so old supported hosts must still compile and run.
+
 **Tab registration.** Static tabs come from `admin_tabs/0` and
 `settings_tabs/0`. Per-role tabs are registered at runtime by
 `PhoenixKitCRM.SidebarBootstrap` into `PhoenixKit.Dashboard.Registry` under

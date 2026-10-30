@@ -292,7 +292,7 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
     if map_size(user_deltas) > 0 and not Mirror.placeholder_user?(user),
       do:
         gettext(
-          "Mirror account linked. The account's name and email were left unchanged: it belongs to a registered person, so the CRM keeps its own values."
+          "Mirror account linked. Its account details were left unchanged; the CRM keeps its own values."
         ),
       else: gettext("Mirror account linked")
   end
@@ -427,7 +427,7 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
               <.row_link
                 :if={index == 0}
                 navigate={Paths.user_view(user.uuid)}
-                label={Map.get(user, :organization_name) || user.email}
+                label={Map.get(user, :organization_name) || Mirror.user_email(user)}
               />
               {render_cell(@column_meta, col, user)}
             </TableDefault.table_default_cell>
@@ -539,7 +539,7 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
     do: %{label: column_label(column_meta, col), value: render_cell(column_meta, col, user)}
 
   defp render_cell(_meta, "organization_name", u), do: Map.get(u, :organization_name) || "—"
-  defp render_cell(_meta, "email", u), do: u.email
+  defp render_cell(_meta, "email", u), do: Mirror.user_email(u) || "—"
   defp render_cell(_meta, "username", u), do: Map.get(u, :username) || "—"
   defp render_cell(_meta, "full_name", u), do: full_name(u)
   defp render_cell(_meta, "status", u), do: crm_status_html(Map.get(u, :is_active))
@@ -562,7 +562,7 @@ defmodule PhoenixKitCRM.Web.OrganizationsView do
   end
 
   defp card_title_link(u) do
-    label = Map.get(u, :organization_name) || u.email
+    label = Map.get(u, :organization_name) || Mirror.user_email(u)
     assigns = %{href: Paths.user_view(u.uuid), label: label}
     ~H|<.link navigate={@href} class="link link-hover font-medium">{@label}</.link>|
   end

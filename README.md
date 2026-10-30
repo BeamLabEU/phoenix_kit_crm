@@ -103,3 +103,26 @@ and testing setup.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+### Managed organization mirrors
+
+On a core version with managed-organization switching and manager administration,
+an administrator in their own account can choose **Create managed organization**
+on a saved company's edit page. Search for and select the first active manager
+explicitly. The company's email becomes a contact address; it may be shared with
+another account and never grants management by matching that account. Managers
+enter the organization from core's account menu and manage invitations in its
+account settings. Older supported core versions retain the independent mirror
+flow and hide this option.
+
+Programmatic callers use `Companies.create_mirror_user(company, managed: true,
+manager_actor: actor, first_manager_uuid: person_uuid)`, with `actor` constructed
+at browser mount by `ManagedMirror.actor_from_session(session)` from the trusted
+signed session, never event parameters. Creation locks and re-reads the company;
+concurrent requests cannot create a second orphaned account.
+
+For a managed mirror, comparisons, resolution and reverse creation/adoption use
+`contact_email`. Claimed mirror account details remain read-only from CRM; edit
+those details through core's organization settings. Linking a CRM company never
+adds manager grants. The CRM package can be released after the core feature;
+no higher core floor is required because this path checks API availability.

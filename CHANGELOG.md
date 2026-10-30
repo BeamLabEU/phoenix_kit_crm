@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+
+- Explicit **Create managed organization** on a company's mirror panel, requiring
+  an own-account administrator and an active first manager. It uses core's
+  authorized creation lifecycle, preserves shared contact emails and never
+  grants access or falls back automatically when an email is already taken.
+  The option stays hidden on older supported core versions.
+- Managed mirror email mapping uses `contact_email` in creation, comparisons,
+  resolution and reverse adoption. Account panels, pickers and organization
+  lists show contact addresses; claimed account profiles stay read-only from
+  the CRM. New copy is translated in English, Estonian and Russian.
+
+### Fixed
+
+- Update locked Bandit to 1.14.1 for the HTTP/2 memory-amplification advisory
+  (EEF-CVE-2026-116078) that blocked dependency audit.
+- The migration-owner wiring test clones the configured test database, so an
+  isolated `PGDATABASE` run never relies on a stale default database.
+
 ## 0.18.0 - 2026-10-27
 
 ### Changed

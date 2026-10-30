@@ -16,7 +16,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
   import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
 
   alias PhoenixKit.Users.Roles
-  alias PhoenixKitCRM.{ColumnConfig, Contacts, Paths, Web.CellFormat}
+  alias PhoenixKitCRM.{ColumnConfig, Contacts, Mirror, Paths, Web.CellFormat}
 
   alias PhoenixKitWeb.Components.Core.TableDefault
 
@@ -203,7 +203,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
             <TableDefault.table_default_cell :for={
               {col, index} <- Enum.with_index(@selected_columns)
             }>
-              <.row_link :if={index == 0} navigate={Paths.user_view(user.uuid)} label={user.email} />
+              <.row_link :if={index == 0} navigate={Paths.user_view(user.uuid)} label={Mirror.user_email(user) || "—"} />
               {render_cell(@column_meta, @crm_contacts, col, user)}
             </TableDefault.table_default_cell>
           </TableDefault.table_default_row>
@@ -241,7 +241,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
       value: render_cell(column_meta, crm_contacts, col, user)
     }
 
-  defp render_cell(_meta, _contacts, "email", u), do: u.email
+  defp render_cell(_meta, _contacts, "email", u), do: Mirror.user_email(u) || "—"
   defp render_cell(_meta, _contacts, "username", u), do: u.username || "—"
   defp render_cell(_meta, _contacts, "full_name", u), do: full_name(u)
   defp render_cell(_meta, _contacts, "status", u), do: crm_status_html(u.is_active)
@@ -268,7 +268,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
   end
 
   defp card_title_link(u) do
-    assigns = %{href: Paths.user_view(u.uuid), label: u.email}
+    assigns = %{href: Paths.user_view(u.uuid), label: Mirror.user_email(u) || "—"}
     ~H|<.link navigate={@href} class="link link-hover font-medium">{@label}</.link>|
   end
 

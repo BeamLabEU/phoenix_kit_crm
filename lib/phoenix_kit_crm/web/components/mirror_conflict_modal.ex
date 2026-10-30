@@ -92,7 +92,7 @@ defmodule PhoenixKitCRM.Web.Components.MirrorConflictModal do
         <div :if={@account_locked} class="alert alert-info text-sm" data-testid="mirror-account-locked">
           <.icon name="hero-lock-closed" class="w-4 h-4" />
           <span>
-            {gettext("This account belongs to a registered person, so the CRM never changes its name or email. Choosing the CRM value keeps it on this record only; the account stays as it is.")}
+            {gettext("This account's details are managed in its account settings. Choosing a CRM value changes this record only; the account stays as it is.")}
           </span>
         </div>
 

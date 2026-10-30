@@ -27,11 +27,16 @@ defmodule PhoenixKitCRM.Web.Components.MirrorPanel do
   use Gettext, backend: PhoenixKitCRM.Gettext
 
   alias PhoenixKit.Users.Auth.User
+  alias PhoenixKitCRM.Mirror
 
   attr(:kind, :atom, required: true, values: [:company, :contact])
   attr(:linked_user, :any, default: nil)
   attr(:can_link, :boolean, default: true)
   attr(:account_path, :string, default: nil)
+
+  attr(:id, :string, default: "crm-mirror")
+  attr(:managed_available, :boolean, default: false)
+  attr(:manager_candidates, :list, default: [])
 
   def mirror_panel(assigns) do
     ~H"""
@@ -39,14 +44,14 @@ defmodule PhoenixKitCRM.Web.Components.MirrorPanel do
       <div class="flex items-center justify-between gap-2">
         <span class="text-sm font-semibold">{gettext("Mirror account")}</span>
         <span :if={@linked_user} class="badge badge-success badge-sm">
-          {badge_label(@kind)}
+          {if Mirror.managed_user?(@linked_user), do: gettext("Managed organization"), else: badge_label(@kind)}
         </span>
       </div>
 
       <div :if={@linked_user} class="space-y-2">
         <div>
           <div class="text-sm font-medium">{display_name(@linked_user)}</div>
-          <div class="text-xs text-base-content/60">{@linked_user.email}</div>
+          <div class="text-xs text-base-content/60">{Mirror.user_email(@linked_user)}</div>
         </div>
         <div class="flex flex-wrap gap-2">
           <.link :if={@account_path} navigate={@account_path} class="btn btn-ghost btn-xs">
@@ -65,6 +70,18 @@ defmodule PhoenixKitCRM.Web.Components.MirrorPanel do
         <.button phx-click="mirror_open_picker" variant="outline" size="xs">
           {gettext("Link existing…")}
         </.button>
+      </div>
+
+      <div :if={@kind == :company and is_nil(@linked_user) and @can_link and @managed_available} class="space-y-3 border-t border-base-300 pt-3">
+        <p class="text-sm">{gettext("Create as a managed organization: managers use their own accounts, and the company email is a contact address.")}</p>
+        <form id={"#{@id}-manager-search"} phx-submit="mirror_manager_search" class="flex items-end gap-2">
+          <.input name="query" value="" label={gettext("Find the first manager")} />
+          <.button type="submit" variant="outline" size="xs">{gettext("Search")}</.button>
+        </form>
+        <form id={"#{@id}-managed-create"} phx-submit="mirror_create_managed" class="flex items-end gap-2">
+          <.select name="first_manager_uuid" value="" label={gettext("First manager")} required options={[{gettext("Choose an active person"), ""} | Enum.map(@manager_candidates, &{display_name(&1), &1.uuid})]} />
+          <.button type="submit" variant="primary" size="xs">{gettext("Create managed organization")}</.button>
+        </form>
       </div>
 
       <div :if={!@linked_user && !@can_link && @kind == :company} class="text-xs text-base-content/50">
@@ -97,7 +114,7 @@ defmodule PhoenixKitCRM.Web.Components.MirrorPanel do
         personal
 
       true ->
-        user.email
+        Mirror.user_email(user) || gettext("Organization")
     end
   end
 end

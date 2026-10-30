@@ -94,6 +94,28 @@ defmodule PhoenixKitCRM.Mirror do
   def field_map(:company), do: @company_field_map
   def field_map(:contact), do: @contact_field_map
 
+  @doc "The user-aware company map uses a managed organization's contact address."
+  def field_map(:company, user) do
+    if managed_user?(user),
+      do:
+        Enum.map(@company_field_map, fn
+          %{crm: :email} = entry -> %{entry | user: :contact_email}
+          entry -> entry
+        end),
+      else: @company_field_map
+  end
+
+  def field_map(:contact, _user), do: @contact_field_map
+
+  @doc "Human-facing address, compatible with core versions before managed accounts."
+  def user_email(user) when is_map(user),
+    do: if(managed_user?(user), do: Map.get(user, :contact_email), else: Map.get(user, :email))
+
+  def user_email(_), do: nil
+
+  def managed_user?(user) when is_map(user), do: Map.get(user, :managed_by_members, false) == true
+  def managed_user?(_), do: false
+
   @doc """
   The per-field divergences between a CRM record and a `User` — only
   fields present (non-blank, trimmed) on BOTH sides AND unequal. `:field`
@@ -108,7 +130,7 @@ defmodule PhoenixKitCRM.Mirror do
 
   defp diff(kind, crm_struct, user) do
     kind
-    |> field_map()
+    |> field_map(user)
     |> Enum.flat_map(fn %{crm: crm_field, user: user_field, label: label} = entry ->
       if diverges?(entry, crm_struct, user) do
         crm_val = normalize(Map.fetch!(crm_struct, crm_field))
@@ -154,7 +176,7 @@ defmodule PhoenixKitCRM.Mirror do
         }
   def resolve(kind, crm_struct, %User{} = user, choices) when is_map(choices) do
     kind
-    |> field_map()
+    |> field_map(user)
     |> Enum.reduce(%{crm: %{}, user: %{}}, fn %{crm: crm_field, user: user_field} = entry, acc ->
       choice = Map.get(choices, crm_field)
 
@@ -212,8 +234,8 @@ defmodule PhoenixKitCRM.Mirror do
   value and the account is left alone.
   """
   @spec placeholder_user?(User.t() | term()) :: boolean()
-  def placeholder_user?(%User{confirmed_at: nil, custom_fields: %{} = custom_fields}) do
-    Map.get(custom_fields, "source") in @placeholder_sources
+  def placeholder_user?(%User{confirmed_at: nil, custom_fields: %{} = custom_fields} = user) do
+    not managed_user?(user) and Map.get(custom_fields, "source") in @placeholder_sources
   end
 
   def placeholder_user?(_), do: false
@@ -245,6 +267,15 @@ defmodule PhoenixKitCRM.Mirror do
     }
   end
 
+  @doc "Managed creation maps a company's email to contact_email, never its login."
+  def attrs_from(:company, %Company{} = company, opts) do
+    attrs = attrs_from(:company, company)
+
+    if Keyword.get(opts, :managed, false) == true,
+      do: attrs |> Map.delete(:email) |> Map.put(:contact_email, normalize(company.email)),
+      else: attrs
+  end
+
   @doc """
   The CRM attrs to write when the `User` is master (a "create CRM card
   from user" or "User wins this conflict" write). Same normalization
@@ -252,7 +283,7 @@ defmodule PhoenixKitCRM.Mirror do
   """
   @spec attrs_to_crm(kind(), User.t()) :: map()
   def attrs_to_crm(:company, %User{} = user) do
-    %{name: normalize(user.organization_name), email: normalize(user.email)}
+    %{name: normalize(user.organization_name), email: normalize(user_email(user))}
   end
 
   def attrs_to_crm(:contact, %User{} = user) do

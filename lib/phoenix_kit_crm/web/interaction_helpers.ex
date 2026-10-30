@@ -11,7 +11,7 @@ defmodule PhoenixKitCRM.Web.InteractionHelpers do
 
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKit.Utils.Date, as: DateUtils
-  alias PhoenixKitCRM.{Paths, StaffLink}
+  alias PhoenixKitCRM.{Mirror, Paths, StaffLink}
   alias PhoenixKitCRM.Schemas.Interaction
 
   @doc "An involved-party badge — links to the contact/staff page when resolvable."
@@ -160,15 +160,22 @@ defmodule PhoenixKitCRM.Web.InteractionHelpers do
   def current_user_name(assigns) do
     case assigns[:phoenix_kit_current_user] do
       %{} = user ->
-        case User.full_name(user) do
-          name when is_binary(name) and name != "" -> name
-          _ -> user.email
-        end
+        user_name(user)
 
       _ ->
         nil
     end
   rescue
     _ -> nil
+  end
+
+  defp user_name(%{account_type: "organization", organization_name: name})
+       when is_binary(name) and name != "", do: name
+
+  defp user_name(user) do
+    case User.full_name(user) do
+      name when is_binary(name) and name != "" -> name
+      _ -> Mirror.user_email(user)
+    end
   end
 end

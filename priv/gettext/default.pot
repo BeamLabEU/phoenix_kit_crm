@@ -3185,3 +3185,39 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgid "This account cannot be linked from the CRM."
 msgstr ""
+
+msgid "Create as a managed organization: managers use their own accounts, and the company email is a contact address."
+msgstr ""
+
+msgid "Find the first manager"
+msgstr ""
+
+msgid "First manager"
+msgstr ""
+
+msgid "Choose an active person"
+msgstr ""
+
+msgid "Create managed organization"
+msgstr ""
+
+msgid "Use your own administrator account to create a managed organization."
+msgstr ""
+
+msgid "Managed organization created and linked"
+msgstr ""
+
+msgid "Could not create a managed organization. Check your access and the first manager."
+msgstr ""
+
+msgid "Managed organization"
+msgstr ""
+
+msgid "This account's details are managed in its account settings. Choosing a CRM value changes this record only; the account stays as it is."
+msgstr ""
+
+msgid "Mirror account linked. Its account details were left unchanged; the CRM keeps its own values."
+msgstr ""
+
+msgid "Linked to mirror account. The account's own details were left unchanged; edit them in its account settings."
+msgstr ""

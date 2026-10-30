@@ -15,6 +15,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCRM.{AccountGuard, Activity, Companies, Mirror, PartyRoleTypes, Paths}
+  alias PhoenixKitCRM.ManagedMirror
   alias PhoenixKitCRM.Schemas.Company
 
   # Whitelist for the conflict-resolution form's per-field radios — never
@@ -23,7 +24,9 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   @resolvable_fields %{"name" => :name, "email" => :email}
 
   @impl true
-  def mount(_params, _session, socket), do: {:ok, socket}
+  def mount(_params, session, socket) do
+    {:ok, assign(socket, :manager_actor, ManagedMirror.actor_from_session(session))}
+  end
 
   @impl true
   def handle_params(params, _uri, socket) do
@@ -61,6 +64,8 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
       :org_accounts_enabled,
       Settings.get_boolean_setting("enable_organization_accounts", false)
     )
+    |> assign(:managed_available, ManagedMirror.available?(socket.assigns.manager_actor))
+    |> assign(:manager_candidates, [])
     |> assign(:linked_user, linked_user)
     |> assign(:linked_account_path, linked_user && Paths.user_view(linked_user.uuid))
     |> assign(:mirror_conflicts, [])
@@ -143,6 +148,51 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   # Only reachable once the company is persisted (the panel itself isn't
   # rendered before then — see render/1), so `socket.assigns.company.uuid`
   # is always set in every handler below.
+
+  def handle_event("mirror_manager_search", %{"query" => query}, socket) when is_binary(query) do
+    case ManagedMirror.search(socket.assigns.manager_actor, query) do
+      {:ok, people} ->
+        {:noreply, assign(socket, :manager_candidates, people)}
+
+      _ ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           gettext("Use your own administrator account to create a managed organization.")
+         )}
+    end
+  end
+
+  def handle_event("mirror_create_managed", %{"first_manager_uuid" => person_uuid}, socket) do
+    result =
+      Companies.create_mirror_user(socket.assigns.company,
+        managed: true,
+        manager_actor: socket.assigns.manager_actor,
+        first_manager_uuid: person_uuid
+      )
+
+    case result do
+      {:ok, {company, user}} ->
+        {:noreply,
+         socket
+         |> assign(:company, company)
+         |> assign(:linked_user, user)
+         |> assign(:linked_account_path, Paths.user_view(user.uuid))
+         |> assign(:manager_candidates, [])
+         |> put_flash(:info, gettext("Managed organization created and linked"))}
+
+      _ ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           gettext(
+             "Could not create a managed organization. Check your access and the first manager."
+           )
+         )}
+    end
+  end
 
   def handle_event("mirror_create", _params, socket) do
     if socket.assigns.org_accounts_enabled do
@@ -374,7 +424,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   defp link_flash(true),
     do:
       gettext(
-        "Linked to mirror account. The account's own details were left unchanged: it belongs to a registered person."
+        "Linked to mirror account. The account's own details were left unchanged; edit them in its account settings."
       )
 
   defp link_flash(false), do: gettext("Linked to mirror account")
@@ -385,7 +435,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
     if map_size(user_deltas) > 0 and not Mirror.placeholder_user?(user),
       do:
         gettext(
-          "Mirror account linked. The account's name and email were left unchanged: it belongs to a registered person, so the CRM keeps its own values."
+          "Mirror account linked. Its account details were left unchanged; the CRM keeps its own values."
         ),
       else: gettext("Mirror account linked")
   end
@@ -438,11 +488,11 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
   defp choice_side("keep_user"), do: :user
   defp choice_side(_), do: nil
 
-  defp picker_label(%User{organization_name: name, email: email})
+  defp picker_label(%User{organization_name: name} = user)
        when is_binary(name) and name != "",
-       do: "#{name} — #{email}"
+       do: "#{name} — #{Mirror.user_email(user)}"
 
-  defp picker_label(%User{email: email}), do: email
+  defp picker_label(%User{} = user), do: Mirror.user_email(user)
 
   defp blank?(v), do: is_nil(v) or (is_binary(v) and String.trim(v) == "")
 
@@ -596,6 +646,8 @@ defmodule PhoenixKitCRM.Web.CompanyFormLive do
             linked_user={@linked_user}
             can_link={@org_accounts_enabled}
             account_path={@linked_account_path}
+            managed_available={@managed_available}
+            manager_candidates={@manager_candidates}
           />
 
           <.form

@@ -39,11 +39,18 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
   # pre-existing gap in the cold-boot path, not touched here). Cloning an
   # already-migrated DB means the boot's migration step is a fast no-op and
   # this test's signal is about the guard's wiring, not about that chain.
-  @template_db "phoenix_kit_crm_test"
+  # Use the already-migrated database of THIS run. A fixed default can be
+  # stale when PGDATABASE selects an isolated scratch database, causing the
+  # subprocess to skip integrations after a migration failure and exit zero.
+  defp template_db do
+    :phoenix_kit_crm
+    |> Application.fetch_env!(PhoenixKitCRM.Test.Repo)
+    |> Keyword.fetch!(:database)
+  end
 
   # I165/crm#29: `CREATE DATABASE ... TEMPLATE` refuses while any other
   # session is connected to the template, and the running suite's own
-  # TestRepo pool holds exactly such sessions against @template_db for as
+  # TestRepo pool holds exactly such sessions against the current test database for as
   # long as `mix test` is up — which is the only circumstance under which
   # this test ever runs. Taking the pool down for the clone (tried first)
   # is not safe here: this suite runs `async: false` modules *concurrently*
@@ -98,7 +105,7 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
           "--no-acl",
           "-f",
           dump_path,
-          @template_db
+          template_db()
         ],
         env: pg_env,
         stderr_to_stdout: true
@@ -151,7 +158,7 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
 
     :ok = clone_from_template!(admin, admin_opts, scratch_db)
 
-    # Round 5: `#{@template_db}` itself carries the "phoenix_kit_crm" marker
+    # Round 5: the configured template itself carries the "phoenix_kit_crm" marker
     # (stamped by some earlier, legitimate boot against it directly) — found
     # by mutation-testing this exact test, where neutralizing stamp!/1 still
     # left it green. A clone inherits the marker regardless of whether THIS
@@ -259,7 +266,7 @@ defmodule PhoenixKitCRM.SchemaOwnerGuardWiringTest do
     {:ok, seeder} = Postgrex.start_link(Keyword.put(admin_opts, :database, foreign_db))
     Postgrex.query!(seeder, "DROP EXTENSION IF EXISTS \"uuid-ossp\"", [])
 
-    # Round 5 (Kimi): the template (`phoenix_kit_crm_test`) already carries
+    # Round 5 (Kimi): the configured template already carries
     # `uuid_generate_v7/0` from its own earlier boot, same as it carries
     # uuid-ossp. `CREATE OR REPLACE FUNCTION` against an unmodified clone is
     # a genuine catalog no-op — a schema-only dump is byte-identical whether
