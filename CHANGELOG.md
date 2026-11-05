@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.19.0 - 2026-11-05
 
 ### Added
 
@@ -12,11 +12,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   an own-account administrator and an active first manager. It uses core's
   authorized creation lifecycle, preserves shared contact emails and never
   grants access or falls back automatically when an email is already taken.
-  The option stays hidden on older supported core versions.
+  The option needs core 3.3.0 and stays hidden on older supported versions.
 - Managed mirror email mapping uses `contact_email` in creation, comparisons,
   resolution and reverse adoption. Account panels, pickers and organization
   lists show contact addresses; claimed account profiles stay read-only from
   the CRM. New copy is translated in English, Estonian and Russian.
+
+### Changed
+
+- Update locked core to 3.3.0, so the managed mirror tests run instead of
+  skipping. The `>= 2.65.0 and < 4.0.0` pin is unchanged.
 
 ### Fixed
 
