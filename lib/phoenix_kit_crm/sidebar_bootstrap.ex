@@ -22,6 +22,8 @@ defmodule PhoenixKitCRM.SidebarBootstrap do
   require Logger
 
   alias PhoenixKit.Dashboard.{Registry, Tab}
+  alias PhoenixKit.Users.Roles
+  alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCRM.RoleSettings
 
   @doc """
@@ -62,7 +64,11 @@ defmodule PhoenixKitCRM.SidebarBootstrap do
   def role_tab(role) do
     %Tab{
       id: :"crm_role_#{role.uuid}",
-      label: role.name,
+      # A tab label is one plain string for every viewer, so it is the role's
+      # label in the primary language (core's `name` is a fixed key since
+      # 3.5.0). A label edited on core's Roles page shows here on the next
+      # `PhoenixKitCRM.refresh_sidebar/0` or restart.
+      label: Roles.display_name(role, Multilang.primary_language()),
       path: "/admin/crm/role/#{role.uuid}",
       priority: 660,
       level: :admin,

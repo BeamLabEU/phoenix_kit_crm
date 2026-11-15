@@ -7,6 +7,7 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitCRM.Gettext
 
+  alias PhoenixKit.Users.Roles
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitCRM.{Activity, PartyRoles, PartyRoleTypes, Paths, RoleSettings}
 
@@ -239,12 +240,14 @@ defmodule PhoenixKitCRM.Web.SettingsLive do
               <.checkbox
                 name={"role_#{role.uuid}_enabled"}
                 checked={MapSet.member?(@enabled_role_uuids, role.uuid)}
-                label={role.name}
+                label={Roles.display_name(role)}
                 phx-click="toggle_role"
                 phx-value-role_uuid={role.uuid}
                 phx-value-value={if MapSet.member?(@enabled_role_uuids, role.uuid), do: "false", else: "true"}
               >
-                <:description :if={Map.get(role, :description)}>{role.description}</:description>
+                <:description :if={Roles.display_description(role)}>
+                  {Roles.display_description(role)}
+                </:description>
               </.checkbox>
               <div
                 :if={MapSet.member?(@enabled_role_uuids, role.uuid)}

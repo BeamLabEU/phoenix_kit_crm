@@ -134,6 +134,41 @@ defmodule PhoenixKitCRM.SettingsPermissionTest do
     end
   end
 
+  # Since core 3.5.0 a role's `name` is a fixed key; what people see is its
+  # translated label (`Roles.display_name/2`).
+  describe "role labels" do
+    defp labelled_role!(label) do
+      Repo.insert!(%Role{
+        name: "buyer_#{unique()}",
+        is_system_role: false,
+        data: %{"_primary_language" => "en", "en" => %{"_label" => label}}
+      })
+    end
+
+    test "the role subtab, the Role Access list and the role page show the label", %{
+      conn: conn
+    } do
+      role = labelled_role!("Wholesale buyers")
+      {:ok, _} = RoleSettings.set_enabled(role.uuid, true)
+
+      assert PhoenixKitCRM.SidebarBootstrap.role_tab(role).label == "Wholesale buyers"
+
+      {:ok, _view, html} = live(put_test_scope(conn, settings_scope()), "/en/admin/crm/settings")
+      assert html =~ "Wholesale buyers"
+      refute html =~ role.name
+
+      {:ok, _view, html} =
+        live(put_test_scope(conn, settings_scope()), "/en/admin/crm/roles/#{role.uuid}")
+
+      assert html =~ "Wholesale buyers"
+    end
+
+    test "a role with no label shows its name" do
+      role = custom_role!("Reseller")
+      assert PhoenixKitCRM.SidebarBootstrap.role_tab(role).label == role.name
+    end
+  end
+
   describe "the role pages" do
     test "the base key alone is refused; the sub-key opens it", %{conn: conn} do
       role = custom_role!()

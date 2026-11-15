@@ -31,7 +31,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
 
         {:ok,
          socket
-         |> assign(:page_title, role.name)
+         |> assign(:page_title, Roles.display_name(role))
          |> assign(:page_section, gettext("CRM"))
          |> assign(:page_section_path, Paths.index())
          |> assign(:role, role)
@@ -149,7 +149,7 @@ defmodule PhoenixKitCRM.Web.RoleView do
           socket
           |> assign(:role, role)
           |> assign(:scope, scope)
-          |> assign(:page_title, role.name)
+          |> assign(:page_title, Roles.display_name(role))
           |> assign(:selected_columns, ColumnConfig.default_columns(scope))
           |> assign(:column_meta, ColumnConfig.column_metadata_map(scope))
       end
