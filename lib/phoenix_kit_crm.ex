@@ -473,10 +473,16 @@ defmodule PhoenixKitCRM do
   @impl PhoenixKit.Module
   def js_sources do
     [
+      # Admin pages only mount these (the interaction composer), so the
+      # bundle rides in core's admin bundle (3.6.0) instead of every public
+      # page. `hooks:` must name every hook the file exports; an older core
+      # ignores both keys and loads the file with the public ones.
       %{
         app: :phoenix_kit_crm,
         file: "static/assets/phoenix_kit_crm.js",
-        global: "PhoenixKitCRMHooks"
+        global: "PhoenixKitCRMHooks",
+        scope: :admin,
+        hooks: ["CrmWhenWarnings"]
       }
     ]
   end

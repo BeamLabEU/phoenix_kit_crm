@@ -145,10 +145,14 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
   the removal of their macro call sites — a re-run of `mix gettext.extract`
   re-adds the flag and line refs, so strip them again.
 - **JS hooks ship as a prebuilt bundle**, `priv/static/assets/phoenix_kit_crm.js`,
-  declared by `js_sources/0` under the namespaced global `PhoenixKitCRMHooks`;
-  core's `:phoenix_kit_js_sources` compiler folds it into the host's module
-  bundle. Never register a hook from an inline `<script>` — morphdom does not
-  execute inserted script tags, so the hook vanishes on LiveView navigation.
+  declared by `js_sources/0` under the namespaced global `PhoenixKitCRMHooks`
+  with `scope: :admin`: core's `:phoenix_kit_js_sources` compiler puts it in
+  the admin bundle, which public pages never download, behind a stub per name
+  in `hooks:`. A new hook goes in that list (a test reads the file against it)
+  and must be a plain object of callbacks; one that must see the very first
+  `push_event` cannot stand behind a stub. Never register a hook from an
+  inline `<script>` — morphdom does not execute inserted script tags, so the
+  hook vanishes on LiveView navigation.
 - **`css_sources/0` returns `[:phoenix_kit_crm]`.** Tailwind source discovery is
   automatic — core's `:phoenix_kit_css_sources` compiler scans this module's
   templates and writes the host's `assets/css/_phoenix_kit_sources.css`.

@@ -154,6 +154,26 @@ defmodule PhoenixKitCRMTest do
     end
   end
 
+  describe "js_sources/0" do
+    # Behind core's admin stubs (3.6.0) a hook the bundle exports but
+    # `hooks:` leaves out can never mount, and a listed one it lacks has
+    # nothing to mount — so the list is read against the file itself.
+    test "the bundle is admin-only and lists exactly the hooks it exports" do
+      assert [%{app: :phoenix_kit_crm, file: file, scope: :admin, hooks: [_ | _] = hooks}] =
+               PhoenixKitCRM.js_sources()
+
+      exported =
+        :phoenix_kit_crm
+        |> :code.priv_dir()
+        |> Path.join(file)
+        |> File.read!()
+        |> then(&Regex.scan(~r/window\.PhoenixKitCRMHooks\.(\w+)\s*=/, &1))
+        |> Enum.map(fn [_, name] -> name end)
+
+      assert Enum.sort(hooks) == Enum.sort(exported)
+    end
+  end
+
   describe "Routes" do
     alias PhoenixKit.Dashboard.Tab
 
