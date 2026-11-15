@@ -386,7 +386,8 @@ defmodule PhoenixKitCRM do
 
   @doc """
   The manifest of this module's tables, for `mix phoenix_kit.repair` and
-  `mix phoenix_kit.doctor`; see `PhoenixKitCRM.ExpectedSchema`.
+  `mix phoenix_kit.doctor`. It is an internal, generated module (core's
+  `generate_module_manifest.exs` writes it), so it has no docs page.
   """
   @impl PhoenixKit.Module
   def expected_schema, do: PhoenixKitCRM.ExpectedSchema
