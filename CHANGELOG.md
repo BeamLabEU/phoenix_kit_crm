@@ -12,10 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   now requires. Cores 2.65 to 3.4 are no longer supported. The feature detection
   and fallbacks kept for them are gone, so the managed mirror option is always
   offered. Locked core is 3.6.0.
-- **Public pages no longer download the CRM's JavaScript.** `js_sources/0`
-  marks the hooks bundle `scope: :admin`, so core 3.6.0 serves it with the admin
-  bundle, fetched when the interaction composer first mounts. Older cores ignore
-  the keys and load it as before.
+- **Public pages no longer download the CRM's JavaScript on core 3.6.0.**
+  `js_sources/0` marks the hooks bundle `scope: :admin`, so that core serves it
+  with the admin bundle, fetched when the interaction composer first mounts.
+  Core 3.5 ignores the keys and still loads the file with the public bundles.
 - **Roles show their label, not their key.** Since core 3.5.0 a role's name is a
   fixed key and people see its translated label. The role subtabs show the label
   in the primary language; the Role Access list and the role page show it in the

@@ -1,7 +1,8 @@
-// Prebuilt LiveView hooks for phoenix_kit_crm. Declared via `js_sources/0`;
-// core's `:phoenix_kit_js_sources` compiler concatenates this (IIFE-wrapped)
-// into the host's `phoenix_kit_modules.js` and folds `window.PhoenixKitCRMHooks`
-// into `window.PhoenixKitHooks`.
+// Prebuilt LiveView hooks for phoenix_kit_crm. Declared via `js_sources/0`
+// with `scope: :admin` and `hooks: ["CrmWhenWarnings"]`. Core 3.6.0 puts this
+// file in the admin bundle and folds `window.PhoenixKitCRMHooks` into
+// `window.PhoenixKitAdminHooks`, behind a stub of that name. Core 3.5 ignores
+// both keys and still concatenates the file into the public module bundle.
 window.PhoenixKitCRMHooks = window.PhoenixKitCRMHooks || {};
 
 // CrmWhenWarnings — DISPLAY-ONLY helper for the interaction "When" field.

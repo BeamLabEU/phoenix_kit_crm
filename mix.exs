@@ -89,12 +89,10 @@ defmodule PhoenixKitCRM.MixProject do
       # rustler_precompiled. Same declaration as phoenix_kit's own mix.exs.
       {:rustler, ">= 0.0.0", optional: true},
 
-      # Hard, compile-time dep for the contact profile's Comments tab
-      # (`use PhoenixKitComments.Embed` + CommentsComponent). Runtime-gated on
-      # the module's admin toggle, so the tab hides when comments is disabled.
-      # 0.2.6 is the floor: that is the release that first published
-      # `PhoenixKitComments.Embed`. The `use` is unguarded, so a resolution
-      # anywhere in 0.2.0–0.2.5 fails to compile in the consumer's build.
+      # Hard, compile-time dep for the contact and company profiles
+      # (`use PhoenixKitComments.Embed`). The Comments tab stays runtime-gated
+      # on the module's admin toggle. `~> 0.5` admits 0.5.0 up to, but not
+      # including, 1.0.0.
       pk_dep(:phoenix_kit_comments, "~> 0.5"),
 
       # Per-module i18n — own Gettext backend for sidebar tab labels.
@@ -126,10 +124,8 @@ defmodule PhoenixKitCRM.MixProject do
   end
 
   # A phoenix_kit* dependency that can be swapped for a local checkout by
-  # exporting <APP>_PATH (e.g. `PHOENIX_KIT_PATH=../phoenix_kit mix test`) so the
-  # suite runs against unpublished local core (needed while the CRM tables
-  # migration is unreleased). Unset → the published Hex pin, so publish/CI are
-  # unaffected.
+  # exporting <APP>_PATH (e.g. `PHOENIX_KIT_PATH=../phoenix_kit mix test`).
+  # Unset → the published Hex pin, so publish and CI are unaffected.
   defp pk_dep(app, requirement, opts \\ []) do
     env_var = String.upcase(Atom.to_string(app)) <> "_PATH"
 

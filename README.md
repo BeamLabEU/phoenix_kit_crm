@@ -24,8 +24,8 @@ Add to the parent PhoenixKit app's `mix.exs`:
 # Local development
 {:phoenix_kit_crm, path: "../phoenix_kit_crm"}
 
-# or, once published / pinned to a tag
-{:phoenix_kit_crm, "~> 0.6"}
+# or, once published
+{:phoenix_kit_crm, "~> 0.20"}
 ```
 
 Then `mix deps.get`. The module appears in **Admin > Modules** and the
@@ -87,33 +87,27 @@ For integration tests, create the test database once:
 createdb phoenix_kit_crm_test
 ```
 
-The CRM's tables migration ships in `phoenix_kit` core. Until that core release is
-published, run the suite against a **local core checkout** so the test DB migrates
-to the version that has the CRM tables:
-
-```sh
-PHOENIX_KIT_PATH=../phoenix_kit mix test
-```
-
-With `PHOENIX_KIT_PATH` unset, the published Hex pin is used (publish/CI-safe).
+The CRM tables come from this module's own migration chain. `PHOENIX_KIT_PATH`
+(and the same `<APP>_PATH` form for the other `phoenix_kit*` deps) swaps the Hex
+pin for a local checkout. Unset, the published pin is used.
 
 See [`AGENTS.md`](AGENTS.md) for the development conventions, file layout,
 and testing setup.
 
-## License
+## Managed organization mirrors
 
-MIT — see [LICENSE](LICENSE).
+An administrator in their own account can choose **Create managed organization**
+on a saved company's edit page, while core's organization accounts are enabled.
+Search for and select the first active manager explicitly. The company's email
+becomes a contact address; it may be shared with another account and never
+grants management by matching that account. Managers enter the organization
+from core's account menu and manage invitations in its account settings. The
+option needs core 3.5.0 or newer, which is this package's floor, so it is
+always compiled in. It stays hidden for anyone who is not an administrator of
+their own account, and when organization accounts are switched off.
 
-### Managed organization mirrors
-
-On a core version with managed-organization switching and manager administration,
-an administrator in their own account can choose **Create managed organization**
-on a saved company's edit page. Search for and select the first active manager
-explicitly. The company's email becomes a contact address; it may be shared with
-another account and never grants management by matching that account. Managers
-enter the organization from core's account menu and manage invitations in its
-account settings. Older supported core versions retain the independent mirror
-flow and hide this option.
+An account added to a session stack acts on its own authority. Only an
+organization slot borrows from the account it was entered from.
 
 Programmatic callers use `Companies.create_mirror_user(company, managed: true,
 manager_actor: actor, first_manager_uuid: person_uuid)`, with `actor` constructed
@@ -124,5 +118,8 @@ concurrent requests cannot create a second orphaned account.
 For a managed mirror, comparisons, resolution and reverse creation/adoption use
 `contact_email`. Claimed mirror account details remain read-only from CRM; edit
 those details through core's organization settings. Linking a CRM company never
-adds manager grants. The CRM package can be released after the core feature;
-no higher core floor is required because this path checks API availability.
+adds manager grants.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

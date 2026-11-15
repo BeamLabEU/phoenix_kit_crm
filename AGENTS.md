@@ -21,7 +21,7 @@ Orders tab (a module exporting `orders_for_contact/1`, returning maps with
   minimum core every module requires; it carries `PhoenixKitWeb.Actor`,
   `Activity.log/3`, `ResourceFolders`, `PhoenixKitWeb.Attachments` and
   `Users.ViewPrefs`; the compound form keeps the ceiling open across every
-  core 3.x), `phoenix_kit_comments` `~> 0.3`
+  core 3.x), `phoenix_kit_comments` `~> 0.5`
   (hard — the contact and company profiles `use PhoenixKitComments.Embed` at
   compile time, so the dep cannot be optional; the Comments *tab* is still
   runtime-gated on `PhoenixKitComments.enabled?/0`). Also `phoenix_live_view`
@@ -715,11 +715,3 @@ publish has succeeded.
 - Commit messages start with an action verb (`Add`, `Update`, `Fix`, `Remove`, `Merge`).
 - Version bumps and CHANGELOG entries land with the release commit on upstream, not in feature PRs.
 - Review files live in `dev_docs/pull_requests/{year}/{pr_number}-{slug}/{AGENT}_REVIEW.md`, one file per reviewing agent, never edited by another agent; `FOLLOW_UP.md` records how each finding was resolved. Severities: `BUG - CRITICAL/HIGH/MEDIUM`, `IMPROVEMENT - HIGH/MEDIUM`, `NITPICK`.
-
-## TODOs
-
-- **`test_helper.exs` still gates on core shipping the CRM tables.** Its
-  `crm_tables_present` probe and the `PHOENIX_KIT_PATH` hint it prints predate
-  the module-owned chain, which now creates those tables itself; the branch is
-  dead. Remove it the next time that file is touched. The same stale rationale
-  sits in the `pk_dep/3` comment in `mix.exs`.

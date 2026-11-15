@@ -83,9 +83,6 @@ defmodule PhoenixKitCRM.ColumnConfig do
   defp load_custom_fields do
     CustomFields.list_enabled_field_definitions()
   rescue
-    UndefinedFunctionError ->
-      []
-
     error ->
       Logger.warning(
         "PhoenixKitCRM: failed to load custom field definitions: #{Exception.message(error)}"

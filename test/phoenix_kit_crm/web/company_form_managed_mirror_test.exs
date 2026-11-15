@@ -81,8 +81,18 @@ defmodule PhoenixKitCRM.Web.CompanyFormManagedMirrorTest do
   test "an administrator added to another person's session acts on its own authority", s do
     root = Auth.generate_user_session_token(s.person)
     added = put_session(s.conn, :pk_session_accounts, [root, s.token])
-    {:ok, _view, html} = edit(added, s.company)
+    {:ok, view, html} = edit(added, s.company)
     assert html =~ "Create as a managed organization"
+
+    view |> form("#crm-mirror-manager-search", %{query: s.person.email}) |> render_submit()
+
+    html =
+      view
+      |> form("#crm-mirror-managed-create", %{first_manager_uuid: s.person.uuid})
+      |> render_submit()
+
+    assert Companies.get_company(s.company.uuid).user_uuid
+    assert html =~ "Managed organization created and linked"
   end
 
   test "a stale revoked session cannot create", s do

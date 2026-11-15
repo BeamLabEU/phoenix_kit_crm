@@ -1,10 +1,12 @@
 defmodule PhoenixKitCRM.ManagedMirror do
   @moduledoc """
-  Optional managed-organization creation through core's authorized lifecycle.
+  Managed-organization creation through core's authorized lifecycle.
 
-  No email match grants management, and this path never falls back to
-  independent signup.
+  Every core from the 3.5.0 floor ships that API. No email match grants
+  management, and this path never falls back to independent signup.
   `manager_actor` comes only from the trusted signed browser session at mount.
+  The option stays hidden unless organization accounts are on and the actor
+  is an administrator of their own account.
   """
   import Ecto.Query
 

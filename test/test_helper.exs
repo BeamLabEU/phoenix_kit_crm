@@ -75,16 +75,15 @@ repo_available =
       $$ LANGUAGE plpgsql VOLATILE;
       """)
 
-      # Apply core's versioned migrations (including the CRM tables) so the
-      # integration suite has a schema. Without this the test DB is empty and
-      # every integration test fails on its first INSERT.
+      # Apply core's versioned migrations so the integration suite has core's
+      # schema. The CRM tables are this module's own chain, applied next.
+      # Without either, the test DB is empty and the first INSERT fails.
       PhoenixKit.Migration.ensure_current(TestRepo, log: false)
 
-      # The module-owned chain (V1: adopts all ten phoenix_kit_crm_* tables +
+      # The module-owned chain builds the phoenix_kit_crm_* tables (V1 also
       # adds companies.user_uuid), version-keyed so a bump re-applies — the
-      # document_creator pattern. Idempotent against both a core that already
-      # created these tables (the common case today) and one that doesn't yet
-      # (every statement is `IF NOT EXISTS` / guarded).
+      # document_creator pattern. Every statement is `IF NOT EXISTS` or guarded,
+      # so a replay against a database that already has the tables changes nothing.
       #
       # See `PhoenixKitCRM.Test.SchemaMigration.migrator_version/0` for why
       # this is not simply `PhoenixKitCRM.Migrations.current_version()` —
@@ -104,18 +103,6 @@ repo_available =
       # against this same DB (still opted in via PGDATABASE) can tell it's
       # ours vs. having been silently repurposed by another package.
       SchemaOwnerGuard.stamp!(&TestRepo.query!/1)
-
-      # Record whether the resolved core actually shipped the CRM tables (its V138
-      # migration). Without PHOENIX_KIT_PATH the suite resolves the *published*
-      # core, which doesn't have them yet — so the integration + LiveView tests get
-      # excluded (with a hint) instead of failing on a missing relation.
-      %{rows: [[crm_tables?]]} =
-        TestRepo.query!(
-          "SELECT EXISTS (SELECT 1 FROM information_schema.tables " <>
-            "WHERE table_name = 'phoenix_kit_crm_contacts')"
-        )
-
-      Application.put_env(:phoenix_kit_crm, :crm_tables_present, crm_tables?)
 
       Ecto.Adapters.SQL.Sandbox.mode(TestRepo, :manual)
       true
@@ -143,21 +130,6 @@ repo_available =
 
 Application.put_env(:phoenix_kit_crm, :test_repo_available, repo_available)
 
-# The integration + LiveView tests need a core that has the CRM tables (V138).
-# When the DB is up but the resolved core lacks them (the published core, i.e. no
-# PHOENIX_KIT_PATH), exclude those tests with a clear hint instead of failing on a
-# missing relation.
-crm_tables_present =
-  repo_available and Application.get_env(:phoenix_kit_crm, :crm_tables_present, false)
-
-if repo_available and not crm_tables_present do
-  IO.puts("""
-  \n  Resolved core has no CRM tables (its V138 migration isn't applied) —
-     integration + LiveView tests excluded. Run against local core:
-       PHOENIX_KIT_PATH=../phoenix_kit mix test
-  """)
-end
-
 {:ok, _pid} = PhoenixKit.PubSub.Manager.start_link([])
 {:ok, _pid} = PhoenixKit.ModuleRegistry.start_link([])
 
@@ -180,11 +152,11 @@ end
 
 # The ImportSuppliersFromCatalogue integration tests additionally need the
 # ecommerce catalogue table (phoenix_kit_cat_suppliers) with the
-# crm_company_uuid backfill column (core >= 1.7.197). The test DB only carries
-# core's own migrations, so probe for it and exclude the tag when absent —
-# same pattern as the :integration exclusion above.
+# crm_company_uuid backfill column. The test DB only carries core's own
+# migrations plus this module's chain, so probe for it and exclude the tag
+# when absent — same pattern as the :integration exclusion above.
 catalogue_available =
-  crm_tables_present and
+  repo_available and
     try do
       # The sandbox is already in :manual mode at this point (see above) — a
       # query here has no checked-out connection unless we take one
@@ -210,7 +182,7 @@ catalogue_available =
       :exit, _ -> false
     end
 
-if crm_tables_present and not catalogue_available do
+if repo_available and not catalogue_available do
   IO.puts("""
   \n  cat_suppliers/crm_company_uuid absent in the test DB —
      ImportSuppliersFromCatalogue integration tests excluded.
@@ -219,15 +191,15 @@ end
 
 exclude =
   [
-    if(!repo_available or !crm_tables_present, do: :integration),
+    if(!repo_available, do: :integration),
     if(!catalogue_available, do: :requires_catalogue)
   ]
   |> Enum.reject(&is_nil/1)
 
 # Start the test Endpoint so Phoenix.LiveViewTest can drive the CRM LiveViews via
 # `live/2`. Runs with `server: false` (no port). Only when the LiveView tests will
-# actually run (DB up + CRM tables present), since they're tagged :integration.
-if repo_available and crm_tables_present do
+# actually run (the DB is up), since they're tagged :integration.
+if repo_available do
   # Phoenix.LiveViewTest's file_input/render_upload joins a real Phoenix
   # Channel under the hood to track upload progress, which needs the
   # endpoint's own :pubsub_server running (independent of PhoenixKit's
