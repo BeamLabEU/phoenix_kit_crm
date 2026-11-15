@@ -9,8 +9,6 @@ defmodule PhoenixKitCRM.Web.CompanyFormManagedMirrorTest do
   alias PhoenixKitCRM.Test.SiteOwner
   alias PhoenixKitCRM.Web.InteractionHelpers
 
-  @moduletag skip: not ManagedMirror.supported?()
-
   setup %{conn: conn} do
     owner = SiteOwner.ensure!()
     token = Auth.generate_user_session_token(owner)
@@ -77,13 +75,17 @@ defmodule PhoenixKitCRM.Web.CompanyFormManagedMirrorTest do
     assert Companies.get_company(s.company.uuid).user_uuid == nil
   end
 
-  test "borrowed administrator and stale revoked session cannot create", s do
+  # Core's `ManagedOrganizations.Actor` (since 2026-11-09): an added account in
+  # a session stack stands on its own authority, like a first login. Only an
+  # organization slot borrows from the account it was entered from.
+  test "an administrator added to another person's session acts on its own authority", s do
     root = Auth.generate_user_session_token(s.person)
-    borrowed = put_session(s.conn, :pk_session_accounts, [root, s.token])
-    {:ok, view, html} = edit(borrowed, s.company)
-    refute html =~ "Create as a managed organization"
-    render_submit(view, "mirror_create_managed", %{first_manager_uuid: s.person.uuid})
-    assert Companies.get_company(s.company.uuid).user_uuid == nil
+    added = put_session(s.conn, :pk_session_accounts, [root, s.token])
+    {:ok, _view, html} = edit(added, s.company)
+    assert html =~ "Create as a managed organization"
+  end
+
+  test "a stale revoked session cannot create", s do
     {:ok, own_view, _html} = edit(s.conn, s.company)
     Auth.delete_user_session_token(s.token)
     render_submit(own_view, "mirror_create_managed", %{first_manager_uuid: s.person.uuid})

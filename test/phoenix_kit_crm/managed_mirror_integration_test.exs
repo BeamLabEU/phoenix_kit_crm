@@ -10,8 +10,6 @@ defmodule PhoenixKitCRM.ManagedMirrorIntegrationTest do
   alias PhoenixKitCRM.Test.Repo
   alias PhoenixKitCRM.Test.SiteOwner
 
-  @moduletag skip: not ManagedMirror.supported?()
-
   setup do
     owner = SiteOwner.ensure!()
     token = Auth.generate_user_session_token(owner)

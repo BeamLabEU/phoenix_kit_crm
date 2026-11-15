@@ -12,7 +12,6 @@ defmodule PhoenixKitCRM.ManagedMirrorConcurrencyTest do
   alias PhoenixKitCRM.Test.SiteOwner
 
   @moduletag :integration
-  @moduletag skip: not ManagedMirror.supported?()
 
   test "concurrent managed creation locks the company and creates only one account" do
     Sandbox.mode(Repo, :auto)

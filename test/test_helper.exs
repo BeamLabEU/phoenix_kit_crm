@@ -21,29 +21,22 @@ db_name = db_config[:database] || "phoenix_kit_crm_test"
 # wrapper.
 LiveDatabaseGuard.check!(db_name)
 
-# The preflight ships in core, and this module's core floor (`~> 2.0`)
-# predates it — so it is used when the running core has it, and otherwise
-# this falls through to exactly the previous behaviour.
+# One classified connection attempt, with the repo's OWN credentials and
+# transport, before anything starts the pool.
+#
+# This replaces a `psql -lqt` listing. That check asked the wrong question:
+# it ran as the shell's user over a unix socket, so it reported "the
+# database is there" and said nothing about whether the CONFIGURED role
+# could reach it over TCP. When it could not, the answer arrived minutes
+# later as a pool checkout timeout that reads like a flaky test.
 db_check =
-  if Code.ensure_loaded?(PhoenixKit.TestSupport.PostgresPreflight) do
-    # One classified connection attempt, with the repo's OWN credentials and
-    # transport, before anything starts the pool.
-    #
-    # This replaces a `psql -lqt` listing. That check asked the wrong question:
-    # it ran as the shell's user over a unix socket, so it reported "the
-    # database is there" and said nothing about whether the CONFIGURED role
-    # could reach it over TCP. When it could not, the answer arrived minutes
-    # later as a pool checkout timeout that reads like a flaky test.
-    case PhoenixKit.TestSupport.PostgresPreflight.check(db_config) do
-      :ok ->
-        :exists
+  case PhoenixKit.TestSupport.PostgresPreflight.check(db_config) do
+    :ok ->
+      :exists
 
-      {:error, _reason, message} ->
-        IO.puts(:stderr, "\n" <> message)
-        :not_found
-    end
-  else
-    :try_connect
+    {:error, _reason, message} ->
+      IO.puts(:stderr, "\n" <> message)
+      :not_found
   end
 
 repo_available =
@@ -185,20 +178,6 @@ end
 # so the test router scope is `/en/admin/crm`.
 :persistent_term.put({PhoenixKit.Config, :url_prefix}, "/")
 
-i18n_api_available =
-  Code.ensure_loaded?(PhoenixKit.Dashboard.Tab) and
-    function_exported?(PhoenixKit.Dashboard.Tab, :localized_label, 1)
-
-unless i18n_api_available do
-  require Logger
-
-  Logger.info(
-    "[test_helper] PhoenixKit.Dashboard.Tab.localized_label/1 not available — " <>
-      "i18n tests excluded. They will run automatically once `phoenix_kit` is " <>
-      "upgraded to a release that ships the gettext_backend API."
-  )
-end
-
 # The ImportSuppliersFromCatalogue integration tests additionally need the
 # ecommerce catalogue table (phoenix_kit_cat_suppliers) with the
 # crm_company_uuid backfill column (core >= 1.7.197). The test DB only carries
@@ -241,7 +220,6 @@ end
 exclude =
   [
     if(!repo_available or !crm_tables_present, do: :integration),
-    if(!i18n_api_available, do: :requires_phoenix_kit_i18n_api),
     if(!catalogue_available, do: :requires_catalogue)
   ]
   |> Enum.reject(&is_nil/1)
@@ -281,20 +259,4 @@ end
    end, []}
 )
 
-# The builds-alone test needs `PhoenixKit.TestSupport.ModuleChainCheck`, which
-# ships in the first core release after 2.64.1; against an older core it is
-# excluded.
-chain_check_exclude =
-  if Code.ensure_loaded?(PhoenixKit.TestSupport.ModuleChainCheck),
-    do: [],
-    else: [:requires_module_chain_check]
-
-ExUnit.start(exclude: chain_check_exclude ++ exclude)
-
-# The manifest test builds the module's tables with `ModuleChainCheck.build_alone/4`
-# and hands the manifest to repair (`PhoenixKit.Module.expected_schema/0`); both
-# arrive in the first core release after 2.64.1.
-unless Code.ensure_loaded?(PhoenixKit.TestSupport.ModuleChainCheck) and
-         function_exported?(PhoenixKit.TestSupport.ModuleChainCheck, :build_alone, 4) do
-  ExUnit.configure(exclude: [:requires_core_expected_schema | ExUnit.configuration()[:exclude]])
-end
+ExUnit.start(exclude: exclude)

@@ -1,7 +1,4 @@
 defmodule PhoenixKitCRM.InteractionNotifier do
-  # `apply/3` on purpose: the fan-out is core's, and an install on an older
-  # core must stay a clean no-op (the same gate the projects module uses).
-  # credo:disable-for-this-file Credo.Check.Refactor.Apply
   @moduledoc """
   Tells the people a planned interaction involves that it exists, moved or
   was cancelled (V9). One activity entry is already written by
@@ -21,8 +18,6 @@ defmodule PhoenixKitCRM.InteractionNotifier do
 
   alias PhoenixKit.RepoHelper
   alias PhoenixKitCRM.Schemas.{Contact, Interaction}
-
-  @notifications PhoenixKit.Notifications
 
   @doc """
   The users behind an interaction's parties — the staff people's and the
@@ -65,10 +60,7 @@ defmodule PhoenixKitCRM.InteractionNotifier do
   """
   @spec fan_out(term(), [String.t()]) :: :ok
   def fan_out({:ok, %{uuid: _} = entry}, [_ | _] = user_uuids) do
-    if Code.ensure_loaded?(@notifications) and
-         function_exported?(@notifications, :fan_out_from_activity, 2) do
-      apply(@notifications, :fan_out_from_activity, [entry, user_uuids])
-    end
+    PhoenixKit.Notifications.fan_out_from_activity(entry, user_uuids)
 
     :ok
   rescue

@@ -19,6 +19,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormMirrorTest do
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCRM.Companies
+  alias PhoenixKitCRM.Test.Repo, as: TestRepo
 
   setup %{conn: conn} do
     scope = fake_scope()
@@ -46,6 +47,15 @@ defmodule PhoenixKitCRM.Web.CompanyFormMirrorTest do
   end
 
   defp edit(conn, company), do: live(conn, "/en/admin/crm/companies/#{company.uuid}/edit")
+
+  # Core refuses a profile save that blanks an organization's name, so the
+  # row is written directly.
+  defp blank_organization_name!(user) do
+    user
+    |> Ecto.Changeset.change()
+    |> Ecto.Changeset.force_change(:organization_name, nil)
+    |> TestRepo.update!()
+  end
 
   describe "mirror_create" do
     test "creates a mirror user and shows the linked state", %{conn: conn} do
@@ -105,12 +115,13 @@ defmodule PhoenixKitCRM.Web.CompanyFormMirrorTest do
           "custom_fields" => %{"source" => "crm_company"}
         })
 
-      {:ok, user} = Auth.update_user_profile(user, %{organization_name: nil})
+      user = blank_organization_name!(user)
 
       # Same email on both sides so only organization_name is in play —
-      # organization_name can't be blanked at registration (required for
-      # account_type: "organization"), so this simulates it post-hoc the
-      # same way an org account with an incomplete profile would look.
+      # organization_name can't be blanked at registration or by a profile
+      # save (required for account_type: "organization"), so the row is
+      # written directly, the way an org account with an incomplete profile
+      # would look.
       company =
         company_fixture(%{"name" => "Acme Corp #{unique()}", "email" => user.email})
 
@@ -344,7 +355,7 @@ defmodule PhoenixKitCRM.Web.CompanyFormMirrorTest do
 
     test "a no-conflict link leaves the account's blank organization name blank", %{conn: conn} do
       user = org_user_fixture(%{"organization_name" => "Placeholder"})
-      {:ok, user} = Auth.update_user_profile(user, %{organization_name: nil})
+      user = blank_organization_name!(user)
       company = company_fixture(%{"name" => "Acme Corp #{unique()}", "email" => user.email})
 
       {:ok, view, _html} = edit(conn, company)

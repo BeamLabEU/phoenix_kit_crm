@@ -64,26 +64,20 @@ defmodule PhoenixKitCRM.ColumnConfig do
     do: %{standard: translate_labels(@organizations_standard), custom: custom_field_columns()}
 
   defp custom_field_columns do
-    case Code.ensure_loaded(CustomFields) do
-      {:module, _} ->
-        load_custom_fields()
-        |> Enum.filter(&is_binary(&1["key"]))
-        |> Enum.map(fn field ->
-          key = field["key"]
+    load_custom_fields()
+    |> Enum.filter(&is_binary(&1["key"]))
+    |> Enum.map(fn field ->
+      key = field["key"]
 
-          {"custom_" <> key,
-           %{
-             label: field["label"] || key,
-             field_key: key,
-             field_type: field["type"],
-             required: false,
-             type: :custom_field
-           }}
-        end)
-
-      _ ->
-        []
-    end
+      {"custom_" <> key,
+       %{
+         label: field["label"] || key,
+         field_key: key,
+         field_type: field["type"],
+         required: false,
+         type: :custom_field
+       }}
+    end)
   end
 
   defp load_custom_fields do

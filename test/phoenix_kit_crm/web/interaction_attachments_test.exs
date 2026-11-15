@@ -47,10 +47,8 @@ defmodule PhoenixKitCRM.Web.InteractionAttachmentsTest do
   # Core refuses to disable a bucket while a storage profile uses it.
   # Detach the sandboxed fixture first; rollback restores the site's rows.
   defp disable_bucket(bucket) do
-    if Code.ensure_loaded?(Profiles) do
-      for usage <- Map.get(Profiles.bucket_usage([bucket.uuid]), to_string(bucket.uuid), []) do
-        :ok = Profiles.remove_bucket(Profiles.get_profile(usage.profile_uuid), bucket.uuid)
-      end
+    for usage <- Map.get(Profiles.bucket_usage([bucket.uuid]), to_string(bucket.uuid), []) do
+      :ok = Profiles.remove_bucket(Profiles.get_profile(usage.profile_uuid), bucket.uuid)
     end
 
     Storage.update_bucket(bucket, %{enabled: false})

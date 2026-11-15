@@ -5,8 +5,6 @@ defmodule PhoenixKitCRM.ManagedMirrorTest do
   alias PhoenixKitCRM.{ManagedMirror, Mirror}
   alias PhoenixKitCRM.Schemas.Company
 
-  @moduletag skip: not ManagedMirror.supported?()
-
   defp managed(attrs \\ %{}) do
     struct(
       User,

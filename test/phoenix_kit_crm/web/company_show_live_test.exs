@@ -493,13 +493,12 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
            )
   end
 
-  # The Catalogue tab 500ed on first load because @column_picker_available and
-  # @catalogue_column_catalog were only assigned from the picker event
-  # handlers, never from handle_params. Catalogue is a soft-dep and is not
-  # loaded in this suite, so ?tab=catalogue clamps to Overview and a
-  # render-succeeds test would pass *without* the fix. The two assigns are
-  # set unconditionally, so reading them off the LiveView process is the
-  # lock that survives the clamp.
+  # The Catalogue tab 500ed on first load because @catalogue_column_catalog
+  # was only assigned from the picker event handlers, never from
+  # handle_params. Catalogue is a soft-dep and is not loaded in this suite, so
+  # ?tab=catalogue clamps to Overview and a render-succeeds test would pass
+  # *without* the fix. The assign is set unconditionally, so reading it off
+  # the LiveView process is the lock that survives the clamp.
   test "catalogue picker assigns are present on first handle_params (KeyError regression)",
        %{conn: conn} do
     {:ok, company} = Companies.create_company(%{"name" => "Initech"})
@@ -507,7 +506,6 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
     {:ok, view, _html} = live(conn, "/en/admin/crm/companies/#{company.uuid}?tab=catalogue")
 
     assigns = live_assigns(view)
-    assert is_boolean(assigns.column_picker_available)
     assert is_list(assigns.catalogue_column_catalog)
   end
 

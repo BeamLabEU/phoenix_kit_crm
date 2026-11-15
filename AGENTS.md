@@ -17,10 +17,11 @@ discovers it by adding the package to `deps` — no other config. The one option
 Orders tab (a module exporting `orders_for_contact/1`, returning maps with
 `:number`, `:path`, `:inserted_at`); unset, the tab is hidden.
 
-- **Depends on:** `phoenix_kit` `>= 2.38.0 and < 3.0.0` (Hex — the release that
-  carries `PhoenixKitWeb.Actor`, `Activity.log/3`, `ResourceFolders`,
-  `PhoenixKitWeb.Attachments` and `Users.ViewPrefs`; the compound form keeps
-  the ceiling open across later 2.x minors), `phoenix_kit_comments` `~> 0.3`
+- **Depends on:** `phoenix_kit` `>= 3.5.0 and < 4.0.0` (Hex — 3.5.0 is the
+  minimum core every module requires; it carries `PhoenixKitWeb.Actor`,
+  `Activity.log/3`, `ResourceFolders`, `PhoenixKitWeb.Attachments` and
+  `Users.ViewPrefs`; the compound form keeps the ceiling open across every
+  core 3.x), `phoenix_kit_comments` `~> 0.3`
   (hard — the contact and company profiles `use PhoenixKitComments.Embed` at
   compile time, so the dep cannot be optional; the Comments *tab* is still
   runtime-gated on `PhoenixKitComments.enabled?/0`). Also `phoenix_live_view`
@@ -262,8 +263,7 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
   parties (a staff person's or a contact's `user_uuid`, read live and
   schemaless; free text reaches nobody) when they are added to a plan,
   when it moves and when it is cancelled — the ONE activity entry fanned
-  out through core's `Notifications.fan_out_from_activity/2` (`apply/3`,
-  a no-op on an older core). No reminder before the start yet: that
+  out through core's `Notifications.fan_out_from_activity/2`. No reminder before the start yet: that
   needs a scheduled job.
 - **Interactions on other modules' calendars** (`CalendarItems`): read-only
   maps, asked for on every load and never copied. `for_project/3` is the
@@ -408,16 +408,17 @@ is written by a resolution or a blank-fill; for any other account the
 contexts drop the user-side deltas, the CRM keeps its own value, the link is
 still made, and the conflict modal (`account_locked`) and the flash say so.
 
-**Managed mirrors (optional core API).** `ManagedMirror` capability-checks core's
-complete managed-organization API before offering the explicit creation option.
+**Managed mirrors.** `ManagedMirror` offers the explicit creation option through
+core's managed-organization API, which every core from the 3.5.0 floor ships.
 The signed-session actor and required first manager go to core's authorized
 lifecycle; a bare Scope/User or an email match grants no access. The company row
 is locked and re-read before creation to avoid orphaning a concurrent mirror.
 `Mirror.field_map/2` maps managed company email to `contact_email`; comparisons,
 resolution and reverse adoption must never copy its `.invalid` login placeholder.
 Claimed managed profiles stay read-only under `AccountGuard`, just like other
-claimed accounts. Keep this bridge dynamically dispatched: the published core
-floor predates the API, so old supported hosts must still compile and run.
+claimed accounts. An added account in a session stack stands on its own
+authority in core's `ManagedOrganizations.Actor` (2026-11-09); only an
+organization slot borrows from the account it was entered from.
 
 **Tab registration.** Static tabs come from `admin_tabs/0` and
 `settings_tabs/0`. Per-role tabs are registered at runtime by
@@ -602,15 +603,13 @@ Support modules:
   subset)
 - `test/support/{schema_owner_guard,live_database_guard,schema_migration}.ex`
 
-Conditional exclusions beyond `:integration`:
-`:requires_phoenix_kit_i18n_api` (the resolved core must export
-`PhoenixKit.Dashboard.Tab.localized_label/1`) and `:requires_catalogue` (the
+Conditional exclusion beyond `:integration`: `:requires_catalogue` (the
 supplier-import tests need `phoenix_kit_cat_suppliers.crm_company_uuid` in the
 test DB).
 
 Conformance tests worth knowing about: `core_pin_conformance_test.exs` fails the
 build if the `:phoenix_kit` requirement is re-narrowed to a single core minor
-(the `~> 2.0.x` trap, which only breaks consumers) or if a local path override
+(the `~> 3.5.x` trap, which only breaks consumers) or if a local path override
 reaches a commit; `schema_prefix_conformance_test.exs` scans `lib/` for a
 table-backed schema missing `use PhoenixKit.SchemaPrefix`.
 

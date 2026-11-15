@@ -103,7 +103,6 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
              ColumnPrefs.load(Actor.uuid(s), catalogue_columns_spec(s))
            end)
          end)
-         |> assign_new(:column_picker_available, fn -> column_picker_available?() end)
          |> assign_catalogue(catalogue_enabled, company)
          |> assign(:avatar_url, Attachments.avatar_url(company))
          |> assign(:tz, viewer_tz(socket.assigns[:phoenix_kit_current_user]))
@@ -407,11 +406,6 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
         ),
       defaults: catalogue_default_columns()
     }
-  end
-
-  defp column_picker_available? do
-    Code.ensure_loaded?(PhoenixKitWeb.Components.Core.ColumnSettings) and
-      function_exported?(PhoenixKitWeb.Components.Core.ColumnSettings, :column_settings_modal, 1)
   end
 
   defp catalogue_column_catalog do
@@ -767,7 +761,6 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
         <div :if={@show_supplied or @show_manufactured} class="flex justify-end -mb-2">
           <button
-            :if={@column_picker_available}
             type="button"
             class="btn btn-ghost btn-sm"
             phx-click="show_column_modal"
@@ -777,12 +770,7 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
           </button>
         </div>
 
-        <%!-- Core 2.6 added this component and mix.exs pins `~> 2.0` by policy
-             (narrowing it breaks deps.get for hosts on an older core), so the
-             picker is guarded rather than required. Without it the table still
-             renders, on its default columns. --%>
         <PhoenixKitWeb.Components.Core.ColumnSettings.column_settings_modal
-          :if={@column_picker_available}
           id="crm-company-catalogue-columns"
           show={@show_catalogue_columns}
           columns={@catalogue_column_catalog}
