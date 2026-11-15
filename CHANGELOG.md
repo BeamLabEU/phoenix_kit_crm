@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.20.0 - 2026-11-15
+
+### Changed
+
+- **Core pin raised to `>= 3.5.0 and < 4.0.0`**, the minimum core every module
+  now requires. Cores 2.65 to 3.4 are no longer supported. The feature detection
+  and fallbacks kept for them are gone, so the managed mirror option is always
+  offered. Locked core is 3.6.0.
+- **Public pages no longer download the CRM's JavaScript.** `js_sources/0`
+  marks the hooks bundle `scope: :admin`, so core 3.6.0 serves it with the admin
+  bundle, fetched when the interaction composer first mounts. Older cores ignore
+  the keys and load it as before.
+- **Roles show their label, not their key.** Since core 3.5.0 a role's name is a
+  fixed key and people see its translated label. The role subtabs show the label
+  in the primary language; the Role Access list and the role page show it in the
+  viewer's language.
+
+### Fixed
+
+- The managed-mirror test follows core's rule since 2026-11-09: an account added
+  to a session stack stands on its own authority.
+
 ## 0.19.0 - 2026-11-05
 
 ### Added
