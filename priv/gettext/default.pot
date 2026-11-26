@@ -3221,3 +3221,15 @@ msgstr ""
 
 msgid "Linked to mirror account. The account's own details were left unchanged; edit them in its account settings."
 msgstr ""
+
+msgid "External reference"
+msgstr ""
+
+msgid "Source system"
+msgstr ""
+
+msgid "External ID"
+msgstr ""
+
+msgid "The id another system knows this record by, for imports and syncs. Leave both empty if there is none."
+msgstr ""

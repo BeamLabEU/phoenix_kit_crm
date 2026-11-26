@@ -646,6 +646,11 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
           <.field label={gettext("Website")} value={@company.website} />
           <.field label={gettext("Email")} value={@company.email} />
           <.field label={gettext("Phone")} value={@company.phone} />
+          <.field
+            :if={@company.external_id}
+            label={gettext("External reference")}
+            value={"#{@company.external_source}: #{@company.external_id}"}
+          />
           <.field label={gettext("Industry")} value={@company.industry} />
           <div>
             <div class="text-xs uppercase tracking-wide text-base-content/50">

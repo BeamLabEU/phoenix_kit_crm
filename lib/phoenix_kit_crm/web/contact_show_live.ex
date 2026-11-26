@@ -423,6 +423,11 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
         <div class="card-body grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
           <.field label={gettext("Email")} value={@contact.email} />
           <.field label={gettext("Phone")} value={@contact.phone} />
+          <.field
+            :if={@contact.external_id}
+            label={gettext("External reference")}
+            value={"#{@contact.external_source}: #{@contact.external_id}"}
+          />
           <div>
             <div class="text-xs uppercase tracking-wide text-base-content/50">{gettext("Company")}</div>
             <div class="text-sm">

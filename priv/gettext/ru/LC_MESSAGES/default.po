@@ -3235,3 +3235,15 @@ msgstr "Зеркальная учётная запись связана. Её д
 
 msgid "Linked to mirror account. The account's own details were left unchanged; edit them in its account settings."
 msgstr "Связано с зеркальной учётной записью. Её данные не изменены; редактируйте их в настройках учётной записи."
+
+msgid "External reference"
+msgstr "Внешняя ссылка"
+
+msgid "Source system"
+msgstr "Исходная система"
+
+msgid "External ID"
+msgstr "Внешний ID"
+
+msgid "The id another system knows this record by, for imports and syncs. Leave both empty if there is none."
+msgstr "Идентификатор, под которым эту запись знает другая система, — для импорта и синхронизации. Если его нет, оставьте оба поля пустыми."
