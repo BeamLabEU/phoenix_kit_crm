@@ -29,21 +29,43 @@ defmodule PhoenixKitCRM.ExternalRef do
   trimmed (blank → nil), within the columns' lengths, an id only with a
   source, and the index's uniqueness mapped to an error on `:external_id`.
   `index` is the unique index's name.
+
+  An integer id is taken as its decimal text (`42` → `"42"`), the same way
+  the lookups read one. Lengths count code points, as `varchar(n)` does.
+  The CHECK is mapped too: an update from a stale struct (the source looks
+  unchanged, so only the id is written, onto a row whose source was
+  cleared meanwhile) comes back as an error instead of raising.
   """
   @spec changeset(Ecto.Changeset.t(), map(), atom()) :: Ecto.Changeset.t()
   def changeset(changeset, attrs, index) do
     changeset
-    |> cast(attrs, [:external_source, :external_id])
+    |> cast(integer_ids_to_text(attrs), [:external_source, :external_id])
     |> update_change(:external_source, &blank_to_nil/1)
     |> update_change(:external_id, &blank_to_nil/1)
-    |> validate_length(:external_source, max: @source_max)
-    |> validate_length(:external_id, max: @id_max)
+    |> validate_length(:external_source, max: @source_max, count: :codepoints)
+    |> validate_length(:external_id, max: @id_max, count: :codepoints)
     |> validate_source_present()
+    |> check_constraint(:external_source,
+      name: "#{changeset.data.__meta__.source}_external_source_check",
+      message: "can't be blank when an external id is set"
+    )
     |> unique_constraint(:external_id,
       name: index,
-      message: "is already used by another record from this source"
+      message: "is already used by another record from this source (perhaps one in the trash)"
     )
   end
+
+  defp integer_ids_to_text(attrs) when is_map(attrs) do
+    Map.new(attrs, fn
+      {key, value} when key in [:external_id, "external_id"] and is_integer(value) ->
+        {key, Integer.to_string(value)}
+
+      pair ->
+        pair
+    end)
+  end
+
+  defp integer_ids_to_text(attrs), do: attrs
 
   @doc "Normalizes one lookup value the way the changeset stores it."
   @spec normalize(term()) :: String.t() | nil

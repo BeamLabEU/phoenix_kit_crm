@@ -44,6 +44,47 @@ defmodule PhoenixKitCRM.ExternalRefTest do
       end
     end
 
+    test "an update from a stale struct that would break the CHECK is an error, not a raise" do
+      company = company!(%{"external_source" => "lab2", "external_id" => "42"})
+
+      # Someone else clears the reference meanwhile.
+      {:ok, _} =
+        Companies.update_company(company, %{"external_source" => "", "external_id" => ""})
+
+      # The stale struct still says "lab2", so only the id is written.
+      assert {:error, cs} =
+               Companies.update_company(company, %{
+                 "external_source" => "lab2",
+                 "external_id" => "43"
+               })
+
+      assert cs.errors[:external_source]
+    end
+
+    test "an integer id is stored as its text and found by the same integer" do
+      company = company!(%{"external_source" => "lab2", "external_id" => 42})
+      assert company.external_id == "42"
+      assert Companies.get_company_by_external_ref("lab2", 42).uuid == company.uuid
+
+      assert %{"42" => %{uuid: uuid}} = Companies.map_companies_by_external_ids("lab2", [42])
+      assert uuid == company.uuid
+    end
+
+    test "lengths count code points, as the varchar columns do" do
+      # "e" + combining acute: one grapheme, two code points.
+      decomposed = String.duplicate("e\u0301", 26)
+      assert String.length(decomposed) == 26
+
+      assert {:error, cs} =
+               Companies.create_company(%{
+                 "name" => "X",
+                 "external_source" => decomposed,
+                 "external_id" => "1"
+               })
+
+      assert cs.errors[:external_source]
+    end
+
     test "a pair is unique per source; the same id under another source is fine" do
       company!(%{"external_source" => "lab2", "external_id" => "42"})
 
