@@ -30,8 +30,8 @@ defmodule PhoenixKitCRM.MigrationsTest do
   alias PhoenixKitCRM.Migrations
 
   describe "current_version/0 and version_table/0" do
-    test "current_version is 10" do
-      assert Migrations.current_version() == 10
+    test "current_version is 11" do
+      assert Migrations.current_version() == 11
     end
 
     test "version_table is the contacts table (the marker carrier)" do
@@ -106,7 +106,7 @@ defmodule PhoenixKitCRM.MigrationsTest do
       statements = Migrations.up_statements()
 
       assert List.last(statements) ==
-               "COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:10'"
+               "COMMENT ON TABLE public.phoenix_kit_crm_contacts IS 'crm_schema:11'"
     end
 
     test "the extension guard runs first, before any citext column is created" do
@@ -332,8 +332,8 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
   end
 
   describe "migrated_version_runtime/1" do
-    test "reads back 10 after the chain has applied" do
-      assert Migrations.migrated_version_runtime(prefix: "public") == 10
+    test "reads back 11 after the chain has applied" do
+      assert Migrations.migrated_version_runtime(prefix: "public") == 11
     end
 
     test "an unsafe prefix reads as 0, not raised — the function guards its own boundary" do
@@ -365,7 +365,7 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
       assert result in [:already_up, :ok]
 
       # And the effects are unchanged.
-      assert Migrations.migrated_version_runtime(prefix: "public") == 10
+      assert Migrations.migrated_version_runtime(prefix: "public") == 11
     end
   end
 
@@ -436,6 +436,28 @@ defmodule PhoenixKitCRM.MigrationsIntegrationTest do
     test "the dedupe keeps the company side, matching the documented tiebreak" do
       sql = Enum.join(Migrations.up_statements(), "\n")
       assert sql =~ "(roleable_type = 'company') DESC"
+    end
+  end
+
+  describe "V11 external references" do
+    test "both tables get the two columns, the source CHECK and a partial unique index" do
+      statements = Migrations.up_statements()
+
+      for {table, index} <- [
+            {"phoenix_kit_crm_companies", "idx_crm_companies_external_ref"},
+            {"phoenix_kit_crm_contacts", "idx_crm_contacts_external_ref"}
+          ] do
+        assert "ALTER TABLE public.#{table} ADD COLUMN IF NOT EXISTS external_source varchar(50)" in statements
+
+        assert "ALTER TABLE public.#{table} ADD COLUMN IF NOT EXISTS external_id varchar(255)" in statements
+
+        check = Enum.find(statements, &(&1 =~ "#{table}_external_source_check"))
+        assert check =~ "external_id IS NULL OR external_source IS NOT NULL"
+
+        unique = Enum.find(statements, &(&1 =~ "CREATE UNIQUE INDEX IF NOT EXISTS #{index}"))
+        assert unique =~ "(external_source, external_id)"
+        assert unique =~ "WHERE external_id IS NOT NULL"
+      end
     end
   end
 end

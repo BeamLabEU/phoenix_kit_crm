@@ -44,6 +44,8 @@ defmodule PhoenixKitCRM.Schemas.Contact do
           company_memberships: [CompanyMembership.t()] | Ecto.Association.NotLoaded.t(),
           interactions: [Interaction.t()] | Ecto.Association.NotLoaded.t(),
           metadata: map(),
+          external_source: String.t() | nil,
+          external_id: String.t() | nil,
           inserted_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil
         }
@@ -58,6 +60,9 @@ defmodule PhoenixKitCRM.Schemas.Contact do
     field(:opted_out_at, :utc_datetime)
     field(:consent, :map, default: %{})
     field(:metadata, :map, default: %{})
+    # V11 — see `PhoenixKitCRM.ExternalRef`.
+    field(:external_source, :string)
+    field(:external_id, :string)
 
     belongs_to(:user, User, foreign_key: :user_uuid, references: :uuid)
 
@@ -85,6 +90,7 @@ defmodule PhoenixKitCRM.Schemas.Contact do
   def changeset(contact, attrs) do
     contact
     |> cast(attrs, @castable)
+    |> PhoenixKitCRM.ExternalRef.changeset(attrs, :idx_crm_contacts_external_ref)
     |> PhoenixKitCRM.ServerOwnedMetadata.keep()
     |> validate_required([:name])
     |> validate_inclusion(:status, @statuses)

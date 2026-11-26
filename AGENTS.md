@@ -538,7 +538,7 @@ and core's `PhoenixKit.Users.ViewPrefs` for column choices.
 
 Owns a versioned chain: `PhoenixKitCRM.Migrations` via `migration_module/0`,
 marker `crm_schema:<N>` as a `COMMENT ON TABLE phoenix_kit_crm_contacts`,
-currently **V10**. `mix phoenix_kit.update` applies it in hosts; the test suite
+currently **V11**. `mix phoenix_kit.update` applies it in hosts; the test suite
 applies it through `PhoenixKitCRM.Test.SchemaMigration` (see Testing).
 A marker-less table reads as version 0 — the core-baseline shape from before
 the chain existed.
@@ -568,6 +568,14 @@ Module-owned tables:
 
 - `phoenix_kit_crm_contacts` — people (the primary entity); soft-delete via `status`
 - `phoenix_kit_crm_companies` — legal entities; soft-delete via `status`; `user_uuid` is the mirror link
+- V11 adds `external_source` (≤ 50) / `external_id` (≤ 255) to both
+  `phoenix_kit_crm_companies` and `phoenix_kit_crm_contacts`: a CHECK that an
+  id has a source, and a partial unique index `(external_source, external_id)
+  WHERE external_id IS NOT NULL` (`idx_crm_companies_external_ref`,
+  `idx_crm_contacts_external_ref`) covering trashed rows too. Cast by
+  `PhoenixKitCRM.ExternalRef` from both forms; looked up with
+  `get_{company,contact}_by_external_ref/2` and the batched
+  `map_{companies,contacts}_by_external_ids/2`, which find trashed rows too.
 - `phoenix_kit_crm_company_memberships` — contact↔company associations (role / department)
 - `phoenix_kit_crm_interactions` — logged interactions, anchored to a contact XOR a company; V8 adds `project_uuid` (soft ref, partial index `idx_crm_interactions_project`) and `duration_minutes`; V9 adds `status` (CHECK `planned|happened|cancelled`, default `happened`), `planned_at`, `location` and the partial index `idx_crm_interactions_planned`
 - `phoenix_kit_crm_interaction_parties` — an interaction's involved parties and their frozen snapshots

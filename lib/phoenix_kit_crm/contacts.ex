@@ -18,6 +18,7 @@ defmodule PhoenixKitCRM.Contacts do
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCRM.AccountGuard
+  alias PhoenixKitCRM.ExternalRef
   alias PhoenixKitCRM.Lists
   alias PhoenixKitCRM.Mirror
   alias PhoenixKitCRM.PartyRoles
@@ -179,6 +180,49 @@ defmodule PhoenixKitCRM.Contacts do
   def primary_membership(%Contact{}), do: nil
 
   # ── Mutations ───────────────────────────────────────────────────────
+
+  @doc """
+  The contact an outside system knows by `external_id` under `source` (V11,
+  see `PhoenixKitCRM.ExternalRef`), or `nil`. Values are trimmed the way the
+  changeset stores them; a blank source or id is `nil`. A trashed contact is
+  found too — the reference stays with it — so check `status` before
+  treating it as live.
+  """
+  @spec get_contact_by_external_ref(String.t() | nil, String.t() | integer() | nil) ::
+          Contact.t() | nil
+  def get_contact_by_external_ref(source, external_id) do
+    with source when is_binary(source) <- ExternalRef.normalize(source),
+         id when is_binary(id) <- ExternalRef.normalize(external_id) do
+      repo().get_by(Contact, external_source: source, external_id: id)
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
+  Batched `get_contact_by_external_ref/2` for one source:
+  `%{external_id => contact}` for the ids that have a contact (trashed ones
+  included), in one query. Ids are normalized first; blank ones are skipped.
+  """
+  @spec map_contacts_by_external_ids(String.t() | nil, [String.t() | integer()]) ::
+          %{String.t() => Contact.t()}
+  def map_contacts_by_external_ids(source, external_ids) when is_list(external_ids) do
+    ids =
+      external_ids |> Enum.map(&ExternalRef.normalize/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    case {ExternalRef.normalize(source), ids} do
+      {nil, _} ->
+        %{}
+
+      {_, []} ->
+        %{}
+
+      {source, ids} ->
+        from(r in Contact, where: r.external_source == ^source and r.external_id in ^ids)
+        |> repo().all()
+        |> Map.new(&{&1.external_id, &1})
+    end
+  end
 
   @spec change_contact(Contact.t(), map()) :: Ecto.Changeset.t()
   def change_contact(%Contact{} = contact, attrs \\ %{}),

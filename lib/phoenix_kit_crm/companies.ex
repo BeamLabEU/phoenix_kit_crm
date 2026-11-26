@@ -11,6 +11,7 @@ defmodule PhoenixKitCRM.Companies do
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCRM.AccountGuard
+  alias PhoenixKitCRM.ExternalRef
   alias PhoenixKitCRM.Interactions
   alias PhoenixKitCRM.ManagedMirror
   alias PhoenixKitCRM.Mirror
@@ -138,6 +139,49 @@ defmodule PhoenixKitCRM.Companies do
     case Ecto.UUID.cast(uuid) do
       {:ok, _} -> repo().get(Company, uuid)
       :error -> nil
+    end
+  end
+
+  @doc """
+  The company an outside system knows by `external_id` under `source` (V11,
+  see `PhoenixKitCRM.ExternalRef`), or `nil`. Values are trimmed the way the
+  changeset stores them; a blank source or id is `nil`. A trashed company is
+  found too — the reference stays with it — so check `status` before
+  treating it as live.
+  """
+  @spec get_company_by_external_ref(String.t() | nil, String.t() | integer() | nil) ::
+          Company.t() | nil
+  def get_company_by_external_ref(source, external_id) do
+    with source when is_binary(source) <- ExternalRef.normalize(source),
+         id when is_binary(id) <- ExternalRef.normalize(external_id) do
+      repo().get_by(Company, external_source: source, external_id: id)
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
+  Batched `get_company_by_external_ref/2` for one source:
+  `%{external_id => company}` for the ids that have a company (trashed ones
+  included), in one query. Ids are normalized first; blank ones are skipped.
+  """
+  @spec map_companies_by_external_ids(String.t() | nil, [String.t() | integer()]) ::
+          %{String.t() => Company.t()}
+  def map_companies_by_external_ids(source, external_ids) when is_list(external_ids) do
+    ids =
+      external_ids |> Enum.map(&ExternalRef.normalize/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    case {ExternalRef.normalize(source), ids} do
+      {nil, _} ->
+        %{}
+
+      {_, []} ->
+        %{}
+
+      {source, ids} ->
+        from(r in Company, where: r.external_source == ^source and r.external_id in ^ids)
+        |> repo().all()
+        |> Map.new(&{&1.external_id, &1})
     end
   end
 

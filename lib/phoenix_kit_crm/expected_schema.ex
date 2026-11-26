@@ -257,6 +257,35 @@ defmodule PhoenixKitCRM.ExpectedSchema do
         backfill: nil
       },
       %{
+        id: "column:phoenix_kit_crm_companies.external_id",
+        owner: :phoenix_kit_crm,
+        check:
+          {:catalog, %{table: "phoenix_kit_crm_companies", column: "external_id", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_crm_companies ADD COLUMN IF NOT EXISTS \"external_id\" character varying(255)",
+        since: 1,
+        class: :column,
+        revisions: [
+          {1, %{default: nil, type: "character varying(255)", pos: 17, not_null: false}}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_crm_companies.external_source",
+        owner: :phoenix_kit_crm,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_crm_companies", column: "external_source", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_crm_companies ADD COLUMN IF NOT EXISTS \"external_source\" character varying(50)",
+        since: 1,
+        class: :column,
+        revisions: [{1, %{default: nil, type: "character varying(50)", pos: 16, not_null: false}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
         id: "column:phoenix_kit_crm_companies.industry",
         owner: :phoenix_kit_crm,
         check:
@@ -580,6 +609,35 @@ defmodule PhoenixKitCRM.ExpectedSchema do
         since: 1,
         class: :column,
         revisions: [{1, %{default: nil, type: "public.citext", pos: 4, not_null: false}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_crm_contacts.external_id",
+        owner: :phoenix_kit_crm,
+        check:
+          {:catalog, %{table: "phoenix_kit_crm_contacts", column: "external_id", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_crm_contacts ADD COLUMN IF NOT EXISTS \"external_id\" character varying(255)",
+        since: 1,
+        class: :column,
+        revisions: [
+          {1, %{default: nil, type: "character varying(255)", pos: 15, not_null: false}}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_crm_contacts.external_source",
+        owner: :phoenix_kit_crm,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_crm_contacts", column: "external_source", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_crm_contacts ADD COLUMN IF NOT EXISTS \"external_source\" character varying(50)",
+        since: 1,
+        class: :column,
+        revisions: [{1, %{default: nil, type: "character varying(50)", pos: 14, not_null: false}}],
         presence: :required,
         backfill: nil
       },
@@ -1913,6 +1971,37 @@ defmodule PhoenixKitCRM.ExpectedSchema do
         backfill: :default
       },
       %{
+        id: "index:idx_crm_companies_external_ref",
+        owner: :phoenix_kit_crm,
+        check:
+          {:catalog,
+           %{
+             name: "idx_crm_companies_external_ref",
+             table: "phoenix_kit_crm_companies",
+             kind: :index
+           }},
+        create:
+          "CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_companies_external_ref ON __SCHEMA__.phoenix_kit_crm_companies USING btree (external_source, external_id) WHERE (external_id IS NOT NULL)",
+        since: 1,
+        class: :index,
+        revisions: [
+          {1,
+           %{
+             table: "phoenix_kit_crm_companies",
+             keys: ["external_source", "external_id"],
+             unique: true,
+             method: "btree",
+             definition:
+               "CREATE UNIQUE INDEX idx_crm_companies_external_ref ON __SCHEMA__.phoenix_kit_crm_companies USING btree (external_source, external_id) WHERE (external_id IS NOT NULL)",
+             predicate: "(external_id IS NOT NULL)",
+             opclasses: ["text_ops", "text_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
         id: "index:idx_crm_companies_status",
         owner: :phoenix_kit_crm,
         check:
@@ -1964,6 +2053,37 @@ defmodule PhoenixKitCRM.ExpectedSchema do
                "CREATE UNIQUE INDEX idx_crm_companies_user_uuid ON __SCHEMA__.phoenix_kit_crm_companies USING btree (user_uuid) WHERE (user_uuid IS NOT NULL)",
              predicate: "(user_uuid IS NOT NULL)",
              opclasses: ["uuid_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "index:idx_crm_contacts_external_ref",
+        owner: :phoenix_kit_crm,
+        check:
+          {:catalog,
+           %{
+             name: "idx_crm_contacts_external_ref",
+             table: "phoenix_kit_crm_contacts",
+             kind: :index
+           }},
+        create:
+          "CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_contacts_external_ref ON __SCHEMA__.phoenix_kit_crm_contacts USING btree (external_source, external_id) WHERE (external_id IS NOT NULL)",
+        since: 1,
+        class: :index,
+        revisions: [
+          {1,
+           %{
+             table: "phoenix_kit_crm_contacts",
+             keys: ["external_source", "external_id"],
+             unique: true,
+             method: "btree",
+             definition:
+               "CREATE UNIQUE INDEX idx_crm_contacts_external_ref ON __SCHEMA__.phoenix_kit_crm_contacts USING btree (external_source, external_id) WHERE (external_id IS NOT NULL)",
+             predicate: "(external_id IS NOT NULL)",
+             opclasses: ["text_ops", "text_ops"],
              name_template: nil
            }}
         ],
@@ -2609,6 +2729,37 @@ defmodule PhoenixKitCRM.ExpectedSchema do
         backfill: nil
       },
       %{
+        id:
+          "constraint:phoenix_kit_crm_companies.phoenix_kit_crm_companies_external_source_check",
+        owner: :phoenix_kit_crm,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_crm_companies_external_source_check",
+             table: "phoenix_kit_crm_companies",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_crm_companies_external_source_check'\n      AND t.relname = 'phoenix_kit_crm_companies'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_crm_companies ADD CONSTRAINT phoenix_kit_crm_companies_external_source_check CHECK (((external_id IS NULL) OR (external_source IS NOT NULL)));\n  END IF;\nEND\n$$",
+        since: 1,
+        class: :constraint,
+        revisions: [
+          {1,
+           %{
+             type: "c",
+             columns: ["external_id", "external_source"],
+             definition: "CHECK (((external_id IS NULL) OR (external_source IS NOT NULL)))",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
         id: "constraint:phoenix_kit_crm_companies.phoenix_kit_crm_companies_pkey",
         owner: :phoenix_kit_crm,
         check:
@@ -2690,6 +2841,36 @@ defmodule PhoenixKitCRM.ExpectedSchema do
              type: "u",
              columns: ["contact_uuid", "company_uuid"],
              definition: "UNIQUE (contact_uuid, company_uuid)",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "constraint:phoenix_kit_crm_contacts.phoenix_kit_crm_contacts_external_source_check",
+        owner: :phoenix_kit_crm,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_crm_contacts_external_source_check",
+             table: "phoenix_kit_crm_contacts",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_crm_contacts_external_source_check'\n      AND t.relname = 'phoenix_kit_crm_contacts'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_crm_contacts ADD CONSTRAINT phoenix_kit_crm_contacts_external_source_check CHECK (((external_id IS NULL) OR (external_source IS NOT NULL)));\n  END IF;\nEND\n$$",
+        since: 1,
+        class: :constraint,
+        revisions: [
+          {1,
+           %{
+             type: "c",
+             columns: ["external_id", "external_source"],
+             definition: "CHECK (((external_id IS NULL) OR (external_source IS NOT NULL)))",
              name_template: nil,
              foreign_table: nil,
              foreign_columns: nil,

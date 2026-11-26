@@ -31,6 +31,8 @@ defmodule PhoenixKitCRM.Schemas.Company do
           user: User.t() | Ecto.Association.NotLoaded.t() | nil,
           company_memberships: [CompanyMembership.t()] | Ecto.Association.NotLoaded.t(),
           metadata: map(),
+          external_source: String.t() | nil,
+          external_id: String.t() | nil,
           inserted_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil
         }
@@ -47,6 +49,9 @@ defmodule PhoenixKitCRM.Schemas.Company do
     field(:industry, :string)
     field(:notes, :string)
     field(:metadata, :map, default: %{})
+    # V11 — see `PhoenixKitCRM.ExternalRef`.
+    field(:external_source, :string)
+    field(:external_id, :string)
 
     belongs_to(:user, User, foreign_key: :user_uuid, references: :uuid)
 
@@ -69,6 +74,7 @@ defmodule PhoenixKitCRM.Schemas.Company do
   def changeset(company, attrs) do
     company
     |> cast(attrs, @castable)
+    |> PhoenixKitCRM.ExternalRef.changeset(attrs, :idx_crm_companies_external_ref)
     |> PhoenixKitCRM.ServerOwnedMetadata.keep()
     |> validate_required([:name])
     |> validate_inclusion(:status, @statuses)
