@@ -163,7 +163,10 @@ defmodule PhoenixKitCRM.Companies do
   @doc """
   Batched `get_company_by_external_ref/2` for one source:
   `%{external_id => company}` for the ids that have a company (trashed ones
-  included), in one query. Ids are normalized first; blank ones are skipped.
+  included), in one query. Ids are normalized first (trimmed, an integer as
+  its text) and the map is keyed by the normalized, stored id — look a
+  result up with `ExternalRef.normalize/1` of your own id. Blank ones are
+  skipped.
   """
   @spec map_companies_by_external_ids(String.t() | nil, [String.t() | integer()]) ::
           %{String.t() => Company.t()}
