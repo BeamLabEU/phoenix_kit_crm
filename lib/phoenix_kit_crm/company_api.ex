@@ -67,7 +67,9 @@ defmodule PhoenixKitCRM.CompanyApi do
           phone: contact.phone,
           role: m.role_in_company,
           department: m.department,
-          primary: m.is_primary
+          primary: m.is_primary,
+          external_source: contact.external_source,
+          external_id: contact.external_id
         }
       end)
 
@@ -81,6 +83,8 @@ defmodule PhoenixKitCRM.CompanyApi do
       phone: c.phone,
       address: c.address,
       industry: c.industry,
+      external_source: c.external_source,
+      external_id: c.external_id,
       contacts: people
     }
   end

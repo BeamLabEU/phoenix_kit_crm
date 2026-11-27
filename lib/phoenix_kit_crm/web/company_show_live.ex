@@ -647,9 +647,9 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
           <.field label={gettext("Email")} value={@company.email} />
           <.field label={gettext("Phone")} value={@company.phone} />
           <.field
-            :if={@company.external_id}
+            :if={@company.external_id || @company.external_source}
             label={gettext("External reference")}
-            value={"#{@company.external_source}: #{@company.external_id}"}
+            value={external_ref_label(@company)}
           />
           <.field label={gettext("Industry")} value={@company.industry} />
           <div>
@@ -1007,4 +1007,8 @@ defmodule PhoenixKitCRM.Web.CompanyShowLive do
 
   defp member_role(m),
     do: [m.role_in_company, m.department] |> Enum.reject(&(&1 in [nil, ""])) |> Enum.join(" · ")
+
+  # "lab2: 42", or the source alone when no id is set yet.
+  defp external_ref_label(%{external_source: source, external_id: nil}), do: source
+  defp external_ref_label(%{external_source: source, external_id: id}), do: "#{source}: #{id}"
 end

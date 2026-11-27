@@ -424,9 +424,9 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
           <.field label={gettext("Email")} value={@contact.email} />
           <.field label={gettext("Phone")} value={@contact.phone} />
           <.field
-            :if={@contact.external_id}
+            :if={@contact.external_id || @contact.external_source}
             label={gettext("External reference")}
-            value={"#{@contact.external_source}: #{@contact.external_id}"}
+            value={external_ref_label(@contact)}
           />
           <div>
             <div class="text-xs uppercase tracking-wide text-base-content/50">{gettext("Company")}</div>
@@ -667,4 +667,8 @@ defmodule PhoenixKitCRM.Web.ContactShowLive do
       parts -> " · " <> Enum.join(parts, " · ")
     end
   end
+
+  # "lab2: 42", or the source alone when no id is set yet.
+  defp external_ref_label(%{external_source: source, external_id: nil}), do: source
+  defp external_ref_label(%{external_source: source, external_id: id}), do: "#{source}: #{id}"
 end

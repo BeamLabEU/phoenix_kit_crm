@@ -532,4 +532,22 @@ defmodule PhoenixKitCRM.Web.CompanyShowLiveTest do
       assert html =~ "None"
     end
   end
+
+  test "the external reference shows with an id, and a source alone shows too", %{conn: conn} do
+    {:ok, full} =
+      Companies.create_company(%{
+        "name" => "Ref Co",
+        "external_source" => "Lab2",
+        "external_id" => "42"
+      })
+
+    {:ok, _view, html} = live(conn, "/en/admin/crm/companies/#{full.uuid}")
+    assert html =~ "lab2: 42"
+
+    {:ok, partial} = Companies.create_company(%{"name" => "Src Co", "external_source" => "lab2"})
+    {:ok, _view, html} = live(conn, "/en/admin/crm/companies/#{partial.uuid}")
+    assert html =~ "External reference"
+    assert html =~ "lab2"
+    refute html =~ "lab2:"
+  end
 end
