@@ -35,10 +35,23 @@ defmodule PhoenixKitCRM.CatalogueImport do
   3. Match an existing CRM company by email first (citext equality),
      then by normalized website; otherwise create a new company from the
      source row's own columns (see `config/1` for the per-flow mapping).
+
+  ## Supplier contacts (catalogue V7)
+
+  When the catalogue has its `phoenix_kit_cat_supplier_contacts` table,
+  a supplier's PRIMARY contacts are carried too, ahead of the free text:
+  the primary email is the candidate email (else the regex over
+  `contact_info`, as before), the primary web address stands in for an
+  empty `website`. With `--apply`, the company gets the email, phone and
+  website it does not have yet — a value it already holds is never
+  overwritten — and the primary person becomes a CRM contact with a
+  membership at the company, unless a live member there already has that
+  name. Without the table (an older catalogue, or none) the run is
+  exactly the free-text one.
   """
 
   alias PhoenixKit.RepoHelper
-  alias PhoenixKitCRM.{Companies, PartyRoles}
+  alias PhoenixKitCRM.{Companies, Contacts, PartyRoles}
   alias PhoenixKitCRM.Schemas.Company
 
   @doc """
@@ -63,6 +76,8 @@ defmodule PhoenixKitCRM.CatalogueImport do
       column_map: %{description: :description},
       metadata_source: "cat_suppliers",
       metadata_uuid_key: "cat_supplier_uuid",
+      # Catalogue V7's contacts (optional: an older catalogue has none).
+      contacts_table: "phoenix_kit_cat_supplier_contacts",
       column_hint:
         "the column is added by core migration V149. Upgrade the phoenix_kit " <>
           "dependency and run mix phoenix_kit.update first."
@@ -77,6 +92,7 @@ defmodule PhoenixKitCRM.CatalogueImport do
       column_map: %{description: :description, logo_url: :logo_url},
       metadata_source: "cat_manufacturers",
       metadata_uuid_key: "cat_manufacturer_uuid",
+      contacts_table: nil,
       column_hint:
         "the column is added by core migration V178 (the manufacturer half of " <>
           "the party federation). Upgrade the phoenix_kit dependency and run " <>
@@ -240,8 +256,11 @@ defmodule PhoenixKitCRM.CatalogueImport do
   defp already_linked?(_), do: false
 
   defp do_process_row(row, repo, prefix, apply?, config) do
-    candidate_email = extract_email(row.contact_info)
-    candidate_website = normalize_website(row.website)
+    contacts = primary_contacts(repo, prefix, row.uuid, config)
+    row = Map.put(row, :contacts, contacts)
+
+    candidate_email = normalize_email(contacts["email"]) || extract_email(row.contact_info)
+    candidate_website = normalize_website(blank_to_nil(row.website) || contacts["url"])
 
     {action, company} =
       match_or_create_company(row, candidate_email, candidate_website, apply?, config)
@@ -253,6 +272,7 @@ defmodule PhoenixKitCRM.CatalogueImport do
       apply? && company ->
         :ok = grant_role(company, config)
         stamp_crm_uuid(repo, prefix, row.uuid, company.uuid, config)
+        company = carry_contacts(company, row, candidate_email)
         result(row, action, company)
 
       true ->
@@ -368,10 +388,13 @@ defmodule PhoenixKitCRM.CatalogueImport do
   end
 
   defp create_company_from_row(row, candidate_email, config) do
+    contacts = Map.get(row, :contacts, %{})
+
     attrs = %{
       "name" => row.name,
       "email" => candidate_email,
-      "website" => row.website,
+      "phone" => contacts["phone"],
+      "website" => blank_to_nil(row.website) || contacts["url"],
       "notes" => row.notes,
       "metadata" => %{
         "imported_from" => config.metadata_source,
@@ -399,6 +422,92 @@ defmodule PhoenixKitCRM.CatalogueImport do
       {:ok, _} -> :ok
       {:error, cs} -> raise "Failed to grant #{config.role} role: #{inspect(cs.errors)}"
     end
+  end
+
+  # ── Supplier contacts (catalogue V7) ────────────────────────────────
+
+  @doc """
+  Public for testing — the source row's primary contacts as
+  `%{kind => value}` from the catalogue's contacts table, or `%{}` when the
+  flow has none, the table is not there, or the row has no primary.
+  """
+  def primary_contacts(_repo, _prefix, _row_uuid, %{contacts_table: nil}), do: %{}
+
+  def primary_contacts(repo, prefix, row_uuid, %{contacts_table: table}) when is_binary(table) do
+    %{rows: [[exists]]} =
+      repo.query!("SELECT to_regclass($1) IS NOT NULL", ["#{prefix}.#{table}"])
+
+    if exists do
+      %{rows: rows} =
+        repo.query!(
+          "SELECT kind, value FROM #{prefix}.#{table} WHERE supplier_uuid = $1 AND is_primary",
+          [dump_uuid(row_uuid)]
+        )
+
+      Map.new(rows, fn [kind, value] -> {kind, value} end)
+    else
+      %{}
+    end
+  end
+
+  def primary_contacts(_repo, _prefix, _row_uuid, _config), do: %{}
+
+  # Fills only what the company lacks; the person joins as a contact.
+  defp carry_contacts(%Company{} = company, %{contacts: contacts}, candidate_email)
+       when map_size(contacts) > 0 do
+    blanks =
+      %{"email" => candidate_email, "phone" => contacts["phone"], "website" => contacts["url"]}
+      |> Enum.filter(fn {field, value} ->
+        is_binary(value) and value != "" and
+          blank_to_nil(Map.get(company, String.to_existing_atom(field))) == nil
+      end)
+      |> Map.new()
+
+    company =
+      if blanks == %{} do
+        company
+      else
+        case Companies.update_company(company, blanks) do
+          {:ok, updated} -> updated
+          {:error, cs} -> raise "Failed to fill the company's contacts: #{inspect(cs.errors)}"
+        end
+      end
+
+    :ok = carry_person(company, contacts["person"])
+    company
+  end
+
+  defp carry_contacts(company, _row, _candidate_email), do: company
+
+  defp carry_person(_company, person) when person in [nil, ""], do: :ok
+
+  defp carry_person(%Company{} = company, person) do
+    already? =
+      company.uuid
+      |> Companies.list_memberships()
+      |> Enum.any?(&(String.downcase(&1.contact.name || "") == String.downcase(person)))
+
+    if already? do
+      :ok
+    else
+      with {:ok, contact} <- Contacts.create_contact(%{"name" => person}),
+           {:ok, _} <- Contacts.set_primary_company(contact, company.uuid, nil, nil) do
+        :ok
+      else
+        {:error, cs} -> raise "Failed to add #{person} as a contact: #{inspect(cs)}"
+      end
+    end
+  end
+
+  defp normalize_email(nil), do: nil
+
+  defp normalize_email(email) when is_binary(email),
+    do: email |> String.trim() |> String.downcase() |> blank_to_nil()
+
+  defp blank_to_nil(nil), do: nil
+
+  defp blank_to_nil(value) when is_binary(value) do
+    if String.trim(value) == "", do: nil, else: value
   end
 
   defp stamp_crm_uuid(repo, prefix, row_uuid, company_uuid, config) do
