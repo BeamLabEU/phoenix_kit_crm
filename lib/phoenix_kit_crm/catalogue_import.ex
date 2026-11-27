@@ -256,7 +256,7 @@ defmodule PhoenixKitCRM.CatalogueImport do
   defp already_linked?(_), do: false
 
   defp do_process_row(row, repo, prefix, apply?, config) do
-    contacts = primary_contacts(repo, prefix, row.uuid, config)
+    contacts = repo |> primary_contacts(prefix, row.uuid, config) |> fitting()
     row = Map.put(row, :contacts, contacts)
 
     candidate_email = normalize_email(contacts["email"]) || extract_email(row.contact_info)
@@ -271,8 +271,10 @@ defmodule PhoenixKitCRM.CatalogueImport do
 
       apply? && company ->
         :ok = grant_role(company, config)
+        # Before the stamp: a carry that fails leaves the row unlinked, so
+        # a rerun tries it again instead of skipping it as already linked.
+        company = carry_contacts(company, row)
         stamp_crm_uuid(repo, prefix, row.uuid, company.uuid, config)
-        company = carry_contacts(company, row, candidate_email)
         result(row, action, company)
 
       true ->
@@ -434,10 +436,7 @@ defmodule PhoenixKitCRM.CatalogueImport do
   def primary_contacts(_repo, _prefix, _row_uuid, %{contacts_table: nil}), do: %{}
 
   def primary_contacts(repo, prefix, row_uuid, %{contacts_table: table}) when is_binary(table) do
-    %{rows: [[exists]]} =
-      repo.query!("SELECT to_regclass($1) IS NOT NULL", ["#{prefix}.#{table}"])
-
-    if exists do
+    if contacts_table?(repo, "#{prefix}.#{table}") do
       %{rows: rows} =
         repo.query!(
           "SELECT kind, value FROM #{prefix}.#{table} WHERE supplier_uuid = $1 AND is_primary",
@@ -452,11 +451,53 @@ defmodule PhoenixKitCRM.CatalogueImport do
 
   def primary_contacts(_repo, _prefix, _row_uuid, _config), do: %{}
 
-  # Fills only what the company lacks; the person joins as a contact.
-  defp carry_contacts(%Company{} = company, %{contacts: contacts}, candidate_email)
+  # Asked once per process (a run), not once per supplier.
+  defp contacts_table?(repo, qualified) do
+    key = {__MODULE__, :contacts_table, qualified}
+
+    case Process.get(key) do
+      nil ->
+        %{rows: [[exists]]} = repo.query!("SELECT to_regclass($1) IS NOT NULL", [qualified])
+        Process.put(key, exists)
+        exists
+
+      exists ->
+        exists
+    end
+  end
+
+  # A catalogue contact takes 500 characters; the company's columns take
+  # fewer. A primary that does not fit is left behind (the row still
+  # imports, as it did before contacts were carried) rather than failing it.
+  defp fitting(contacts) do
+    contacts
+    |> Enum.filter(fn
+      {"email", v} -> fits?(Company, "email", normalize_email(v))
+      {"phone", v} -> fits?(Company, "phone", v)
+      {"url", v} -> fits?(Company, "website", v)
+      {"person", v} -> fits?(PhoenixKitCRM.Schemas.Contact, "name", v)
+      _ -> false
+    end)
+    |> Map.new()
+  end
+
+  defp fits?(_schema, _field, nil), do: false
+
+  defp fits?(schema, field, value) do
+    changeset = schema.changeset(struct(schema), %{"name" => "x", field => value})
+    not Keyword.has_key?(changeset.errors, String.to_existing_atom(field))
+  end
+
+  # Fills only what the company lacks, from the primaries alone (never the
+  # free-text regex); the person joins as a contact.
+  defp carry_contacts(%Company{} = company, %{contacts: contacts})
        when map_size(contacts) > 0 do
     blanks =
-      %{"email" => candidate_email, "phone" => contacts["phone"], "website" => contacts["url"]}
+      %{
+        "email" => normalize_email(contacts["email"]),
+        "phone" => contacts["phone"],
+        "website" => contacts["url"]
+      }
       |> Enum.filter(fn {field, value} ->
         is_binary(value) and value != "" and
           blank_to_nil(Map.get(company, String.to_existing_atom(field))) == nil
@@ -477,7 +518,7 @@ defmodule PhoenixKitCRM.CatalogueImport do
     company
   end
 
-  defp carry_contacts(company, _row, _candidate_email), do: company
+  defp carry_contacts(company, _row), do: company
 
   defp carry_person(_company, person) when person in [nil, ""], do: :ok
 

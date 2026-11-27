@@ -111,13 +111,50 @@ defmodule PhoenixKitCRM.CatalogueImportContactsTest do
     company = Companies.get_company(uuid)
     assert {company.phone, company.website} == {"+372 1111 1111", "https://kraana.ee"}
     assert members(uuid) == ["Mari Maasikas"]
+  end
 
-    # A second supplier on the same company with the same person adds no one.
-    s2 = supplier!(%{})
-    contact!(s2, "email", "sales@kraana.ee")
-    contact!(s2, "person", "mari maasikas")
-    assert %{action: :already_claimed} = import!(s2)
-    assert members(uuid) == ["Mari Maasikas"]
+  test "a person the company already has (any case) is not added twice" do
+    {:ok, company} = Companies.create_company(%{"name" => "Has Mari", "email" => "m@kraana.ee"})
+    {:ok, mari} = PhoenixKitCRM.Contacts.create_contact(%{"name" => "Mari Maasikas"})
+    {:ok, _} = PhoenixKitCRM.Contacts.set_primary_company(mari, company.uuid, nil, nil)
+
+    s = supplier!(%{})
+    contact!(s, "email", "m@kraana.ee")
+    contact!(s, "person", "mari maasikas")
+
+    assert %{action: :matched_by_email} = import!(s)
+    assert members(company.uuid) == ["Mari Maasikas"]
+  end
+
+  test "the primary email wins over the free text's, and the url matches by website" do
+    {:ok, by_site} =
+      Companies.create_company(%{"name" => "Site Co", "website" => "https://kraana.ee"})
+
+    s = supplier!(%{contact_info: "old: other@kraana.ee"})
+    contact!(s, "url", "http://www.kraana.ee")
+    contact!(s, "person", "Mari")
+
+    assert %{action: :matched_by_website, company_uuid: uuid} = import!(s)
+    assert uuid == by_site.uuid
+    # Only primaries fill blanks: the free-text email is not written.
+    assert Companies.get_company(uuid).email == nil
+
+    s2 = supplier!(%{contact_info: "other@elsewhere.ee"})
+    contact!(s2, "email", "primary@elsewhere.ee")
+    assert %{action: :created, company_uuid: uuid2} = import!(s2)
+    assert Companies.get_company(uuid2).email == "primary@elsewhere.ee"
+  end
+
+  test "a primary too long for the company's column is left behind; the row still imports" do
+    s = supplier!(%{})
+    contact!(s, "phone", "+372 5555 1234 / +372 5555 4321 (sales, weekdays 9-17)")
+    contact!(s, "person", String.duplicate("M", 300))
+    contact!(s, "email", "ok@kraana.ee")
+
+    assert %{action: :created, company_uuid: uuid} = import!(s)
+    company = Companies.get_company(uuid)
+    assert {company.email, company.phone} == {"ok@kraana.ee", nil}
+    assert members(uuid) == []
   end
 
   test "without the contacts table the free text is used, as before" do
