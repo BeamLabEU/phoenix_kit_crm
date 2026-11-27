@@ -85,6 +85,44 @@ defmodule PhoenixKitCRM.ExternalRefTest do
       assert cs.errors[:external_source]
     end
 
+    test "the source is stored and looked up lowercase; case does not make a second source" do
+      company = company!(%{"external_source" => " HubSpot ", "external_id" => "1"})
+      assert company.external_source == "hubspot"
+      assert Companies.get_company_by_external_ref("HUBSPOT", "1").uuid == company.uuid
+      assert %{"1" => _} = Companies.map_companies_by_external_ids(" HubSpot", ["1"])
+
+      assert {:error, cs} =
+               Companies.create_company(%{
+                 "name" => "Other",
+                 "external_source" => "hubspot",
+                 "external_id" => "1"
+               })
+
+      assert cs.errors[:external_id]
+      assert Contacts.get_contact_by_external_ref("HubSpot", "1") == nil
+    end
+
+    test "the two messages are translated through the module's catalogue" do
+      Gettext.with_locale(PhoenixKitCRM.Gettext, "et", fn ->
+        assert {:error, cs} = Companies.create_company(%{"name" => "X", "external_id" => "1"})
+        assert {"ei tohi olla tühi, kui väline ID on määratud", _} = cs.errors[:external_source]
+      end)
+
+      company!(%{"external_source" => "lab2", "external_id" => "9"})
+
+      Gettext.with_locale(PhoenixKitCRM.Gettext, "ru", fn ->
+        assert {:error, cs} =
+                 Companies.create_company(%{
+                   "name" => "Y",
+                   "external_source" => "lab2",
+                   "external_id" => "9"
+                 })
+
+        assert {"уже используется другой записью из этого источника (возможно, в корзине)", _} =
+                 cs.errors[:external_id]
+      end)
+    end
+
     test "a pair is unique per source; the same id under another source is fine" do
       company!(%{"external_source" => "lab2", "external_id" => "42"})
 

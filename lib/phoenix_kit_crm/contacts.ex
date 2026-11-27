@@ -191,7 +191,7 @@ defmodule PhoenixKitCRM.Contacts do
   @spec get_contact_by_external_ref(String.t() | nil, String.t() | integer() | nil) ::
           Contact.t() | nil
   def get_contact_by_external_ref(source, external_id) do
-    with source when is_binary(source) <- ExternalRef.normalize(source),
+    with source when is_binary(source) <- ExternalRef.normalize_source(source),
          id when is_binary(id) <- ExternalRef.normalize(external_id) do
       repo().get_by(Contact, external_source: source, external_id: id)
     else
@@ -213,7 +213,7 @@ defmodule PhoenixKitCRM.Contacts do
     ids =
       external_ids |> Enum.map(&ExternalRef.normalize/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
-    case {ExternalRef.normalize(source), ids} do
+    case {ExternalRef.normalize_source(source), ids} do
       {nil, _} ->
         %{}
 

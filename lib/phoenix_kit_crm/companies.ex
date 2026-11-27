@@ -152,7 +152,7 @@ defmodule PhoenixKitCRM.Companies do
   @spec get_company_by_external_ref(String.t() | nil, String.t() | integer() | nil) ::
           Company.t() | nil
   def get_company_by_external_ref(source, external_id) do
-    with source when is_binary(source) <- ExternalRef.normalize(source),
+    with source when is_binary(source) <- ExternalRef.normalize_source(source),
          id when is_binary(id) <- ExternalRef.normalize(external_id) do
       repo().get_by(Company, external_source: source, external_id: id)
     else
@@ -174,7 +174,7 @@ defmodule PhoenixKitCRM.Companies do
     ids =
       external_ids |> Enum.map(&ExternalRef.normalize/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
-    case {ExternalRef.normalize(source), ids} do
+    case {ExternalRef.normalize_source(source), ids} do
       {nil, _} ->
         %{}
 

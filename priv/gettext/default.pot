@@ -3231,5 +3231,11 @@ msgstr ""
 msgid "External ID"
 msgstr ""
 
+msgid "can't be blank when an external id is set"
+msgstr ""
+
+msgid "is already used by another record from this source (perhaps one in the trash)"
+msgstr ""
+
 msgid "The id another system knows this record by, for imports and syncs. Leave both empty if there is none."
 msgstr ""
