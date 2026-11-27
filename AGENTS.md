@@ -340,6 +340,27 @@ Repo-specific aliases: `mix test.setup` (`ecto.create` + `ecto.migrate` on
   application restart — an accepted trade-off for not running a persistent
   watcher GenServer.
 
+## Content-Security-Policy
+
+The module works under a host policy that allows inline code by nonce only
+(`script-src 'self' 'nonce-…'`; core's `guides/content-security-policy.md`).
+Its own markup has no inline `<script>` / `<style>` and no inline event
+handler, so there is no `PhoenixKitCRM.Web.CSP` helper and the core floor is
+not raised for CSP. `test/csp_inline_tags_test.exs` guards this.
+
+- **Bundle** (`priv/static/assets/phoenix_kit_crm.js`): creates no
+  `<style>` / `<script>`, evaluates no strings. `CrmWhenWarnings` builds its
+  warning lines with `innerHTML` from escaped text only (`esc/1`).
+- **Nested LiveView:** the projects hub embeds `Web.ProjectClientLive` with
+  `live_render`. It has `use PhoenixKitWeb, :live_view`, which on a core with
+  nonce support carries `on_mount PhoenixKitWeb.CSP`; the embedding page
+  passes the nonces in the session (`nested_session`). Keep both halves.
+- **Adding an inline tag:** add `lib/phoenix_kit_crm/web/csp.ex` (copy
+  `phoenix_kit_hello_world`'s: it feature-detects `PhoenixKitWeb.CSP`, which
+  is newer than the core floor) and write
+  `nonce={PhoenixKitCRM.Web.CSP.nonce(:style)}`. No inline handlers ever: use
+  a `phx-` binding or a hook in the bundle.
+
 ## Architecture
 
 ```
