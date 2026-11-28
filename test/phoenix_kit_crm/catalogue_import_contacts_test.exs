@@ -1,6 +1,6 @@
 defmodule PhoenixKitCRM.CatalogueImportContactsTest do
   @moduledoc """
-  The supplier backfill carrying catalogue V7's primary contacts, with the
+  The supplier backfill carrying catalogue V8's primary contacts, with the
   catalogue's tables present and without its contacts table (an older
   catalogue). The tables are created inside the sandbox transaction, so
   the test needs no catalogue install and leaves nothing behind.

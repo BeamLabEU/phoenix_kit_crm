@@ -36,7 +36,7 @@ defmodule PhoenixKitCRM.CatalogueImport do
      then by normalized website; otherwise create a new company from the
      source row's own columns (see `config/1` for the per-flow mapping).
 
-  ## Supplier contacts (catalogue V7)
+  ## Supplier contacts (catalogue V8)
 
   When the catalogue has its `phoenix_kit_cat_supplier_contacts` table,
   a supplier's PRIMARY contacts are carried too, ahead of the free text:
@@ -76,7 +76,7 @@ defmodule PhoenixKitCRM.CatalogueImport do
       column_map: %{description: :description},
       metadata_source: "cat_suppliers",
       metadata_uuid_key: "cat_supplier_uuid",
-      # Catalogue V7's contacts (optional: an older catalogue has none).
+      # Catalogue V8's contacts (optional: an older catalogue has none).
       contacts_table: "phoenix_kit_cat_supplier_contacts",
       column_hint:
         "the column is added by core migration V149. Upgrade the phoenix_kit " <>
@@ -426,7 +426,7 @@ defmodule PhoenixKitCRM.CatalogueImport do
     end
   end
 
-  # ── Supplier contacts (catalogue V7) ────────────────────────────────
+  # ── Supplier contacts (catalogue V8) ────────────────────────────────
 
   @doc """
   Public for testing — the source row's primary contacts as
