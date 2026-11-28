@@ -35,11 +35,26 @@ defmodule PhoenixKitCRM.CatalogueImport do
   3. Match an existing CRM company by email first (citext equality),
      then by normalized website; otherwise create a new company from the
      source row's own columns (see `config/1` for the per-flow mapping).
+
+  ## Supplier contacts (catalogue V8)
+
+  When the catalogue has its `phoenix_kit_cat_supplier_contacts` table,
+  a supplier's PRIMARY contacts are carried too, ahead of the free text:
+  the primary email is the candidate email (else the regex over
+  `contact_info`, as before), the primary web address stands in for an
+  empty `website`. With `--apply`, the company gets the email, phone and
+  website it does not have yet — a value it already holds is never
+  overwritten — and the primary person becomes a CRM contact with a
+  membership at the company, unless a live member there already has that
+  name. Without the table (an older catalogue, or none) the run is
+  exactly the free-text one.
   """
 
+  import Ecto.Query
+
   alias PhoenixKit.RepoHelper
-  alias PhoenixKitCRM.{Companies, PartyRoles}
-  alias PhoenixKitCRM.Schemas.Company
+  alias PhoenixKitCRM.{Companies, Contacts, PartyRoles, PubSub}
+  alias PhoenixKitCRM.Schemas.{Company, CompanyMembership, Contact}
 
   @doc """
   The per-flow configuration. `:suppliers` is the original backfill's
@@ -63,6 +78,8 @@ defmodule PhoenixKitCRM.CatalogueImport do
       column_map: %{description: :description},
       metadata_source: "cat_suppliers",
       metadata_uuid_key: "cat_supplier_uuid",
+      # Catalogue V8's contacts (optional: an older catalogue has none).
+      contacts_table: "phoenix_kit_cat_supplier_contacts",
       column_hint:
         "the column is added by core migration V149. Upgrade the phoenix_kit " <>
           "dependency and run mix phoenix_kit.update first."
@@ -77,6 +94,7 @@ defmodule PhoenixKitCRM.CatalogueImport do
       column_map: %{description: :description, logo_url: :logo_url},
       metadata_source: "cat_manufacturers",
       metadata_uuid_key: "cat_manufacturer_uuid",
+      contacts_table: nil,
       column_hint:
         "the column is added by core migration V178 (the manufacturer half of " <>
           "the party federation). Upgrade the phoenix_kit dependency and run " <>
@@ -210,16 +228,10 @@ defmodule PhoenixKitCRM.CatalogueImport do
       |> Map.replace(:uuid, display_uuid(Map.get(row, :uuid)))
       |> Map.replace(:crm_company_uuid, display_uuid(Map.get(row, :crm_company_uuid)))
 
-    if already_linked?(row) do
-      %{
-        name: row.name,
-        status: row.status,
-        uuid: row.uuid,
-        action: :already_linked,
-        company_uuid: row.crm_company_uuid
-      }
-    else
-      do_process_row(row, repo, prefix, apply?, config)
+    cond do
+      already_linked?(row) -> result(row, :already_linked, %{uuid: row.crm_company_uuid})
+      apply? -> apply_row(row, repo, prefix, config)
+      true -> do_process_row(row, repo, prefix, false, config)
     end
   rescue
     e ->
@@ -239,24 +251,66 @@ defmodule PhoenixKitCRM.CatalogueImport do
   defp already_linked?(%{crm_company_uuid: uuid}) when is_binary(uuid) and uuid != "", do: true
   defp already_linked?(_), do: false
 
+  # Two runs can fetch the same unlinked row. Recheck its stamp under lock
+  # and commit the CRM records, membership, role and catalogue stamp together.
+  defp apply_row(row, repo, prefix, config) do
+    {:ok, result} =
+      repo.transaction(fn ->
+        case repo.query!(
+               "SELECT crm_company_uuid FROM #{prefix}.#{config.table} WHERE uuid = $1 FOR UPDATE",
+               [dump_uuid(row.uuid)]
+             ).rows do
+          [[nil]] -> do_process_row(row, repo, prefix, true, config)
+          [[uuid]] -> result(row, :already_linked, %{uuid: display_uuid(uuid)})
+          [] -> raise "Catalogue #{config.noun} no longer exists"
+        end
+      end)
+
+    case Map.pop(result, :joined_contact_uuid) do
+      {nil, result} ->
+        result
+
+      {uuid, result} ->
+        PubSub.broadcast_company_event(:member_joined, [result.company_uuid], uuid)
+        result
+    end
+  end
+
   defp do_process_row(row, repo, prefix, apply?, config) do
-    candidate_email = extract_email(row.contact_info)
-    candidate_website = normalize_website(row.website)
+    contacts = repo |> primary_contacts(prefix, row.uuid, config) |> fitting()
+    row = Map.put(row, :contacts, contacts)
+
+    candidate_email = normalize_email(contacts["email"]) || extract_email(row.contact_info)
+    candidate_website = normalize_website(blank_to_nil(row.website) || contacts["url"])
 
     {action, company} =
       match_or_create_company(row, candidate_email, candidate_website, apply?, config)
 
-    cond do
-      apply? && company && claimed_elsewhere?(repo, prefix, row.uuid, company.uuid, config) ->
-        result(row, :already_claimed, company)
+    finish_row(row, repo, prefix, config, action, company, apply?)
+  end
 
-      apply? && company ->
-        :ok = grant_role(company, config)
-        stamp_crm_uuid(repo, prefix, row.uuid, company.uuid, config)
-        result(row, action, company)
+  defp finish_row(row, _repo, _prefix, _config, action, company, false),
+    do: result(row, action, company)
 
-      true ->
-        result(row, action, company)
+  defp finish_row(row, _repo, _prefix, _config, action, nil, true), do: result(row, action, nil)
+
+  defp finish_row(row, repo, prefix, config, action, company, true) do
+    # Re-read under lock before deciding which fields are still blank.
+    company =
+      repo.one!(
+        from(c in Company,
+          where: c.uuid == ^company.uuid and c.status != "trashed",
+          lock: "FOR UPDATE"
+        )
+      )
+
+    if claimed_elsewhere?(repo, prefix, row.uuid, company.uuid, config) do
+      result(row, :already_claimed, company)
+    else
+      :ok = grant_role(company, config)
+      joined = carry_contacts(company, row)
+      stamp_crm_uuid(repo, prefix, row.uuid, company.uuid, config)
+      Map.put(result(row, action, company), :joined_contact_uuid, joined)
     end
   end
 
@@ -270,14 +324,8 @@ defmodule PhoenixKitCRM.CatalogueImport do
     }
   end
 
-  # V178 put a partial UNIQUE index on the source table's `crm_company_uuid`:
-  # a CRM party has at most one projection per directory. Two source rows can
-  # still match the same company (two brands sharing a domain, or a shared
-  # contact email), and the second stamp would raise a constraint error that
-  # process_row/5's rescue turns into an opaque ERROR row — AFTER grant_role/2
-  # has already run. The party is then listed while the unstamped local row
-  # keeps showing too, which is exactly the split-brain the index exists to
-  # prevent. Report the collision instead, and leave both sides untouched.
+  # V178 allows one projection per party in each directory. Report a
+  # collision before writing so the operator can resolve the shared match.
   defp claimed_elsewhere?(repo, prefix, row_uuid, company_uuid, config) do
     %{rows: [[claimed]]} =
       repo.query!(
@@ -328,8 +376,6 @@ defmodule PhoenixKitCRM.CatalogueImport do
     # companies are excluded (CRM-wide convention); duplicate emails
     # (the column carries no unique constraint) resolve to the oldest
     # match instead of raising.
-    import Ecto.Query
-
     Company
     |> where([c], fragment("lower(?)", c.email) == ^String.downcase(email))
     |> where([c], c.status != "trashed")
@@ -368,10 +414,13 @@ defmodule PhoenixKitCRM.CatalogueImport do
   end
 
   defp create_company_from_row(row, candidate_email, config) do
+    contacts = Map.get(row, :contacts, %{})
+
     attrs = %{
       "name" => row.name,
       "email" => candidate_email,
-      "website" => row.website,
+      "phone" => contacts["phone"],
+      "website" => blank_to_nil(row.website) || contacts["url"],
       "notes" => row.notes,
       "metadata" => %{
         "imported_from" => config.metadata_source,
@@ -399,6 +448,134 @@ defmodule PhoenixKitCRM.CatalogueImport do
       {:ok, _} -> :ok
       {:error, cs} -> raise "Failed to grant #{config.role} role: #{inspect(cs.errors)}"
     end
+  end
+
+  # ── Supplier contacts (catalogue V8) ────────────────────────────────
+
+  @doc """
+  Public for testing — the source row's primary contacts as
+  `%{kind => value}` from the catalogue's contacts table, or `%{}` when the
+  flow has none, the table is not there, or the row has no primary.
+  """
+  def primary_contacts(_repo, _prefix, _row_uuid, %{contacts_table: nil}), do: %{}
+
+  def primary_contacts(repo, prefix, row_uuid, %{contacts_table: table}) when is_binary(table) do
+    if contacts_table?(repo, "#{prefix}.#{table}") do
+      %{rows: rows} =
+        repo.query!(
+          "SELECT kind, value FROM #{prefix}.#{table} WHERE supplier_uuid = $1 AND is_primary",
+          [dump_uuid(row_uuid)]
+        )
+
+      Map.new(rows, fn [kind, value] -> {kind, value} end)
+    else
+      %{}
+    end
+  end
+
+  def primary_contacts(_repo, _prefix, _row_uuid, _config), do: %{}
+
+  # Asked once per process (a run), not once per supplier.
+  defp contacts_table?(repo, qualified) do
+    key = {__MODULE__, :contacts_table, qualified}
+
+    case Process.get(key) do
+      nil ->
+        %{rows: [[exists]]} = repo.query!("SELECT to_regclass($1) IS NOT NULL", [qualified])
+        Process.put(key, exists)
+        exists
+
+      exists ->
+        exists
+    end
+  end
+
+  # A catalogue contact takes 500 characters; the company's columns take
+  # fewer. A primary that does not fit is left behind (the row still
+  # imports, as it did before contacts were carried) rather than failing it.
+  defp fitting(contacts) do
+    contacts
+    |> Enum.filter(fn
+      {"email", v} -> fits?(Company, "email", normalize_email(v))
+      {"phone", v} -> fits?(Company, "phone", v)
+      {"url", v} -> fits?(Company, "website", v)
+      {"person", v} -> fits?(PhoenixKitCRM.Schemas.Contact, "name", v)
+      _ -> false
+    end)
+    |> Map.new()
+  end
+
+  defp fits?(_schema, _field, nil), do: false
+
+  defp fits?(schema, field, value) do
+    changeset = schema.changeset(struct(schema), %{"name" => "x", field => value})
+    not Keyword.has_key?(changeset.errors, String.to_existing_atom(field))
+  end
+
+  # Fills only what the company lacks, from the primaries alone (never the
+  # free-text regex); the person joins as a contact.
+  defp carry_contacts(%Company{} = company, %{contacts: contacts})
+       when map_size(contacts) > 0 do
+    blanks =
+      %{
+        "email" => normalize_email(contacts["email"]),
+        "phone" => contacts["phone"],
+        "website" => contacts["url"]
+      }
+      |> Enum.filter(fn {field, value} ->
+        is_binary(value) and value != "" and
+          blank_to_nil(Map.get(company, String.to_existing_atom(field))) == nil
+      end)
+      |> Map.new()
+
+    if blanks != %{} do
+      case Companies.update_company(company, blanks) do
+        {:ok, _} -> :ok
+        {:error, cs} -> raise "Failed to fill the company's contacts: #{inspect(cs.errors)}"
+      end
+    end
+
+    carry_person(company, contacts["person"])
+  end
+
+  defp carry_contacts(_company, _row), do: nil
+
+  defp carry_person(_company, person) when person in [nil, ""], do: nil
+
+  defp carry_person(company, person) do
+    members =
+      from(m in CompanyMembership,
+        join: c in Contact,
+        on: c.uuid == m.contact_uuid,
+        where:
+          m.company_uuid == ^company.uuid and c.status != "trashed" and
+            fragment("lower(?) = lower(?)", c.name, ^person)
+      )
+
+    unless RepoHelper.repo().exists?(members) do
+      {:ok, contact} = Contacts.create_contact(%{"name" => person})
+
+      %CompanyMembership{}
+      |> CompanyMembership.changeset(%{
+        company_uuid: company.uuid,
+        contact_uuid: contact.uuid,
+        is_primary: true
+      })
+      |> RepoHelper.repo().insert!()
+
+      contact.uuid
+    end
+  end
+
+  defp normalize_email(nil), do: nil
+
+  defp normalize_email(email) when is_binary(email),
+    do: email |> String.trim() |> String.downcase() |> blank_to_nil()
+
+  defp blank_to_nil(nil), do: nil
+
+  defp blank_to_nil(value) when is_binary(value) do
+    if String.trim(value) == "", do: nil, else: value
   end
 
   defp stamp_crm_uuid(repo, prefix, row_uuid, company_uuid, config) do

@@ -683,6 +683,25 @@ defmodule PhoenixKitCRM.Web.ContactFormLive do
             <.textarea field={@form[:notes]} label={gettext("Notes")} />
 
             <div class="divider my-1 text-sm font-semibold text-base-content/60">
+              {gettext("External reference")}
+            </div>
+            <div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <.input
+                  field={@form[:external_source]}
+                  label={gettext("Source system")}
+                  placeholder="lab2"
+                />
+                <.input field={@form[:external_id]} label={gettext("External ID")} />
+              </div>
+              <p class="text-xs text-base-content/50 mt-1">
+                {gettext(
+                  "The id another system knows this record by, for imports and syncs. Leave both empty if there is none."
+                )}
+              </p>
+            </div>
+
+            <div class="divider my-1 text-sm font-semibold text-base-content/60">
               {gettext("Company")}
             </div>
 

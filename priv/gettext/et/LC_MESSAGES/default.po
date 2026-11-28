@@ -3203,3 +3203,21 @@ msgstr "Peegelkonto seotud. Konto andmeid ei muudetud; CRM säilitab oma väärt
 
 msgid "Linked to mirror account. The account's own details were left unchanged; edit them in its account settings."
 msgstr "Peegelkontoga seotud. Konto enda andmeid ei muudetud; muuda neid konto seadetes."
+
+msgid "External reference"
+msgstr "Väline viide"
+
+msgid "Source system"
+msgstr "Lähtesüsteem"
+
+msgid "External ID"
+msgstr "Väline ID"
+
+msgid "can't be blank when an external id is set"
+msgstr "ei tohi olla tühi, kui väline ID on määratud"
+
+msgid "is already used by another record from this source (perhaps one in the trash)"
+msgstr "on selle allika juures juba teise kirje kasutuses (võib-olla prügikastis)"
+
+msgid "The id another system knows this record by, for imports and syncs. Leave both empty if there is none."
+msgstr "ID, millega teine süsteem seda kirjet tunneb — impordiks ja sünkroonimiseks. Kui seda pole, jäta mõlemad tühjaks."

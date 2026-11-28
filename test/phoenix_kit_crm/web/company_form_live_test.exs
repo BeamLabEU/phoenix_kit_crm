@@ -45,6 +45,34 @@ defmodule PhoenixKitCRM.Web.CompanyFormLiveTest do
     )
   end
 
+  test "the external reference is edited on the form and shown on the company page",
+       %{conn: conn} do
+    {:ok, view, html} = live(conn, "/en/admin/crm/companies/new")
+    assert html =~ "External reference"
+
+    view
+    |> form("form",
+      company: %{name: "Kraana OÜ", external_source: "lab2", external_id: "42"}
+    )
+    |> render_submit()
+
+    company = Companies.get_company_by_external_ref("lab2", "42")
+    assert company.name == "Kraana OÜ"
+
+    {:ok, _show, html} = live(conn, "/en/admin/crm/companies/#{company.uuid}")
+    assert html =~ "lab2: 42"
+
+    # A second company with the same pair is refused on the form.
+    {:ok, view, _html} = live(conn, "/en/admin/crm/companies/new")
+
+    html =
+      view
+      |> form("form", company: %{name: "Copy", external_source: "lab2", external_id: "42"})
+      |> render_submit()
+
+    assert html =~ "already used by another record from this source"
+  end
+
   test "editing a company updates it", %{conn: conn} do
     {:ok, company} = Companies.create_company(%{"name" => "Original Company"})
 

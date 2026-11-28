@@ -25,6 +25,17 @@ defmodule PhoenixKitCRM.CompanyApiTest do
     json = CompanyApi.to_json(Companies.get_company(company.uuid))
     assert json.name == "ACME"
     assert [%{name: "Maria Kottel", email: "m@example.com", role: "owner"}] = json.contacts
+    assert Map.has_key?(json, :external_source) and Map.has_key?(json, :external_id)
+    assert [%{external_source: nil, external_id: nil}] = json.contacts
+
+    {:ok, _} =
+      Companies.update_company(Companies.get_company(company.uuid), %{
+        "external_source" => "Lab2",
+        "external_id" => "7"
+      })
+
+    json = CompanyApi.to_json(Companies.get_company(company.uuid))
+    assert {json.external_source, json.external_id} == {"lab2", "7"}
 
     # without the projects module there is no client link to read
     assert {:ok, %{companies: [], count: 0}} =

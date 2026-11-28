@@ -3203,3 +3203,21 @@ msgstr "Mirror account linked. Its account details were left unchanged; the CRM 
 
 msgid "Linked to mirror account. The account's own details were left unchanged; edit them in its account settings."
 msgstr "Linked to mirror account. The account's own details were left unchanged; edit them in its account settings."
+
+msgid "External reference"
+msgstr ""
+
+msgid "Source system"
+msgstr ""
+
+msgid "External ID"
+msgstr ""
+
+msgid "can't be blank when an external id is set"
+msgstr ""
+
+msgid "is already used by another record from this source (perhaps one in the trash)"
+msgstr ""
+
+msgid "The id another system knows this record by, for imports and syncs. Leave both empty if there is none."
+msgstr ""

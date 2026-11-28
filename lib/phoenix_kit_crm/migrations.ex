@@ -64,7 +64,7 @@ defmodule PhoenixKitCRM.Migrations do
 
   use Ecto.Migration
 
-  @current_version 10
+  @current_version 11
   @marker_prefix "crm_schema:"
   @version_table "phoenix_kit_crm_contacts"
 
@@ -155,6 +155,7 @@ defmodule PhoenixKitCRM.Migrations do
       v8_statements(p),
       v9_statements(prefix, p),
       v10_statements(prefix, p),
+      v11_statements(prefix, p),
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{@current_version}'"
     ])
   end
@@ -630,6 +631,37 @@ defmodule PhoenixKitCRM.Migrations do
         WHERE status = 'planned'
       """
     ]
+  end
+
+  # ── V11: external references ─────────────────────────────────────
+  #
+  # The id an outside system knows a company or contact by
+  # (`PhoenixKitCRM.ExternalRef`): `external_source` names the system,
+  # `external_id` is its id there. An id needs its source (a NULL source
+  # would slip past the unique index, NULLs being distinct), and a pair is
+  # unique per table over every row that has an id, trashed ones included.
+  # Existing rows get NULL in both and are untouched.
+  defp v11_statements(prefix, p) do
+    for {table, index} <- [
+          {"phoenix_kit_crm_companies", "idx_crm_companies_external_ref"},
+          {"phoenix_kit_crm_contacts", "idx_crm_contacts_external_ref"}
+        ] do
+      [
+        "ALTER TABLE #{p}#{table} ADD COLUMN IF NOT EXISTS external_source varchar(50)",
+        "ALTER TABLE #{p}#{table} ADD COLUMN IF NOT EXISTS external_id varchar(255)",
+        guarded_constraint(
+          prefix,
+          table,
+          "#{table}_external_source_check",
+          "ALTER TABLE #{p}#{table} ADD CONSTRAINT #{table}_external_source_check CHECK (external_id IS NULL OR external_source IS NOT NULL)"
+        ),
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS #{index}
+          ON #{p}#{table} (external_source, external_id)
+          WHERE external_id IS NOT NULL
+        """
+      ]
+    end
   end
 
   # ── V10: the party-role vocabulary is data ───────────────────────────
